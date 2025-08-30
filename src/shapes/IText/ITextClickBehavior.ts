@@ -194,6 +194,11 @@ export abstract class ITextClickBehavior<
     const mouseOffset = this.canvas!.getScenePoint(e)
       .transform(invertTransform(this.calcTransformMatrix()))
       .add(new Point(-this._getLeftOffset(), -this._getTopOffset()));
+
+    if (this.direction === 'rtl') {
+      mouseOffset.x *= -1;
+    }
+
     let height = 0,
       charIndex = 0,
       lineIndex = 0;
@@ -214,32 +219,29 @@ export abstract class ITextClickBehavior<
     const lineLeftOffset = this._getLineLeftOffset(lineIndex);
     const charLength = this._textLines[lineIndex].length;
     const chars = this.__charBounds[lineIndex];
-    const isRTL = this.direction === 'rtl';
-    
-    // Use the same logic for both LTR and RTL - character bounds handle positioning
-    let width = lineLeftOffset;
+
+    const lineStartIndex = charIndex;
+    // use character left positions which are always increasing even with RTL segments
+
     for (let j = 0; j < charLength; j++) {
-      const charWidth = chars[j].kernedWidth;
-      const widthAfter = width + charWidth;
-      if (mouseOffset.x <= widthAfter) {
-        // if the pointer is closer to the end of the char we increment charIndex
-        // in order to position the cursor after the char
-        if (
-          Math.abs(mouseOffset.x - widthAfter) <=
-          Math.abs(mouseOffset.x - width)
-        ) {
-          charIndex++;
-        }
+      const charStart = lineLeftOffset + chars[j].left;
+      const charEnd = lineLeftOffset + chars[j + 1].left;
+      const charMiddle = (charStart + charEnd) / 2;
+      if (mouseOffset.x <= charMiddle) {
+        charIndex = lineStartIndex + j;
+        break;
+      } else if (mouseOffset.x <= charEnd) {
+        charIndex = lineStartIndex + j + 1;
         break;
       }
-      width = widthAfter;
-      charIndex++;
+      charIndex = lineStartIndex + charLength;
     }
 
-    return Math.min(
-      // if object is horizontally flipped, mirror cursor location from the end
-      this.flipX ? charLength - charIndex : charIndex,
-      this._text.length,
-    );
+    const lineCharIndex = charIndex - lineStartIndex;
+    const result = this.flipX
+      ? lineStartIndex + (charLength - lineCharIndex)
+      : charIndex;
+
+    return Math.min(result, this._text.length);
   }
 }
