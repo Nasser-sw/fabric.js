@@ -676,7 +676,8 @@ export class IText<
         realLineHeight = 0,
         boxStart = 0,
         boxEnd = 0;
-
+      
+      // Simplified selection rendering that works for both LTR and RTL
       if (i === startLine) {
         boxStart = this.__charBounds[startLine][startChar].left;
       }
@@ -684,7 +685,7 @@ export class IText<
         boxEnd =
           isJustify && !this.isEndOfWrapping(i)
             ? this.width
-            : this.getLineWidth(i) || 5; // WTF is this 5?
+            : this.getLineWidth(i) || 5;
       } else if (i === endLine) {
         if (endChar === 0) {
           boxEnd = this.__charBounds[endLine][endChar].left;

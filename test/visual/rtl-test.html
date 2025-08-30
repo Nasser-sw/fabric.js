@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fabric.js RTL Text Selection Test</title>
+    <style>
+        body {
+            margin: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .test-section {
+            margin-bottom: 30px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        
+        .test-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .canvas-container {
+            margin: 10px 0;
+            border: 1px solid #ccc;
+        }
+        
+        .log-output {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .instructions {
+            background-color: #e8f4fd;
+            border-left: 4px solid #2196F3;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Fabric.js RTL Text Selection Bug Reproduction</h1>
+        
+        <div class="instructions">
+            <strong>RTL Text Selection Test Instructions:</strong>
+            <ol>
+                <li><strong>Click on Arabic text</strong> to enter edit mode - cursor should appear at the RIGHT side of Arabic text</li>
+                <li><strong>Try clicking different positions</strong> in the Arabic text - cursor should follow your mouse correctly</li>
+                <li><strong>Drag to select text</strong> - selection should work naturally (not mirrored)</li>
+                <li><strong>Use arrow keys</strong> to navigate - Left arrow should move toward text start (visually right), Right arrow toward text end (visually left)</li>
+                <li><strong>Type Arabic characters</strong> - they should appear correctly at cursor position</li>
+                <li>Compare RTL behavior with LTR text below to see the difference</li>
+                <li>Check the console output below for technical details</li>
+            </ol>
+            <p><strong>Expected Result:</strong> Arabic text should behave like in professional editors (e.g., Microsoft Word, Google Docs) with proper right-to-left cursor and selection behavior.</p>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">1. Arabic RTL Text - Cursor & Selection Test</div>
+            <canvas id="rtl-canvas" width="600" height="150"></canvas>
+            <div id="rtl-log" class="log-output">RTL selection logs will appear here...</div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">2. English LTR Text (Reference)</div>
+            <canvas id="ltr-canvas" width="600" height="150"></canvas>
+            <div id="ltr-log" class="log-output">LTR selection logs will appear here...</div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">3. Mixed BiDi Text (Complex Case)</div>
+            <canvas id="bidi-canvas" width="600" height="150"></canvas>
+            <div id="bidi-log" class="log-output">BiDi selection logs will appear here...</div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">4. Multi-line RTL Text (Textbox with wrapping)</div>
+            <canvas id="multiline-canvas" width="600" height="200"></canvas>
+            <div id="multiline-log" class="log-output">Multi-line RTL logs will appear here...</div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">5. RTL Text with Different Alignments</div>
+            <canvas id="alignment-canvas" width="600" height="300"></canvas>
+            <div id="alignment-log" class="log-output">Alignment test logs will appear here...</div>
+        </div>
+    </div>
+
+    <!-- Load Fabric.js from dist -->
+    <script src="../../dist/index.js"></script>
+    
+    <script>
+        // Test configuration
+        const tests = [
+            {
+                id: 'rtl-canvas',
+                logId: 'rtl-log',
+                text: 'مرحبا بكم في Fabric.js - هذا نص عربي للاختبار',
+                direction: 'rtl',
+                textAlign: 'right',
+                width: 500
+            },
+            {
+                id: 'ltr-canvas', 
+                logId: 'ltr-log',
+                text: 'Welcome to Fabric.js - This is English text for testing',
+                direction: 'ltr',
+                textAlign: 'left',
+                width: 500
+            },
+            {
+                id: 'bidi-canvas',
+                logId: 'bidi-log', 
+                text: 'Fabric.js مرحبا welcome نص مختلط mixed text',
+                direction: 'ltr',
+                textAlign: 'left',
+                width: 500
+            },
+            {
+                id: 'multiline-canvas',
+                logId: 'multiline-log',
+                text: 'هذا نص طويل باللغة العربية يجب أن يلتف إلى عدة أسطر لاختبار الاختيار متعدد الأسطر في النصوص من اليمين إلى اليسار',
+                direction: 'rtl',
+                textAlign: 'right',
+                width: 400
+            },
+            {
+                id: 'alignment-canvas',
+                logId: 'alignment-log',
+                text: 'اختبار محاذاة النص',
+                direction: 'rtl',
+                textAlign: 'center', 
+                width: 500,
+                isAlignment: true
+            }
+        ];
+        
+        // Logger utility
+        function log(testId, message) {
+            const logElement = document.getElementById(testId);
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}<br>`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(`[${testId}] ${message}`);
+        }
+        
+        // Create test instances
+        tests.forEach(test => {
+            const canvas = new fabric.Canvas(test.id, {
+                backgroundColor: 'white',
+                selection: false
+            });
+            
+            if (test.isAlignment) {
+                // Create multiple textboxes with different alignments for alignment test
+                const alignments = ['left', 'center', 'right'];
+                alignments.forEach((align, index) => {
+                    const textbox = new fabric.Textbox(test.text + ' - ' + align, {
+                        left: 50,
+                        top: 30 + (index * 80),
+                        width: test.width,
+                        fontSize: 20,
+                        fontFamily: 'Arial',
+                        direction: test.direction,
+                        textAlign: align,
+                        editable: true,
+                        selectable: true
+                    });
+                    
+                    canvas.add(textbox);
+                    
+                    // Add event handlers
+                    addEventHandlers(textbox, test.logId, align);
+                });
+                
+                log(test.logId, `Initialized alignment test with alignments: ${alignments.join(', ')}`);
+            } else {
+                const textbox = new fabric.Textbox(test.text, {
+                    left: 50,
+                    top: 50,
+                    width: test.width,
+                    fontSize: 24,
+                    fontFamily: 'Arial',
+                    direction: test.direction,
+                    textAlign: test.textAlign,
+                    editable: true,
+                    selectable: true
+                });
+                
+                canvas.add(textbox);
+                canvas.setActiveObject(textbox);
+                
+                // Add event handlers
+                addEventHandlers(textbox, test.logId);
+                
+                // Log initial state
+                log(test.logId, `Initialized: text="${test.text}", direction="${test.direction}", align="${test.textAlign}"`);
+            }
+        });
+        
+        // Helper function to add event handlers
+        function addEventHandlers(textbox, logId, suffix = '') {
+            const logPrefix = suffix ? `[${suffix}] ` : '';
+            
+            // Monitor selection changes
+            textbox.on('selection:changed', function() {
+                log(logId, `${logPrefix}Selection: start=${this.selectionStart}, end=${this.selectionEnd}, text="${this.getSelectedText()}"`);
+            });
+            
+            // Monitor mouse events for detailed tracking
+            textbox.on('mousedown', function(e) {
+                const startIndex = this.getSelectionStartFromPointer(e.e);
+                log(logId, `${logPrefix}MouseDown: pointer=(${e.pointer.x.toFixed(1)}, ${e.pointer.y.toFixed(1)}), startIndex=${startIndex}`);
+                this.__debugStartIndex = startIndex; // Store for comparison
+            });
+            
+            textbox.on('mousemove', function(e) {
+                if (this.isEditing && e.e.buttons === 1) { // Only when dragging
+                    const currentIndex = this.getSelectionStartFromPointer(e.e);
+                    const startIndex = this.__debugStartIndex || this.__selectionStartOnMouseDown;
+                    log(logId, `${logPrefix}MouseMove: pointer=(${e.pointer.x.toFixed(1)}, ${e.pointer.y.toFixed(1)})`);
+                    log(logId, `${logPrefix}  → StartIndex=${startIndex}, CurrentIndex=${currentIndex}, Direction=${this.direction}`);
+                    log(logId, `${logPrefix}  → Will select: ${Math.min(startIndex, currentIndex)} to ${Math.max(startIndex, currentIndex)}`);
+                }
+            });
+            
+            // Monitor cursor boundaries for debugging
+            const originalGetCursorBoundaries = textbox._getCursorBoundaries;
+            textbox._getCursorBoundaries = function(index, skipCaching) {
+                const boundaries = originalGetCursorBoundaries.call(this, index, skipCaching);
+                if (this.isEditing) {
+                    log(logId, `${logPrefix}CursorBounds[${index}]: left=${boundaries.left.toFixed(1)}, top=${boundaries.top.toFixed(1)}`);
+                }
+                return boundaries;
+            };
+        }
+        
+        // Add global keyboard shortcut for clearing logs
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'l') {
+                e.preventDefault();
+                tests.forEach(test => {
+                    document.getElementById(test.logId).innerHTML = 'Logs cleared...<br>';
+                });
+            }
+        });
+        
+        console.log('RTL Test Page loaded. Press Ctrl+L to clear logs.');
+    </script>
+</body>
+</html>

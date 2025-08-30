@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Textbox</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the interactive textbox and canvas */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .canvas {
+            width: 100%;
+            max-width: 800px;
+            height: 600px;
+            background-color: #f0f2f5;
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .textbox-container {
+            position: absolute;
+            cursor: move;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        /* Hide border and handles by default */
+        .textbox-container .resize-handle,
+        .textbox-container .rotate-handle {
+            display: none;
+        }
+        
+        .textbox-container.selected {
+            border: 2px solid #3b82f6;
+        }
+
+        /* Show border and handles when selected */
+        .textbox-container.selected .resize-handle,
+        .textbox-container.selected .rotate-handle {
+            display: block;
+        }
+
+        .textbox {
+            width: 100%;
+            height: 100%;
+            outline: none;
+            cursor: text;
+            padding: 8px;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            font-size: 24px;
+            line-height: 1.4;
+        }
+
+        .resize-handle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: #ffffff;
+            border: 2px solid #3b82f6;
+            border-radius: 50%;
+        }
+
+        .resize-handle.tl { top: -6px; left: -6px; cursor: nwse-resize; }
+        .resize-handle.tr { top: -6px; right: -6px; cursor: nesw-resize; }
+        .resize-handle.bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .resize-handle.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        .resize-handle.tm { top: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .resize-handle.bm { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .resize-handle.ml { top: 50%; left: -6px; transform: translateY(-50%); cursor: ew-resize; }
+        .resize-handle.mr { top: 50%; right: -6px; transform: translateY(-50%); cursor: ew-resize; }
+
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="w-full max-w-4xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-2">Interactive Textbox Demo</h1>
+        <p class="text-center text-gray-500 mb-6">Click to select, drag to move, and double-click to edit text. Use the buttons below to change text direction.</p>
+
+        <!-- Control Buttons -->
+        <div class="flex justify-center space-x-4 mb-4">
+            <button id="rtl-btn" class="px-4 py-2 bg-white text-gray-700 rounded-lg shadow-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition">
+                Set to RTL (Right-to-Left)
+            </button>
+            <button id="ltr-btn" class="px-4 py-2 bg-blue-500 text-white rounded-lg shadow-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition">
+                Set to LTR (Left-to-Right)
+            </button>
+        </div>
+
+        <!-- Canvas Area -->
+        <div id="canvas" class="canvas mx-auto">
+            <div id="textbox-container" class="textbox-container" style="top: 150px; left: 100px; width: 300px; height: 150px;">
+                <div id="textbox" class="textbox" contenteditable="false" dir="ltr">
+                    Type here...
+                </div>
+                <!-- Resize Handles -->
+                <div class="resize-handle tl"></div>
+                <div class="resize-handle tm"></div>
+                <div class="resize-handle tr"></div>
+                <div class="resize-handle ml"></div>
+                <div class="resize-handle mr"></div>
+                <div class="resize-handle bl"></div>
+                <div class="resize-handle bm"></div>
+                <div class="resize-handle br"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('canvas');
+            const container = document.getElementById('textbox-container');
+            const textbox = document.getElementById('textbox');
+            const rtlBtn = document.getElementById('rtl-btn');
+            const ltrBtn = document.getElementById('ltr-btn');
+
+            let isDragging = false;
+            let isResizing = false;
+            let currentResizer = null;
+            let isEditing = false; // New state for edit mode
+
+            let offsetX, offsetY;
+
+            // --- SELECTION & EDITING LOGIC ---
+            function selectTextbox() {
+                if (!container.classList.contains('selected')) {
+                    container.classList.add('selected');
+                }
+            }
+
+            function deselectTextbox() {
+                if (container.classList.contains('selected')) {
+                    container.classList.remove('selected');
+                }
+            }
+
+            function enterEditMode() {
+                isEditing = true;
+                textbox.contentEditable = 'true';
+                container.style.cursor = 'auto';
+                textbox.focus();
+            }
+
+            function exitEditMode() {
+                isEditing = false;
+                textbox.contentEditable = 'false';
+                container.style.cursor = 'move';
+                window.getSelection().removeAllRanges();
+            }
+            
+            // Double-click container to enter edit mode
+            container.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                enterEditMode();
+            });
+
+            // Deselect and exit edit mode when clicking on the canvas
+            canvas.addEventListener('click', () => {
+                deselectTextbox();
+                exitEditMode();
+            });
+            
+            // *** ADD THIS NEW EVENT LISTENER ***
+            // Stop clicks inside the container from bubbling up to the canvas.
+            // This prevents the canvas from deselecting the textbox when we click on it.
+            container.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+            
+            // --- DRAGGING LOGIC ---
+            container.addEventListener('mousedown', (e) => {
+                // Stop click from propagating to canvas
+                e.stopPropagation();
+            
+                // If we are in edit mode, or if the click is on a resize handle, do nothing.
+                if (isEditing || e.target.classList.contains('resize-handle')) {
+                    return;
+                }
+            
+                let dragStarted = false;
+                const startX = e.clientX;
+                const startY = e.clientY;
+            
+                const initialOffsetX = e.clientX - container.offsetLeft;
+                const initialOffsetY = e.clientY - container.offsetTop;
+            
+                function onMouseMove(e) {
+                    // If the mouse moves more than a few pixels, start the drag
+                    if (!dragStarted && (Math.abs(e.clientX - startX) > 5 || Math.abs(e.clientY - startY) > 5)) {
+                        dragStarted = true;
+                        isDragging = true; // Use a global flag if other parts of the app need it
+                        canvas.style.cursor = 'grabbing';
+                    }
+            
+                    if (dragStarted) {
+                        const canvasRect = canvas.getBoundingClientRect();
+                        let newLeft = e.clientX - initialOffsetX;
+                        let newTop = e.clientY - initialOffsetY;
+                        
+                        // Constrain to canvas boundaries
+                        newLeft = Math.max(0, Math.min(newLeft, canvasRect.width - container.offsetWidth));
+                        newTop = Math.max(0, Math.min(newTop, canvasRect.height - container.offsetHeight));
+            
+                        container.style.left = `${newLeft}px`;
+                        container.style.top = `${newTop}px`;
+                    }
+                }
+            
+                function onMouseUp(e) {
+                    // If the mouse didn't move enough to start a drag, treat it as a click for selection
+                    if (!dragStarted) {
+                        selectTextbox();
+                    }
+            
+                    // Clean up state and listeners
+                    isDragging = false;
+                    canvas.style.cursor = 'default';
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                }
+            
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+
+            // --- RESIZING LOGIC ---
+            const resizers = document.querySelectorAll('.resize-handle');
+            resizers.forEach(resizer => {
+                resizer.addEventListener('mousedown', (e) => {
+                    e.stopPropagation(); // Prevent drag from starting
+                    isResizing = true;
+                    currentResizer = resizer;
+                    
+                    const rect = container.getBoundingClientRect();
+                    const canvasRect = canvas.getBoundingClientRect();
+
+                    // Store initial position and dimensions
+                    const initial = {
+                        width: rect.width,
+                        height: rect.height,
+                        left: rect.left - canvasRect.left,
+                        top: rect.top - canvasRect.top,
+                        mouseX: e.clientX,
+                        mouseY: e.clientY
+                    };
+
+                    function handleResize(e) {
+                        if (!isResizing) return;
+
+                        const dx = e.clientX - initial.mouseX;
+                        const dy = e.clientY - initial.mouseY;
+
+                        let newWidth = initial.width;
+                        let newHeight = initial.height;
+                        let newLeft = initial.left;
+                        let newTop = initial.top;
+
+                        if (currentResizer.classList.contains('br')) {
+                            newWidth = initial.width + dx;
+                            newHeight = initial.height + dy;
+                        } else if (currentResizer.classList.contains('bl')) {
+                            newWidth = initial.width - dx;
+                            newHeight = initial.height + dy;
+                            newLeft = initial.left + dx;
+                        } else if (currentResizer.classList.contains('tr')) {
+                            newWidth = initial.width + dx;
+                            newHeight = initial.height - dy;
+                            newTop = initial.top + dy;
+                        } else if (currentResizer.classList.contains('tl')) {
+                            newWidth = initial.width - dx;
+                            newHeight = initial.height - dy;
+                            newLeft = initial.left + dx;
+                            newTop = initial.top + dy;
+                        } else if (currentResizer.classList.contains('tm')) {
+                            newHeight = initial.height - dy;
+                            newTop = initial.top + dy;
+                        } else if (currentResizer.classList.contains('bm')) {
+                            newHeight = initial.height + dy;
+                        } else if (currentResizer.classList.contains('ml')) {
+                            newWidth = initial.width - dx;
+                            newLeft = initial.left + dx;
+                        } else if (currentResizer.classList.contains('mr')) {
+                            newWidth = initial.width + dx;
+                        }
+
+                        // Set minimum size
+                        const minWidth = 50;
+                        const minHeight = 30;
+
+                        if (newWidth > minWidth) {
+                            container.style.width = `${newWidth}px`;
+                            container.style.left = `${newLeft}px`;
+                        }
+                        if (newHeight > minHeight) {
+                            container.style.height = `${newHeight}px`;
+                            container.style.top = `${newTop}px`;
+                        }
+                    }
+
+                    function stopResize() {
+                        isResizing = false;
+                        document.removeEventListener('mousemove', handleResize);
+                        document.removeEventListener('mouseup', stopResize);
+                    }
+
+                    document.addEventListener('mousemove', handleResize);
+                    document.addEventListener('mouseup', stopResize);
+                });
+            });
+
+            // --- GLOBAL MOUSE MOVE HANDLER ---
+            // This is no longer needed as drag/resize handlers are self-contained
+            /*
+            document.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const canvasRect = canvas.getBoundingClientRect();
+                    let newLeft = e.clientX - offsetX;
+                    let newTop = e.clientY - offsetY;
+                    
+                    // Constrain to canvas boundaries
+                    newLeft = Math.max(0, Math.min(newLeft, canvasRect.width - container.offsetWidth));
+                    newTop = Math.max(0, Math.min(newTop, canvasRect.height - container.offsetHeight));
+
+                    container.style.left = `${newLeft}px`;
+                    container.style.top = `${newTop}px`;
+                }
+            });
+            */
+
+            // --- GLOBAL MOUSE UP HANDLER ---
+            // This is no longer needed as drag/resize handlers are self-contained
+            /*
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+                canvas.style.cursor = 'default';
+            });
+            */
+            
+            // --- TEXT DIRECTION LOGIC ---
+            rtlBtn.addEventListener('click', () => {
+                textbox.dir = 'rtl';
+                textbox.style.textAlign = 'right';
+            });
+
+            ltrBtn.addEventListener('click', () => {
+                textbox.dir = 'ltr';
+                textbox.style.textAlign = 'left';
+            });
+
+            // Initially select the textbox for better user experience
+            selectTextbox();
+        });
+    </script>
+</body>
+</html>
+
+
+
+

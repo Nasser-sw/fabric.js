@@ -17,7 +17,7 @@ import type { IText } from './IText';
  *
  *  - ` `      Matches a SPACE character (char code 32).
  *  - `\n`     Matches a LINE FEED character (char code 10).
- *  - `\.`     Matches a "." character (char code 46).
+ *  - `.`     Matches a "." character (char code 46).
  *  - `,`      Matches a "," character (char code 44).
  *  - `;`      Matches a ";" character (char code 59).
  *  - `!`      Matches a "!" character (char code 33).
@@ -255,7 +255,7 @@ export abstract class ITextBehavior<
         index--;
       }
     }
-    while (/\S/.test(this._text[index]) && index > -1) {
+    while (/S/.test(this._text[index]) && index > -1) {
       offset++;
       index--;
     }
@@ -279,7 +279,7 @@ export abstract class ITextBehavior<
         index++;
       }
     }
-    while (/\S/.test(this._text[index]) && index < this._text.length) {
+    while (/S/.test(this._text[index]) && index < this._text.length) {
       offset++;
       index++;
     }
@@ -448,13 +448,20 @@ export abstract class ITextBehavior<
     ) {
       return;
     }
-    if (newSelectionStart > this.__selectionStartOnMouseDown) {
-      this.selectionStart = this.__selectionStartOnMouseDown;
-      this.selectionEnd = newSelectionStart;
-    } else {
-      this.selectionStart = newSelectionStart;
-      this.selectionEnd = this.__selectionStartOnMouseDown;
-    }
+
+    // Always ensure selectionStart <= selectionEnd for proper text selection
+    const startIndex = Math.min(
+      newSelectionStart,
+      this.__selectionStartOnMouseDown,
+    );
+    const endIndex = Math.max(
+      newSelectionStart,
+      this.__selectionStartOnMouseDown,
+    );
+
+    this.selectionStart = startIndex;
+    this.selectionEnd = endIndex;
+
     if (
       this.selectionStart !== currentStart ||
       this.selectionEnd !== currentEnd

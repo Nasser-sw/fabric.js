@@ -210,12 +210,15 @@ export abstract class ITextClickBehavior<
         break;
       }
     }
-    const lineLeftOffset = Math.abs(this._getLineLeftOffset(lineIndex));
-    let width = lineLeftOffset;
+
+    const lineLeftOffset = this._getLineLeftOffset(lineIndex);
     const charLength = this._textLines[lineIndex].length;
     const chars = this.__charBounds[lineIndex];
+    const isRTL = this.direction === 'rtl';
+    
+    // Use the same logic for both LTR and RTL - character bounds handle positioning
+    let width = lineLeftOffset;
     for (let j = 0; j < charLength; j++) {
-      // i removed something about flipX here, check.
       const charWidth = chars[j].kernedWidth;
       const widthAfter = width + charWidth;
       if (mouseOffset.x <= widthAfter) {
