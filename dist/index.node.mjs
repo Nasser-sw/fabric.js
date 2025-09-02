@@ -21880,13 +21880,6 @@ class DraggableTextDelegate {
   }
 }
 
-/**
- * Canva/Polotno-style Overlay Text Editor
- *
- * Provides seamless inline text editing using an HTML textarea overlay
- * that matches canvas text positioning, styling, and transformations.
- */
-
 class OverlayEditor {
   constructor(options) {
     _defineProperty(this, "canvas", void 0);
@@ -21894,7 +21887,6 @@ class OverlayEditor {
     _defineProperty(this, "container", void 0);
     _defineProperty(this, "textarea", void 0);
     _defineProperty(this, "hostDiv", void 0);
-    _defineProperty(this, "savedCursors", void 0);
     _defineProperty(this, "isDestroyed", false);
     _defineProperty(this, "isComposing", false);
     _defineProperty(this, "lastText", void 0);
@@ -21923,13 +21915,11 @@ class OverlayEditor {
     this.refresh();
     this.focusTextarea();
 
-    // Save and override object cursors (use Fabric's API, not DOM hacks)
-    this.savedCursors = {
-      hover: this.target.hoverCursor || undefined,
-      move: this.target.moveCursor || undefined
-    };
-    this.target.hoverCursor = 'move';
-    this.target.moveCursor = 'move';
+    // Note: Don't manage object cursors since IText manages all cursors in _saveEditingProps/_restoreEditingProps
+    // The IText editing system handles hoverCursor, moveCursor, and canvas cursors properly
+
+    // Note: Canvas cursors are handled by IText's _saveEditingProps/_restoreEditingProps
+    // We don't need to save/restore them here as it would conflict with IText's restoration
   }
 
   /**
@@ -21983,7 +21973,7 @@ class OverlayEditor {
     this.textarea.style.padding = '0';
     this.textarea.style.background = 'transparent'; // Transparent so Fabric text shows through
     this.textarea.style.outline = 'none';
-    this.textarea.style.overflow = 'visible'; // Allow text to overflow if needed
+    this.textarea.style.overflow = 'hidden'; // Prevent scrollbars
     this.textarea.style.whiteSpace = 'pre-wrap';
     this.textarea.style.wordBreak = 'normal';
     this.textarea.style.overflowWrap = 'break-word';
@@ -22015,6 +22005,9 @@ class OverlayEditor {
     this.canvas.on('after:render', this.boundHandlers.onAfterRender);
     this.canvas.on('mouse:wheel', this.boundHandlers.onMouseWheel);
     this.canvas.on('mouse:down', this.boundHandlers.onMouseDown);
+
+    // Store original methods to detect viewport changes
+    this.setupViewportChangeDetection();
   }
 
   /**
@@ -22030,6 +22023,9 @@ class OverlayEditor {
     this.canvas.off('after:render', this.boundHandlers.onAfterRender);
     this.canvas.off('mouse:wheel', this.boundHandlers.onMouseWheel);
     this.canvas.off('mouse:down', this.boundHandlers.onMouseDown);
+
+    // Restore original methods
+    this.restoreViewportChangeDetection();
   }
 
   /**
@@ -22087,21 +22083,44 @@ class OverlayEditor {
     target.setCoords();
     const aCoords = target.aCoords;
 
+    // DEBUG: Log dimensions before edit
+    console.log('BEFORE EDIT:');
+    console.log('  target.width =', target.width);
+    console.log('  target.height =', target.height);
+    console.log('  target.getScaledWidth() =', target.getScaledWidth());
+    console.log('  target.getScaledHeight() =', target.getScaledHeight());
+    console.log('  target.padding =', target.padding);
+
     // 2. Get canvas position and scroll offsets (like rtl-test.html)
     const canvasEl = canvas.upperCanvasEl;
     const canvasRect = canvasEl.getBoundingClientRect();
     const scrollX = window.scrollX || window.pageXOffset;
     const scrollY = window.scrollY || window.pageYOffset;
 
-    // 3. Position using aCoords.tl (absolute coordinates) - with minimal padding to avoid selection handles
-    const handlePadding = 4; // Minimal padding to avoid selection handles
+    // 3. Position and dimensions accounting for Fabric Textbox padding and viewport transform
     const zoom = canvas.getZoom();
-    const left = canvasRect.left + scrollX + aCoords.tl.x + handlePadding / 2;
-    const top = canvasRect.top + scrollY + aCoords.tl.y + handlePadding / 2;
+    const vpt = canvas.viewportTransform;
+    const padding = target.padding || 0;
+    const paddingX = padding * (target.scaleX || 1) * zoom;
+    const paddingY = padding * (target.scaleY || 1) * zoom;
 
-    // 4. Get dimensions with zoom scaling - reduce padding and add extra height for text overflow
-    const width = target.getScaledWidth() * zoom - handlePadding;
-    const height = Math.max(target.getScaledHeight() * zoom - handlePadding, 40); // Minimum height for text
+    // Transform object's top-left corner coordinates to screen coordinates using viewport transform
+    // aCoords.tl already accounts for object positioning and scaling, just need viewport transform
+    const screenPoint = transformPoint({
+      x: aCoords.tl.x,
+      y: aCoords.tl.y
+    }, vpt);
+    const left = canvasRect.left + scrollX + screenPoint.x;
+    const top = canvasRect.top + scrollY + screenPoint.y;
+
+    // 4. Get dimensions with zoom scaling - use target.width for text wrapping, scaled height for container
+    const width = target.width * (target.scaleX || 1) * zoom; // Account for object scale and viewport zoom
+    const height = target.height * (target.scaleY || 1) * zoom;
+    console.log('WIDTH CALCULATION:');
+    console.log('  target.width =', target.width);
+    console.log('  scaledWidth =', target.getScaledWidth());
+    console.log('  zoom =', zoom);
+    console.log('  final width =', width);
 
     // 5. Apply styles to host DIV - absolute positioning like rtl-test.html
     this.hostDiv.style.position = 'absolute';
@@ -22109,34 +22128,62 @@ class OverlayEditor {
     this.hostDiv.style.top = `${top}px`;
     this.hostDiv.style.width = `${width}px`;
     this.hostDiv.style.height = `${height}px`;
-    this.hostDiv.style.transform = `rotate(${target.angle || 0}deg)`;
-    this.hostDiv.style.transformOrigin = '0 0';
+    this.hostDiv.style.overflow = 'hidden'; // Prevent scrollbars in host div
+    // Apply rotation matching Fabric.js object transformation
+    if (target.angle) {
+      this.hostDiv.style.transform = `rotate(${target.angle}deg)`;
+      this.hostDiv.style.transformOrigin = 'top left'; // Match Fabric Textbox behavior
+    } else {
+      this.hostDiv.style.transform = '';
+      this.hostDiv.style.transformOrigin = '';
+    }
 
-    // 6. Style the textarea - match Fabric's exact rendering with rounding
-    // Apply scaling to font size to match how the text appears on canvas
+    // 6. Style the textarea - match Fabric's exact rendering with padding
     const baseFontSize = (_target$fontSize = target.fontSize) !== null && _target$fontSize !== void 0 ? _target$fontSize : 16;
-    const scaleY = target.scaleY || 1;
-    const finalFontSize = baseFontSize * scaleY;
+    // Use scaleX for font scaling to match Fabric text scaling exactly
+    const scaleX = target.scaleX || 1;
+    const finalFontSize = baseFontSize * scaleX * zoom;
     const fabricLineHeight = target.lineHeight || 1.16;
-    const actualLineHeight = Math.round(fabricLineHeight * finalFontSize * 100) / 100;
-    this.textarea.style.width = '100%';
-    this.textarea.style.height = '100%';
+    // Apply padding and dimensions to textarea
+    const textareaWidth = paddingX > 0 ? `calc(100% - ${2 * paddingX}px)` : '100%';
+    const textareaHeight = paddingY > 0 ? `calc(100% - ${2 * paddingY}px)` : '100%';
+    this.textarea.style.width = textareaWidth;
+    this.textarea.style.height = textareaHeight;
+    this.textarea.style.padding = `${paddingY}px ${paddingX}px`;
     this.textarea.style.fontSize = `${finalFontSize}px`;
-    this.textarea.style.lineHeight = `${actualLineHeight}px`;
+    this.textarea.style.lineHeight = String(fabricLineHeight); // Use unit-less multiplier
     this.textarea.style.fontFamily = target.fontFamily || 'Arial';
     this.textarea.style.fontWeight = String(target.fontWeight || 'normal');
     this.textarea.style.fontStyle = target.fontStyle || 'normal';
     this.textarea.style.textAlign = target.textAlign || 'left';
-    this.textarea.style.color = ((_target$fill = target.fill) === null || _target$fill === void 0 ? void 0 : _target$fill.toString()) || '#000'; // Use original text color
+    this.textarea.style.color = ((_target$fill = target.fill) === null || _target$fill === void 0 ? void 0 : _target$fill.toString()) || '#000';
     this.textarea.style.letterSpacing = `${(target.charSpacing || 0) / 1000}em`;
     this.textarea.style.direction = target.direction || this.firstStrongDir(this.textarea.value || '');
 
-    // Ensure consistent font rendering between Fabric and CSS (from rtl-test.html)
+    // Ensure consistent font rendering between Fabric and CSS
     this.textarea.style.fontVariant = 'normal';
     this.textarea.style.fontStretch = 'normal';
     this.textarea.style.textRendering = 'auto';
     this.textarea.style.fontKerning = 'auto';
-    this.textarea.style.boxSizing = 'border-box';
+    this.textarea.style.boxSizing = 'content-box'; // Padding is added outside width/height
+    this.textarea.style.margin = '0';
+    this.textarea.style.border = 'none';
+    this.textarea.style.outline = 'none';
+    this.textarea.style.background = 'transparent';
+    this.textarea.style.wordWrap = 'break-word';
+    this.textarea.style.whiteSpace = 'pre-wrap';
+
+    // DEBUG: Log final textarea dimensions
+    console.log('TEXTAREA AFTER SETUP:');
+    console.log('  textarea width =', this.textarea.style.width);
+    console.log('  textarea height =', this.textarea.style.height);
+    console.log('  textarea padding =', this.textarea.style.padding);
+    console.log('  paddingX =', paddingX, 'paddingY =', paddingY);
+    console.log('  baseFontSize =', baseFontSize);
+    console.log('  scaleX =', scaleX);
+    console.log('  zoom =', zoom);
+    console.log('  finalFontSize =', finalFontSize);
+    console.log('  fabricLineHeight =', fabricLineHeight);
 
     // Initial bounds are set correctly by Fabric.js - don't force update here
   }
@@ -22155,11 +22202,13 @@ class OverlayEditor {
     this.target.selected = true;
     this.target.isEditing = false; // Override any editing state
 
-    // Make sure controls are enabled  
+    // Make sure controls are enabled and movement is allowed during overlay editing
     this.target.set({
       hasControls: true,
       hasBorders: true,
-      selectable: true
+      selectable: true,
+      lockMovementX: false,
+      lockMovementY: false
     });
 
     // Keep as active object
@@ -22219,13 +22268,16 @@ class OverlayEditor {
       this.onCancel();
     }
 
-    // Restore Fabric cursors for this object
-    if (this.savedCursors) {
-      var _this$savedCursors$ho, _this$savedCursors$mo;
-      this.target.hoverCursor = (_this$savedCursors$ho = this.savedCursors.hover) !== null && _this$savedCursors$ho !== void 0 ? _this$savedCursors$ho : this.target.hoverCursor;
-      this.target.moveCursor = (_this$savedCursors$mo = this.savedCursors.move) !== null && _this$savedCursors$mo !== void 0 ? _this$savedCursors$mo : this.target.moveCursor;
-      this.savedCursors = undefined;
-    }
+    // Note: Don't restore object cursors since IText manages all cursors in _restoreEditingProps
+    // Let the IText editing system handle proper restoration of all cursor properties
+
+    // Note: Canvas cursors are restored by IText's _restoreEditingProps method
+    // Force a cursor refresh by triggering _setCursorFromEvent
+    setTimeout(() => {
+      this.canvas.upperCanvasEl.style.cursor = '';
+      // Trigger cursor refresh on next mouse move
+      this.canvas.setCursor(this.canvas.defaultCursor);
+    }, 0);
 
     // Request canvas re-render
     this.canvas.requestRenderAll();
@@ -22303,6 +22355,51 @@ class OverlayEditor {
     if (e.target !== this.target) {
       this.destroy(true);
     }
+  }
+
+  /**
+   * Setup detection for viewport changes (zoom/pan)
+   */
+  setupViewportChangeDetection() {
+    // Store original methods
+    this.canvas.__originalSetZoom = this.canvas.setZoom;
+    this.canvas.__originalSetViewportTransform = this.canvas.setViewportTransform;
+    this.canvas.__overlayEditor = this;
+
+    // Override setZoom to detect zoom changes
+    const originalSetZoom = this.canvas.setZoom.bind(this.canvas);
+    this.canvas.setZoom = value => {
+      const result = originalSetZoom(value);
+      if (this.canvas.__overlayEditor && !this.isDestroyed) {
+        this.refresh();
+      }
+      return result;
+    };
+
+    // Override setViewportTransform to detect pan changes
+    const originalSetViewportTransform = this.canvas.setViewportTransform.bind(this.canvas);
+    this.canvas.setViewportTransform = vpt => {
+      const result = originalSetViewportTransform(vpt);
+      if (this.canvas.__overlayEditor && !this.isDestroyed) {
+        this.refresh();
+      }
+      return result;
+    };
+  }
+
+  /**
+   * Restore original viewport methods
+   */
+  restoreViewportChangeDetection() {
+    if (this.canvas.__originalSetZoom) {
+      this.canvas.setZoom = this.canvas.__originalSetZoom;
+      delete this.canvas.__originalSetZoom;
+    }
+    if (this.canvas.__originalSetViewportTransform) {
+      this.canvas.setViewportTransform = this.canvas.__originalSetViewportTransform;
+      delete this.canvas.__originalSetViewportTransform;
+    }
+    delete this.canvas.__overlayEditor;
   }
 }
 
@@ -22907,10 +23004,12 @@ class ITextBehavior extends FabricText {
       borderColor: this.borderColor,
       lockMovementX: this.lockMovementX,
       lockMovementY: this.lockMovementY,
-      hoverCursor: this.hoverCursor,
+      // For textboxes, hoverCursor should be null when not editing (falls back to canvas hoverCursor = 'move')
+      hoverCursor: null,
       selectable: this.selectable,
-      defaultCursor: this.canvas && this.canvas.defaultCursor,
-      moveCursor: this.canvas && this.canvas.moveCursor
+      // Always save known good defaults for canvas cursors instead of potentially corrupted current values
+      defaultCursor: 'default',
+      moveCursor: 'move'
     };
   }
 
@@ -22928,8 +23027,9 @@ class ITextBehavior extends FabricText {
     this.lockMovementX = this._savedProps.lockMovementX;
     this.lockMovementY = this._savedProps.lockMovementY;
     if (this.canvas) {
-      this.canvas.defaultCursor = this._savedProps.defaultCursor || this.canvas.defaultCursor;
-      this.canvas.moveCursor = this._savedProps.moveCursor || this.canvas.moveCursor;
+      var _this$_savedProps$def, _this$_savedProps$mov;
+      this.canvas.defaultCursor = (_this$_savedProps$def = this._savedProps.defaultCursor) !== null && _this$_savedProps$def !== void 0 ? _this$_savedProps$def : 'default';
+      this.canvas.moveCursor = (_this$_savedProps$mov = this._savedProps.moveCursor) !== null && _this$_savedProps$mov !== void 0 ? _this$_savedProps$mov : 'move';
     }
     delete this._savedProps;
   }

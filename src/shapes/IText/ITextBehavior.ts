@@ -719,10 +719,12 @@ export abstract class ITextBehavior<
       borderColor: this.borderColor,
       lockMovementX: this.lockMovementX,
       lockMovementY: this.lockMovementY,
-      hoverCursor: this.hoverCursor,
+      // For textboxes, hoverCursor should be null when not editing (falls back to canvas hoverCursor = 'move')
+      hoverCursor: null,
       selectable: this.selectable,
-      defaultCursor: this.canvas && this.canvas.defaultCursor,
-      moveCursor: this.canvas && this.canvas.moveCursor,
+      // Always save known good defaults for canvas cursors instead of potentially corrupted current values
+      defaultCursor: 'default',
+      moveCursor: 'move',
     };
   }
 
@@ -743,9 +745,9 @@ export abstract class ITextBehavior<
 
     if (this.canvas) {
       this.canvas.defaultCursor =
-        this._savedProps.defaultCursor || this.canvas.defaultCursor;
+        this._savedProps.defaultCursor ?? 'default';
       this.canvas.moveCursor =
-        this._savedProps.moveCursor || this.canvas.moveCursor;
+        this._savedProps.moveCursor ?? 'move';
     }
 
     delete this._savedProps;
