@@ -11,6 +11,8 @@ import type { TOptions } from '../../typedefs';
 import { getDocumentFromElement } from '../../util/dom_misc';
 import { LEFT, MODIFIED, RIGHT, reNewline } from '../../constants';
 import type { IText } from './IText';
+import { enterTextOverlayEdit } from '../../text/overlayEditor';
+import { extractLinesFromDOM, storeBrowserLines } from '../../text/browserLines';
 
 /**
  *  extend this regex to support non english languages
@@ -415,15 +417,78 @@ export abstract class ITextBehavior<
 
     this.isEditing = true;
 
-    this.initHiddenTextarea();
-    this.hiddenTextarea!.focus();
-    this.hiddenTextarea!.value = this.text;
-    this._updateTextarea();
+    // Check if using overlay editing
+    if ((this as any).useOverlayEditing) {
+      this.enterOverlayEditing();
+    } else {
+      this.initHiddenTextarea();
+      this.hiddenTextarea!.focus();
+      this.hiddenTextarea!.value = this.text;
+      this._updateTextarea();
+      this._saveEditingProps();
+      this._setEditingProps();
+      this._textBeforeEdit = this.text;
+      this._tick();
+    }
+  }
+
+  /**
+   * Enter overlay editing mode using DOM textarea overlay
+   */
+  private enterOverlayEditing() {
     this._saveEditingProps();
     this._setEditingProps();
     this._textBeforeEdit = this.text;
 
-    this._tick();
+    if (!this.canvas) {
+      return;
+    }
+
+    // Create overlay editor
+    enterTextOverlayEdit(this.canvas, this as any, {
+      onCommit: (text: string) => {
+        this.commitOverlayEdit(text);
+      },
+      onCancel: () => {
+        this.cancelOverlayEdit();
+      }
+    });
+  }
+
+  /**
+   * Commit overlay editing changes
+   */
+  private commitOverlayEdit(text: string) {
+    
+    const overlayEditor = (this as any).__overlayEditor;
+    
+    if (overlayEditor) {
+      // Extract browser lines for pixel-perfect rendering
+      try {
+        const result = extractLinesFromDOM(overlayEditor.textareaElement);
+        storeBrowserLines(this, result.lines);
+      } catch (error) {
+        console.warn('Failed to extract browser lines:', error);
+      }
+    }
+
+    // Update text content and trigger layout recalculation
+    this.text = text;
+    this.dirty = true;
+    this.initDimensions();
+    this.setCoords();
+    this.exitEditing();
+    this.fire('changed');
+    this.canvas && this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Cancel overlay editing without changes
+   */
+  private cancelOverlayEdit() {
+    // Restore original text
+    this.text = this._textBeforeEdit || this.text;
+    this.exitEditing();
   }
 
   /**

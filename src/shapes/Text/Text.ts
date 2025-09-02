@@ -19,6 +19,10 @@ import type {
 import { classRegistry } from '../../ClassRegistry';
 import { graphemeSplit } from '../../util/lang_string';
 import { createCanvasElementFor } from '../../util/misc/dom';
+import { layoutText, type LayoutResult, type TextLayoutOptions } from '../../text/layout';
+import { measureGrapheme, measureGraphemeWithKerning } from '../../text/measure';
+import { applyEllipsis } from '../../text/ellipsis';
+import { segmentGraphemes } from '../../text/unicode';
 import type { TextStyleArray } from '../../util/misc/textStyles';
 import {
   hasStyleChanged,
@@ -47,6 +51,8 @@ import { isFiller } from '../../util/typeAssertions';
 import type { Gradient } from '../../gradient/Gradient';
 import type { Pattern } from '../../Pattern';
 import type { CSSRules } from '../../parser/typedefs';
+import { getBrowserLines, clearBrowserLines } from '../../text/browserLines';
+import type { BrowserLine } from '../../text/browserLines';
 
 let measuringContext: CanvasRenderingContext2D | null;
 
@@ -109,6 +115,12 @@ interface UniqueTextProps {
   direction: CanvasDirection;
   path?: Path;
   textDecorationThickness: number;
+  wrap: 'word' | 'char' | 'none';
+  ellipsis: boolean | string;
+  letterSpacing: number;
+  enableAdvancedLayout: boolean;
+  verticalAlign: 'top' | 'middle' | 'bottom';
+  useOverlayEditing: boolean;
 }
 
 export interface SerializedTextProps
@@ -287,6 +299,47 @@ export class FabricText<
   declare path?: Path;
 
   /**
+   * Text wrapping mode
+   * @type string
+   * @default 'word'
+   */
+  declare wrap: 'word' | 'char' | 'none';
+
+  /**
+   * Ellipsis truncation
+   * @type boolean | string
+   * @default false
+   */
+  declare ellipsis: boolean | string;
+
+  /**
+   * Letter spacing in pixels (Konva-style)
+   * @type number
+   * @default 0
+   */
+  declare letterSpacing: number;
+
+  /**
+   * Enable advanced text layout engine
+   * @type boolean
+   * @default false
+   */
+  declare enableAdvancedLayout: boolean;
+
+  /**
+   * Vertical text alignment
+   * @type string
+   * @default 'top'
+   */
+  declare verticalAlign: 'top' | 'middle' | 'bottom';
+
+  /**
+   * Use overlay editor for inline text editing instead of hidden textarea.
+   * @default false
+   */
+  declare useOverlayEditing: boolean;
+
+  /**
    * The text decoration tickness for underline, overline and strikethrough
    * The tickness is expressed in thousandths of fontSize ( em ).
    * The original value was 1/15 that translates to 66.6667 thousandths.
@@ -445,8 +498,15 @@ export class FabricText<
   /**
    * @private
    * Divides text into lines of text and lines of graphemes.
+   * Uses browser lines when available for pixel-perfect consistency.
    */
   _splitText(): TextLinesInfo {
+    // Check if we have valid browser lines and should use them
+    const browserLines = getBrowserLines(this);
+    if (browserLines && this.useOverlayEditing) {
+      return this._splitTextFromBrowserLines(browserLines);
+    }
+    
     const newLines = this._splitTextIntoLines(this.text);
     this.textLines = newLines.lines;
     this._textLines = newLines.graphemeLines;
@@ -456,11 +516,55 @@ export class FabricText<
   }
 
   /**
+   * Create TextLinesInfo from browser-extracted lines
+   * @private
+   */
+  _splitTextFromBrowserLines(browserLines: BrowserLine[]): TextLinesInfo {
+    const lines: string[] = [];
+    const graphemeLines: string[][] = [];
+    const unwrappedLines: string[][] = [];
+    let graphemeText: string[] = [];
+
+    for (const browserLine of browserLines) {
+      lines.push(browserLine.text);
+      const lineGraphemes = this.graphemeSplit(browserLine.text);
+      graphemeLines.push(lineGraphemes);
+      unwrappedLines.push(lineGraphemes);
+      graphemeText = graphemeText.concat(lineGraphemes);
+      
+      // Add newline separator between lines (except for the last line)
+      if (browserLine !== browserLines[browserLines.length - 1]) {
+        graphemeText.push('\n');
+      }
+    }
+
+    const result: TextLinesInfo = {
+      lines,
+      graphemeLines,
+      graphemeText,
+      _unwrappedLines: unwrappedLines,
+    };
+
+    // Update instance properties
+    this.textLines = result.lines;
+    this._textLines = result.graphemeLines;
+    this._unwrappedTextLines = result._unwrappedLines;
+    this._text = result.graphemeText;
+
+    return result;
+  }
+
+  /**
    * Initialize or update text dimensions.
    * Updates this.width and this.height with the proper values.
    * Does not return dimensions.
    */
-  initDimensions() {
+  initDimensions(): void {
+    // Use advanced layout if enabled
+    if (this.enableAdvancedLayout && !this.path) {
+      return this.initDimensionsAdvanced();
+    }
+    
     this._splitText();
     this._clearCache();
     this.dirty = true;
@@ -517,6 +621,108 @@ export class FabricText<
           }
         }
       }
+    }
+  }
+
+  /**
+   * Advanced layout using new text engine (Konva-compatible)
+   * @private
+   */
+  _layoutTextAdvanced(): LayoutResult {
+    const options = this._getAdvancedLayoutOptions();
+    return layoutText(options);
+  }
+
+  /**
+   * Get advanced layout options from current text properties
+   * @private
+   */
+  _getAdvancedLayoutOptions(): TextLayoutOptions {
+    return {
+      text: this.text,
+      width: this.width,
+      height: this.height,
+      wrap: this.wrap || 'word',
+      align: this._mapTextAlignToAlign(this.textAlign),
+      ellipsis: this.ellipsis || false,
+      fontSize: this.fontSize,
+      lineHeight: this.lineHeight,
+      letterSpacing: this.letterSpacing || 0,
+      charSpacing: this.charSpacing,
+      direction: this.direction === 'inherit' ? 'ltr' : this.direction,
+      fontFamily: this.fontFamily,
+      fontStyle: this.fontStyle,
+      fontWeight: this.fontWeight,
+      verticalAlign: this.verticalAlign || 'top',
+    };
+  }
+
+  /**
+   * Map Fabric textAlign to Konva align format
+   * @private
+   */
+  _mapTextAlignToAlign(textAlign: string): 'left' | 'center' | 'right' | 'justify' {
+    switch (textAlign) {
+      case 'center':
+      case CENTER:
+        return 'center';
+      case 'right':
+      case RIGHT:
+        return 'right';
+      case 'justify':
+      case JUSTIFY:
+      case JUSTIFY_LEFT:
+      case JUSTIFY_RIGHT:
+      case JUSTIFY_CENTER:
+        return 'justify';
+      default:
+        return 'left';
+    }
+  }
+
+  /**
+   * Enhanced initDimensions that uses advanced layout when enabled
+   */
+  initDimensionsAdvanced(): void {
+    if (!this.enableAdvancedLayout) {
+      return this.initDimensions();
+    }
+
+    const layout = this._layoutTextAdvanced();
+    
+    // Update dimensions from layout
+    this.width = layout.totalWidth || this.MIN_TEXT_WIDTH;
+    this.height = layout.totalHeight;
+    
+    // Convert layout to legacy format for compatibility
+    this._convertLayoutToLegacyFormat(layout);
+    
+    this.dirty = true;
+  }
+
+  /**
+   * Convert new layout format to legacy _textLines and __charBounds format
+   * @private
+   */
+  _convertLayoutToLegacyFormat(layout: LayoutResult): void {
+    this._textLines = layout.lines.map(line => line.graphemes);
+    (this as any).textLines = layout.lines.map(line => line.text);
+    
+    // Convert bounds to legacy format
+    this.__charBounds = layout.lines.map(line => 
+      line.bounds.map(bound => ({
+        left: bound.left,
+        top: bound.y,
+        width: bound.width,
+        height: bound.height,
+        kernedWidth: bound.kernedWidth,
+        deltaY: bound.deltaY || 0,
+      }))
+    );
+    
+    // Update grapheme info for compatibility
+    if (layout.lines.length > 0) {
+      (this as any)._unwrappedTextLines = layout.lines.map(line => line.graphemes);
     }
   }
 
@@ -616,6 +822,10 @@ export class FabricText<
    * @param {CanvasRenderingContext2D} ctx Context to render on
    */
   _renderText(ctx: CanvasRenderingContext2D) {
+    // Skip text rendering if in overlay editing mode
+    if ((this as any).__overlayEditor) {
+      return;
+    }
     if (this.paintFirst === STROKE) {
       this._renderTextStroke(ctx);
       this._renderTextFill(ctx);
@@ -1792,6 +2002,8 @@ export class FabricText<
       this.setPathInfo();
     }
     if (needsDims && this.initialized) {
+      // Clear browser lines when layout-affecting properties change
+      clearBrowserLines(this);
       this.initDimensions();
       this.setCoords();
     }

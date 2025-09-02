@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fabric.js Overlay Text Editor Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f0f0f0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .controls h2 {
+            margin-top: 0;
+        }
+        
+        .control-group {
+            margin: 10px 0;
+        }
+        
+        .control-group label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        
+        .control-group input, .control-group select {
+            margin: 0 10px 0 0;
+        }
+        
+        .button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .button:hover {
+            background: #005a8a;
+        }
+        
+        .canvas-container {
+            position: relative;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+        }
+        
+        .demo-text {
+            margin: 20px 0;
+            padding: 15px;
+            background: #e8f4f8;
+            border-left: 4px solid #007cba;
+        }
+        
+        .rtl-text {
+            direction: rtl;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Fabric.js Overlay Text Editor Demo</h1>
+        
+        <div class="demo-text">
+            <h3>Instructions:</h3>
+            <ul>
+                <li>Double-click any text to edit with the overlay editor</li>
+                <li>Use <strong>Esc</strong> to cancel editing</li>
+                <li>Use <strong>Ctrl/Cmd + Enter</strong> to commit changes</li>
+                <li>Blur (click outside) automatically commits changes</li>
+                <li>Text wrapping respects the textbox bounds strictly</li>
+                <li>RTL text (Arabic/Hebrew) is supported</li>
+            </ul>
+            
+            <h4>🔍 Debug Commands (Console):</h4>
+            <ul>
+                <li><code>window.debugEditor()</code> - Debug active overlay editor position</li>
+                <li><code>window.debugTextStorage()</code> - Debug text logical storage differences</li>
+                <li><code>window.debugObject()</code> - Debug selected canvas object position</li>
+                <li><code>window.comparePositions()</code> - Compare canvas vs overlay positions</li>
+            </ul>
+        </div>
+        
+        <div class="controls">
+            <h2>Canvas Controls</h2>
+            
+            <div class="control-group">
+                <label>Zoom:</label>
+                <button class="button" onclick="setZoom(0.5)">50%</button>
+                <button class="button" onclick="setZoom(1.0)">100%</button>
+                <button class="button" onclick="setZoom(1.5)">150%</button>
+                <button class="button" onclick="setZoom(2.0)">200%</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Pan:</label>
+                <button class="button" onclick="panCanvas(-50, 0)">← Left</button>
+                <button class="button" onclick="panCanvas(50, 0)">Right →</button>
+                <button class="button" onclick="panCanvas(0, -50)">↑ Up</button>
+                <button class="button" onclick="panCanvas(0, 50)">Down ↓</button>
+                <button class="button" onclick="resetViewport()">Reset</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Transform:</label>
+                <button class="button" onclick="rotateSelected(15)">Rotate +15°</button>
+                <button class="button" onclick="rotateSelected(-15)">Rotate -15°</button>
+                <button class="button" onclick="scaleSelected(1.2)">Scale +20%</button>
+                <button class="button" onclick="scaleSelected(0.8)">Scale -20%</button>
+            </div>
+            
+            <div class="control-group">
+                <button class="button" onclick="addEnglishText()">Add English Text</button>
+                <button class="button" onclick="addArabicText()">Add Arabic Text (RTL)</button>
+                <button class="button" onclick="addArabicLTRText()">Add Arabic Text (LTR)</button>
+                <button class="button" onclick="addEmojiText()">Add Emoji Text</button>
+                <button class="button" onclick="addJustifiedText()">Add Justified Text</button>
+            </div>
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="canvas" width="800" height="600"></canvas>
+        </div>
+        
+        <div class="demo-text">
+            <h3>Test Scenarios:</h3>
+            <p><strong>English:</strong> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore.</p>
+            <p class="rtl-text"><strong>Arabic (RTL):</strong> مرحبا بك في هذا المثال الرائع لتحرير النصوص. يمكنك تعديل هذا النص بسهولة.</p>
+            <p><strong>Arabic (LTR):</strong> مرحبا بك في هذا المثال الرائع لتحرير النصوص باتجاه LTR. يمكنك تعديل هذا النص بسهولة وسترى الفرق بين المحرر والعارض.</p>
+            <p><strong>Emojis:</strong> 🌟 Hello World! 🚀 This is a test with emojis 🎉 and symbols ✨</p>
+        </div>
+    </div>
+
+    <script src="../dist/index.js"></script>
+    <script>
+        let canvas, englishText, arabicText, arabicLTRText, emojiText, justifiedText;
+
+        // Initialize Fabric.js canvas
+        function initCanvas() {
+            canvas = new fabric.Canvas('canvas', {
+                backgroundColor: '#ffffff'
+            });
+
+            // Add initial text objects
+            addEnglishText();
+            addArabicText();
+            addArabicLTRText();
+            addEmojiText();
+            addJustifiedText();
+
+            canvas.renderAll();
+        }
+
+        // Canvas controls
+        function setZoom(zoom) {
+            canvas.setZoom(zoom);
+            canvas.renderAll();
+        }
+
+        function panCanvas(deltaX, deltaY) {
+            const vpt = canvas.viewportTransform;
+            vpt[4] += deltaX;
+            vpt[5] += deltaY;
+            canvas.requestRenderAll();
+        }
+
+        function resetViewport() {
+            canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+            canvas.renderAll();
+        }
+
+        function rotateSelected(angle) {
+            const activeObj = canvas.getActiveObject();
+            if (activeObj) {
+                activeObj.rotate(activeObj.angle + angle);
+                canvas.renderAll();
+            }
+        }
+
+        function scaleSelected(factor) {
+            const activeObj = canvas.getActiveObject();
+            if (activeObj) {
+                activeObj.scale(activeObj.scaleX * factor);
+                canvas.renderAll();
+            }
+        }
+
+        // Text creation functions
+        function addEnglishText() {
+            if (englishText) canvas.remove(englishText);
+            
+            englishText = new fabric.Textbox('Click to edit this English text. The overlay editor provides seamless inline editing experience with perfect pixel alignment.', {
+                left: 50,
+                top: 50,
+                width: 300,
+                fontSize: 16,
+                fontFamily: 'Arial',
+                fill: '#333',
+                textAlign: 'left',
+                direction: 'ltr',
+                useOverlayEditing: true,
+                charSpacing: 0,
+                lineHeight: 1.2
+            });
+            
+            canvas.add(englishText);
+        }
+
+        function addArabicText() {
+            if (arabicText) canvas.remove(arabicText);
+            
+            arabicText = new fabric.Textbox('مرحبا بك في هذا المثال الرائع لتحرير النصوص. يمكنك تعديل هذا النص بسهولة وسترى كيف يتم التعامل مع النصوص العربية بشكل صحيح.', {
+                left: 400,
+                top: 50,
+                width: 300,
+                fontSize: 18,
+                fontFamily: 'Arial',
+                fill: '#0066cc',
+                textAlign: 'right',
+                direction: 'rtl',
+                useOverlayEditing: true,
+                charSpacing: 0,
+                lineHeight: 1.3
+            });
+            
+            canvas.add(arabicText);
+        }
+
+        function addArabicLTRText() {
+            if (arabicLTRText) canvas.remove(arabicLTRText);
+            
+            arabicLTRText = new fabric.Textbox('مرحبا بك في هذا المثال الرائع لتحرير النصوص باتجاه LTR. يمكنك تعديل هذا النص بسهولة وسترى الفرق بين المحرر والعارض.', {
+                left: 50,
+                top: 150,
+                width: 300,
+                fontSize: 18,
+                fontFamily: 'Arial',
+                fill: '#cc6600',
+                textAlign: 'left',
+                direction: 'ltr',
+                useOverlayEditing: true,
+                charSpacing: 0,
+                lineHeight: 1.3
+            });
+            
+            canvas.add(arabicLTRText);
+        }
+
+        function addEmojiText() {
+            if (emojiText) canvas.remove(emojiText);
+            
+            emojiText = new fabric.Textbox('🌟 Hello World! 🚀 This text contains emojis and special characters: ✨💫🎉🎨🔥💎🌈', {
+                left: 50,
+                top: 250,
+                width: 350,
+                fontSize: 20,
+                fontFamily: 'Arial',
+                fill: '#ff6b6b',
+                textAlign: 'center',
+                direction: 'ltr',
+                useOverlayEditing: true,
+                charSpacing: 100,
+                lineHeight: 1.4
+            });
+            
+            canvas.add(emojiText);
+        }
+
+        function addJustifiedText() {
+            if (justifiedText) canvas.remove(justifiedText);
+            
+            justifiedText = new fabric.Textbox('هذا نص مبرر باللغة العربية يوضح كيفية تعامل محرر التراكب مع النصوص المبررة بشكل مثالي. كل سطر محاذي إلى الهامش الأيمن والأيسر.', {
+                left: 450,
+                top: 250,
+                width: 300,
+                fontSize: 14,
+                fontFamily: 'Arial',
+                fill: '#2d2d2d',
+                textAlign: 'justify',
+                direction: 'rtl',
+                useOverlayEditing: true,
+                charSpacing: 0,
+                lineHeight: 1.6
+            });
+            
+            canvas.add(justifiedText);
+        }
+
+        // Debug helper functions
+        function setupDebugHelpers() {
+            // Global debug functions
+            window.debugEditor = function() {
+                const activeObj = canvas.getActiveObject();
+                if (activeObj && activeObj.__overlayEditor) {
+                    console.log('🔍 Debugging active overlay editor...');
+                    activeObj.__overlayEditor.debugPositioning();
+                } else {
+                    console.log('❌ No active overlay editor found. Double-click text to enter edit mode first.');
+                }
+            };
+
+            window.debugTextStorage = function() {
+                const activeObj = canvas.getActiveObject();
+                if (activeObj && activeObj.__overlayEditor) {
+                    console.log('🔤 Debugging text logical storage...');
+                    activeObj.__overlayEditor.debugTextStorage();
+                } else {
+                    console.log('❌ No active overlay editor found. Double-click text to enter edit mode first.');
+                }
+            };
+
+            window.debugObject = function() {
+                const activeObj = canvas.getActiveObject();
+                if (activeObj) {
+                    console.group('🔍 Canvas Object Debug Info');
+                    console.log('Object:', activeObj);
+                    console.log('Position:', { left: activeObj.left, top: activeObj.top });
+                    console.log('Size:', { width: activeObj.width, height: activeObj.height });
+                    console.log('Transform:', { 
+                        angle: activeObj.angle, 
+                        scaleX: activeObj.scaleX, 
+                        scaleY: activeObj.scaleY 
+                    });
+                    console.log('Origin:', { originX: activeObj.originX, originY: activeObj.originY });
+                    console.log('Bounding Rect:', activeObj.getBoundingRect());
+                    console.groupEnd();
+                } else {
+                    console.log('❌ No active object selected. Click on a text object first.');
+                }
+            };
+
+            window.comparePositions = function() {
+                const activeObj = canvas.getActiveObject();
+                if (activeObj) {
+                    console.group('⚖️  Canvas vs DOM Position Comparison');
+                    
+                    // Canvas bounding rect
+                    const canvasBounds = activeObj.getBoundingRect();
+                    console.log('📍 Canvas Object Bounds:', canvasBounds);
+                    
+                    // If in overlay editing mode, compare with overlay
+                    if (activeObj.__overlayEditor) {
+                        const editor = activeObj.__overlayEditor;
+                        const textareaRect = editor.textareaElement.getBoundingClientRect();
+                        const canvasRect = canvas.upperCanvasEl.getBoundingClientRect();
+                        
+                        console.log('📍 Overlay Textarea Bounds:', textareaRect);
+                        console.log('📍 Canvas Element Bounds:', canvasRect);
+                        
+                        // Calculate relative positions
+                        const textareaRelative = {
+                            x: textareaRect.left - canvasRect.left,
+                            y: textareaRect.top - canvasRect.top
+                        };
+                        
+                        console.log('📍 Textarea Relative to Canvas:', textareaRelative);
+                        console.log('📍 Canvas Object Bounds:', canvasBounds);
+                        
+                        // Calculate differences
+                        const diff = {
+                            x: Math.abs(textareaRelative.x - canvasBounds.left),
+                            y: Math.abs(textareaRelative.y - canvasBounds.top),
+                            width: Math.abs(textareaRect.width - canvasBounds.width),
+                            height: Math.abs(textareaRect.height - canvasBounds.height)
+                        };
+                        
+                        console.log('⚠️  Position Differences:', diff);
+                        
+                        const tolerance = 2; // 2px tolerance
+                        const isAligned = diff.x < tolerance && diff.y < tolerance;
+                        console.log(isAligned ? '✅ Positions are aligned!' : '❌ Positions are misaligned!');
+                    } else {
+                        console.log('ℹ️  Object is not in overlay editing mode');
+                    }
+                    
+                    console.groupEnd();
+                } else {
+                    console.log('❌ No active object selected.');
+                }
+            };
+            
+            // Make debug helpers globally available
+            window.canvas = canvas;
+            window.fabric = fabric;
+        }
+
+        // Initialize canvas when page loads
+        window.addEventListener('load', () => {
+            initCanvas();
+            setupDebugHelpers();
+        });
+
+        // Add debugging info
+        console.log('Fabric.js Overlay Editor Demo loaded successfully!');
+        console.log('Available objects:', fabric);
+        console.log('Canvas instance:', canvas);
+    </script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import type { SerializedITextProps, ITextProps } from './IText/IText';
 import type { ITextEvents } from './IText/ITextBehavior';
 import type { TextLinesInfo } from './Text/Text';
 import type { Control } from '../controls/Control';
+import { layoutText } from '../text/layout';
 
 // @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
 // regexes, list of properties that are not suppose to change by instances, magic consts.
@@ -128,6 +129,12 @@ export class Textbox<
     if (!this.initialized) {
       return;
     }
+    
+    // Use advanced layout if enabled
+    if (this.enableAdvancedLayout) {
+      return this.initDimensionsAdvanced();
+    }
+    
     this.isEditing && this.initDelayedCursor();
     this._clearCache();
     // clear dynamicMinWidth as it will be different after we re-wrap line
@@ -144,6 +151,89 @@ export class Textbox<
     }
     // clear cache and re-calculate height
     this.height = this.calcTextHeight();
+  }
+
+  /**
+   * Advanced dimensions calculation using new layout engine
+   * @private
+   */
+  initDimensionsAdvanced() {
+    if (!this.initialized) {
+      return;
+    }
+    
+    this.isEditing && this.initDelayedCursor();
+    this._clearCache();
+    this.dynamicMinWidth = 0;
+    
+    // Use new layout engine
+    const layout = layoutText({
+      text: this.text,
+      width: this.width,
+      height: this.height,
+      wrap: this.wrap || 'word',
+      align: (this as any)._mapTextAlignToAlign(this.textAlign),
+      ellipsis: this.ellipsis || false,
+      fontSize: this.fontSize,
+      lineHeight: this.lineHeight,
+      letterSpacing: this.letterSpacing || 0,
+      charSpacing: this.charSpacing,
+      direction: this.direction === 'inherit' ? 'ltr' : this.direction,
+      fontFamily: this.fontFamily,
+      fontStyle: this.fontStyle,
+      fontWeight: this.fontWeight,
+      verticalAlign: this.verticalAlign || 'top',
+    });
+    
+    // Update dynamic minimum width based on layout
+    if (layout.lines.length > 0) {
+      const maxLineWidth = Math.max(...layout.lines.map(line => line.width));
+      this.dynamicMinWidth = Math.max(this.minWidth, maxLineWidth);
+    }
+    
+    // Adjust width if needed (preserving Textbox behavior)
+    if (this.dynamicMinWidth > this.width) {
+      this._set('width', this.dynamicMinWidth);
+      // Re-layout with new width
+      const newLayout = layoutText({
+        ...(this as any)._getAdvancedLayoutOptions(),
+        width: this.width,
+      });
+      this.height = newLayout.totalHeight;
+      (this as any)._convertLayoutToLegacyFormat(newLayout);
+    } else {
+      this.height = layout.totalHeight;
+      (this as any)._convertLayoutToLegacyFormat(layout);
+    }
+    
+    // Generate style map for compatibility
+    this._styleMap = this._generateStyleMapFromLayout(layout);
+    this.dirty = true;
+  }
+
+  /**
+   * Generate style map from new layout format
+   * @private
+   */
+  _generateStyleMapFromLayout(layout: any): StyleMap {
+    const map: StyleMap = {};
+    let realLineCount = 0;
+    let charCount = 0;
+
+    layout.lines.forEach((line: any, i: number) => {
+      if (line.text.includes('\n') && i > 0) {
+        realLineCount++;
+      }
+      
+      map[i] = { line: realLineCount, offset: 0 };
+      charCount += line.graphemes.length;
+      
+      if (i < layout.lines.length - 1) {
+        charCount += 1; // newline character
+      }
+    });
+
+    return map;
   }
 
   /**

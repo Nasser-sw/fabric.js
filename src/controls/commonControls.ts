@@ -1,5 +1,6 @@
 import { RESIZING, ROTATE } from '../constants';
 import { changeWidth } from './changeWidth';
+import { changeHeight } from './changeHeight';
 import { Control } from './Control';
 import { rotationStyleHandler, rotationWithSnapping } from './rotate';
 import { scaleCursorStyleHandler, scalingEqually } from './scale';
@@ -100,7 +101,12 @@ export const createResizeControls = () => ({
   }),
 });
 
-export const createTextboxDefaultControls = () => ({
-  ...createObjectDefaultControls(),
-  ...createResizeControls(),
-});
+export const createTextboxDefaultControls = () => {
+  const { mt, mb, ...controls } = {
+    ...createObjectDefaultControls(),
+    ...createResizeControls(),
+  };
+  // Exclude mt and mb controls - textbox height is auto-calculated based on content
+  // Only width can be manually adjusted, height adjusts automatically for text wrapping
+  return controls;
+};

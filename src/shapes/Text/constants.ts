@@ -28,6 +28,11 @@ export const textLayoutProperties: string[] = [
   'pathStartOffset',
   'pathSide',
   'pathAlign',
+  'wrap',
+  'ellipsis', 
+  'letterSpacing',
+  'enableAdvancedLayout',
+  'verticalAlign',
 ];
 
 export const additionalProps = [
@@ -91,6 +96,17 @@ export const textDefaultValues: Partial<TClassProperties<FabricText>> = {
   charSpacing: 0,
   deltaY: 0,
   direction: 'ltr',
+  
+  // New Konva-compatible properties
+  wrap: 'word' as const,
+  ellipsis: false,
+  letterSpacing: 0,
+  enableAdvancedLayout: false,
+  verticalAlign: 'top' as const,
+  
+  // Overlay editor properties
+  useOverlayEditing: false,
+  
   CACHE_FONT_SIZE: 400,
   MIN_TEXT_WIDTH: 2,
   // Text magic numbers

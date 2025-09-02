@@ -66,9 +66,16 @@ export abstract class ITextClickBehavior<
   }
 
   /**
-   * Default handler for double click, select a word
+   * Default handler for double click, select a word or enter overlay editing
    */
   doubleClickHandler(options: TPointerEventInfo) {
+    // Check if we should enter overlay editing mode
+    if (!this.isEditing && (this as any).useOverlayEditing && this.editable) {
+      this.enterEditing(options.e);
+      return;
+    }
+    
+    // Default behavior: select word if already editing
     if (!this.isEditing) {
       return;
     }

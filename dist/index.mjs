@@ -900,7 +900,7 @@ class Point {
   }
 
   /**
-     * Returns true if this point is greater another one
+    * Returns true if this point is greater another one
    * @param {XY} that
    * @return {Boolean}
    */
@@ -4800,7 +4800,7 @@ function getSvgRegex(arr) {
 const TEXT_DECORATION_THICKNESS = 'textDecorationThickness';
 const fontProperties = ['fontSize', 'fontWeight', 'fontFamily', 'fontStyle'];
 const textDecorationProperties = ['underline', 'overline', 'linethrough'];
-const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign'];
+const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign'];
 const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS];
 const styleProperties = [...fontProperties, ...textDecorationProperties, STROKE, 'strokeWidth', FILL, 'deltaY', 'textBackgroundColor', TEXT_DECORATION_THICKNESS];
 
@@ -4831,6 +4831,14 @@ const textDefaultValues = {
   charSpacing: 0,
   deltaY: 0,
   direction: 'ltr',
+  // New Konva-compatible properties
+  wrap: 'word',
+  ellipsis: false,
+  letterSpacing: 0,
+  enableAdvancedLayout: false,
+  verticalAlign: 'top',
+  // Overlay editor properties
+  useOverlayEditing: false,
   CACHE_FONT_SIZE: 400,
   MIN_TEXT_WIDTH: 2,
   // Text magic numbers
@@ -9141,10 +9149,19 @@ const createResizeControls = () => ({
     actionName: RESIZING
   })
 });
-const createTextboxDefaultControls = () => ({
-  ...createObjectDefaultControls(),
-  ...createResizeControls()
-});
+const createTextboxDefaultControls = () => {
+  const {
+    mt,
+    mb,
+    ...controls
+  } = {
+    ...createObjectDefaultControls(),
+    ...createResizeControls()
+  };
+  // Exclude mt and mb controls - textbox height is auto-calculated based on content
+  // Only width can be manually adjusted, height adjusts automatically for text wrapping
+  return controls;
+};
 
 class InteractiveFabricObject extends FabricObject$1 {
   static getDefaults() {
@@ -18653,6 +18670,973 @@ class StyledText extends FabricObject {
 }
 _defineProperty(StyledText, "_styleProperties", styleProperties);
 
+// Global measurement context - reused for performance
+let measurementContext = null;
+
+/**
+ * Get or create the shared measurement context
+ */
+function getMeasurementContext() {
+  if (!measurementContext) {
+    const canvas = createCanvasElementFor({
+      width: 0,
+      height: 0
+    });
+    measurementContext = canvas.getContext('2d');
+  }
+  return measurementContext;
+}
+
+/**
+ * Measure a single grapheme
+ */
+function measureGrapheme(grapheme, options, ctx) {
+  // Check cache first
+  const cached = measurementCache.get(grapheme, options);
+  if (cached) {
+    return cached;
+  }
+
+  // Use provided context or get global one
+  const context = ctx || getMeasurementContext();
+
+  // Set font properties
+  applyFontStyle(context, options);
+
+  // Measure the grapheme
+  const metrics = context.measureText(grapheme);
+  const fontMetrics = getFontMetrics(options);
+
+  // Calculate comprehensive measurements
+  const measurement = {
+    width: metrics.width,
+    height: fontMetrics.lineHeight,
+    ascent: fontMetrics.ascent,
+    descent: fontMetrics.descent,
+    baseline: fontMetrics.ascent
+  };
+
+  // Cache the result
+  measurementCache.set(grapheme, options, measurement);
+  return measurement;
+}
+
+/**
+ * Measure a grapheme with kerning relative to previous character
+ */
+function measureGraphemeWithKerning(grapheme, previousGrapheme, options, ctx) {
+  // Get individual measurement
+  const individual = measureGrapheme(grapheme, options, ctx);
+
+  // If no previous character, kerning width equals regular width
+  if (!previousGrapheme) {
+    return {
+      ...individual,
+      kernedWidth: individual.width
+    };
+  }
+
+  // Check kerning cache
+  const kerningPair = `${previousGrapheme}${grapheme}`;
+  const cachedKerning = kerningCache.get(kerningPair, options);
+  if (cachedKerning) {
+    return {
+      ...individual,
+      kernedWidth: cachedKerning
+    };
+  }
+
+  // Use provided context or get global one
+  const context = getMeasurementContext();
+  applyFontStyle(context, options);
+
+  // Measure the pair
+  const pairWidth = context.measureText(previousGrapheme + grapheme).width;
+  const previousWidth = measureGrapheme(previousGrapheme, options, context).width;
+  const kernedWidth = pairWidth - previousWidth;
+
+  // Cache kerning result
+  kerningCache.set(kerningPair, options, kernedWidth);
+  return {
+    ...individual,
+    kernedWidth
+  };
+}
+
+/**
+ * Get font metrics for layout calculations
+ */
+function getFontMetrics(options) {
+  var _metrics$fontBounding, _metrics$fontBounding2, _metrics$actualBoundi, _metrics$actualBoundi2;
+  const cacheKey = getFontDeclaration(options);
+  const cached = fontMetricsCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  const context = getMeasurementContext();
+  applyFontStyle(context, options);
+
+  // Use 'M' as sample character for metrics
+  const metrics = context.measureText('M');
+  const fontSize = options.fontSize;
+
+  // Calculate metrics with fallbacks
+  const fontBoundingBoxAscent = (_metrics$fontBounding = metrics.fontBoundingBoxAscent) !== null && _metrics$fontBounding !== void 0 ? _metrics$fontBounding : fontSize * 0.91;
+  const fontBoundingBoxDescent = (_metrics$fontBounding2 = metrics.fontBoundingBoxDescent) !== null && _metrics$fontBounding2 !== void 0 ? _metrics$fontBounding2 : fontSize * 0.21;
+  const actualBoundingBoxAscent = (_metrics$actualBoundi = metrics.actualBoundingBoxAscent) !== null && _metrics$actualBoundi !== void 0 ? _metrics$actualBoundi : fontSize * 0.716;
+  const actualBoundingBoxDescent = (_metrics$actualBoundi2 = metrics.actualBoundingBoxDescent) !== null && _metrics$actualBoundi2 !== void 0 ? _metrics$actualBoundi2 : 0;
+  const result = {
+    ascent: fontBoundingBoxAscent,
+    descent: fontBoundingBoxDescent,
+    lineHeight: fontSize,
+    baseline: 'alphabetic',
+    fontBoundingBoxAscent,
+    fontBoundingBoxDescent,
+    actualBoundingBoxAscent,
+    actualBoundingBoxDescent
+  };
+  fontMetricsCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Apply font styling to canvas context
+ */
+function applyFontStyle(ctx, options) {
+  const fontDeclaration = getFontDeclaration(options);
+  ctx.font = fontDeclaration;
+  if (options.letterSpacing) {
+    // Modern browsers support letterSpacing
+    if ('letterSpacing' in ctx) {
+      ctx.letterSpacing = `${options.letterSpacing}px`;
+    }
+  }
+  if (options.direction) {
+    ctx.direction = options.direction;
+  }
+  ctx.textBaseline = 'alphabetic';
+}
+
+/**
+ * Generate font declaration string
+ */
+function getFontDeclaration(options) {
+  const {
+    fontStyle,
+    fontWeight,
+    fontSize,
+    fontFamily
+  } = options;
+
+  // Normalize font family (add quotes if needed)
+  const normalizedFamily = fontFamily.includes(' ') && !fontFamily.includes('"') && !fontFamily.includes("'") ? `"${fontFamily}"` : fontFamily;
+  return `${fontStyle} ${fontWeight} ${fontSize}px ${normalizedFamily}`;
+}
+
+/**
+ * LRU Cache implementation for measurements
+ */
+class LRUCache {
+  constructor() {
+    let maxSize = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 1000;
+    _defineProperty(this, "cache", new Map());
+    _defineProperty(this, "maxSize", void 0);
+    _defineProperty(this, "hits", 0);
+    _defineProperty(this, "misses", 0);
+    this.maxSize = maxSize;
+  }
+  get(key) {
+    const entry = this.cache.get(key);
+    if (entry) {
+      // Update timestamp for LRU
+      entry.timestamp = Date.now();
+      this.hits++;
+      return entry.value;
+    }
+    this.misses++;
+    return undefined;
+  }
+  set(key, value) {
+    // Remove oldest entries if at capacity
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.findOldestKey();
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+    this.cache.set(key, {
+      value,
+      timestamp: Date.now()
+    });
+  }
+  findOldestKey() {
+    let oldestKey;
+    let oldestTime = Infinity;
+    for (const [key, entry] of this.cache.entries()) {
+      if (entry.timestamp < oldestTime) {
+        oldestTime = entry.timestamp;
+        oldestKey = key;
+      }
+    }
+    return oldestKey;
+  }
+  clear() {
+    this.cache.clear();
+    this.hits = 0;
+    this.misses = 0;
+  }
+  getStats() {
+    const total = this.hits + this.misses;
+    return {
+      size: this.cache.size,
+      hitRate: total > 0 ? this.hits / total : 0,
+      hits: this.hits,
+      misses: this.misses
+    };
+  }
+}
+
+/**
+ * Advanced measurement cache with font-aware keys
+ */
+class MeasurementCache {
+  constructor() {
+    _defineProperty(this, "cache", new LRUCache(1000));
+  }
+  getCacheKey(grapheme, options) {
+    const fontDecl = getFontDeclaration(options);
+    const letterSpacing = options.letterSpacing || 0;
+    return `${fontDecl}|${grapheme}|${letterSpacing}`;
+  }
+  get(grapheme, options) {
+    const key = this.getCacheKey(grapheme, options);
+    return this.cache.get(key);
+  }
+  set(grapheme, options, measurement) {
+    const key = this.getCacheKey(grapheme, options);
+    this.cache.set(key, measurement);
+  }
+  clear() {
+    this.cache.clear();
+  }
+  getStats() {
+    return this.cache.getStats();
+  }
+}
+
+/**
+ * Kerning cache for character pairs
+ */
+class KerningCache {
+  constructor() {
+    _defineProperty(this, "cache", new LRUCache(5000));
+  }
+  // More entries for pairs
+
+  getCacheKey(pair, options) {
+    const fontDecl = getFontDeclaration(options);
+    return `${fontDecl}|${pair}`;
+  }
+  get(pair, options) {
+    const key = this.getCacheKey(pair, options);
+    return this.cache.get(key);
+  }
+  set(pair, options, kerning) {
+    const key = this.getCacheKey(pair, options);
+    this.cache.set(key, kerning);
+  }
+  clear() {
+    this.cache.clear();
+  }
+  getStats() {
+    return this.cache.getStats();
+  }
+}
+
+/**
+ * Font metrics cache
+ */
+class FontMetricsCache {
+  constructor() {
+    _defineProperty(this, "cache", new Map());
+  }
+  get(fontDeclaration) {
+    return this.cache.get(fontDeclaration);
+  }
+  set(fontDeclaration, metrics) {
+    this.cache.set(fontDeclaration, metrics);
+  }
+  clear() {
+    this.cache.clear();
+  }
+  getStats() {
+    return {
+      size: this.cache.size
+    };
+  }
+}
+
+// Global cache instances
+const measurementCache = new MeasurementCache();
+const kerningCache = new KerningCache();
+const fontMetricsCache = new FontMetricsCache();
+
+/**
+ * Unicode and Internationalization Support
+ * 
+ * Enhanced Unicode handling for complex scripts, RTL/LTR text,
+ * and grapheme cluster boundary detection.
+ */
+
+
+/**
+ * Enhanced grapheme segmentation using Intl.Segmenter when available
+ * with fallback to existing graphemeSplit implementation
+ */
+function segmentGraphemes(text) {
+  // Use native Intl.Segmenter if available
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    try {
+      const segmenter = new Intl.Segmenter(undefined, {
+        granularity: 'grapheme'
+      });
+      const segments = segmenter.segment(text);
+      return Array.from(segments, segment => segment.segment);
+    } catch (e) {
+      // Fallback if Intl.Segmenter fails
+    }
+  }
+
+  // Use existing Fabric.js implementation as fallback
+  return graphemeSplit(text);
+}
+
+/**
+ * Ellipsis Text Truncation System
+ * 
+ * Implements text truncation with ellipsis when content exceeds bounds,
+ * using binary search for optimal truncation points.
+ */
+
+/**
+ * Apply ellipsis truncation to text based on width/height constraints
+ */
+function applyEllipsis(text, options) {
+  const {
+    maxWidth,
+    maxHeight,
+    ellipsisChar,
+    measureFn
+  } = options;
+  if (!text) {
+    return {
+      truncatedText: '',
+      isTruncated: false,
+      truncationIndex: 0,
+      ellipsisWidth: 0,
+      originalLength: 0
+    };
+  }
+
+  // Measure ellipsis width
+  const ellipsisWidth = typeof measureFn(ellipsisChar) === 'number' ? measureFn(ellipsisChar) : measureFn(ellipsisChar).width;
+
+  // Check if truncation is needed
+  const originalMeasurement = measureFn(text);
+  const originalWidth = typeof originalMeasurement === 'number' ? originalMeasurement : originalMeasurement.width;
+  const originalHeight = typeof originalMeasurement === 'number' ? 0 // Height constraint not applicable for single dimension measure
+  : originalMeasurement.height;
+  let needsTruncation = false;
+  if (maxWidth && originalWidth > maxWidth) needsTruncation = true;
+  if (maxHeight && originalHeight > maxHeight) needsTruncation = true;
+  if (!needsTruncation) {
+    return {
+      truncatedText: text,
+      isTruncated: false,
+      truncationIndex: segmentGraphemes(text).length,
+      ellipsisWidth,
+      originalLength: segmentGraphemes(text).length
+    };
+  }
+
+  // Apply width-based truncation
+  if (maxWidth) {
+    const widthTruncated = truncateByWidth(text, maxWidth, ellipsisChar, ellipsisWidth, measureFn);
+    return {
+      ...widthTruncated,
+      ellipsisWidth,
+      originalLength: segmentGraphemes(text).length
+    };
+  }
+
+  // Apply height-based truncation (for multi-line text)
+  if (maxHeight) {
+    const heightTruncated = truncateByHeight(text, maxHeight, ellipsisChar, measureFn);
+    return {
+      ...heightTruncated,
+      ellipsisWidth,
+      originalLength: segmentGraphemes(text).length
+    };
+  }
+
+  // Fallback - should not reach here
+  return {
+    truncatedText: text,
+    isTruncated: false,
+    truncationIndex: segmentGraphemes(text).length,
+    ellipsisWidth,
+    originalLength: segmentGraphemes(text).length
+  };
+}
+
+/**
+ * Truncate text based on width constraint using binary search
+ */
+function truncateByWidth(text, maxWidth, ellipsisChar, ellipsisWidth, measureFn) {
+  const graphemes = segmentGraphemes(text);
+  const availableWidth = maxWidth - ellipsisWidth;
+
+  // Binary search for optimal truncation point
+  let low = 0;
+  let high = graphemes.length;
+  let bestFit = 0;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = graphemes.slice(0, mid).join('');
+    const measurement = measureFn(candidate);
+    const candidateWidth = typeof measurement === 'number' ? measurement : measurement.width;
+    if (candidateWidth <= availableWidth) {
+      bestFit = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  // Handle edge cases
+  if (bestFit === 0) {
+    // Even single character doesn't fit - return ellipsis only
+    return {
+      truncatedText: ellipsisChar,
+      isTruncated: true,
+      truncationIndex: 0
+    };
+  }
+  if (bestFit === graphemes.length) {
+    // Everything fits even with ellipsis space reserved
+    return {
+      truncatedText: text,
+      isTruncated: false,
+      truncationIndex: graphemes.length
+    };
+  }
+
+  // Create truncated text with ellipsis
+  const truncatedText = graphemes.slice(0, bestFit).join('') + ellipsisChar;
+  return {
+    truncatedText,
+    isTruncated: true,
+    truncationIndex: bestFit
+  };
+}
+
+/**
+ * Truncate text based on height constraint
+ */
+function truncateByHeight(text, maxHeight, ellipsisChar, measureFn) {
+  var _measureFn;
+  const lines = text.split('\n');
+  let accumulatedText = '';
+  let lineIndex = 0;
+
+  // Add lines until height exceeded
+  for (lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const testText = lineIndex === 0 ? lines[lineIndex] : accumulatedText + '\n' + lines[lineIndex];
+    const measurement = measureFn(testText);
+    const height = typeof measurement === 'number' ? 0 // Single dimension measure doesn't provide height
+    : measurement.height;
+    if (height > maxHeight && accumulatedText) {
+      // Previous text fits, current doesn't - truncate at previous
+      break;
+    }
+    accumulatedText = testText;
+
+    // If this is the last line and it fits, no truncation needed
+    if (lineIndex === lines.length - 1) {
+      return {
+        truncatedText: text,
+        isTruncated: false,
+        truncationIndex: segmentGraphemes(text).length
+      };
+    }
+  }
+
+  // If we need to truncate the last fitting line to add ellipsis
+  if (lineIndex > 0) {
+    const lastFittingLine = lines[lineIndex - 1];
+    const withEllipsis = lastFittingLine + ellipsisChar;
+    const graphemes = segmentGraphemes(accumulatedText);
+    return {
+      truncatedText: accumulatedText.replace(/[^\n]*$/, withEllipsis),
+      isTruncated: true,
+      truncationIndex: graphemes.length - segmentGraphemes(lastFittingLine).length + segmentGraphemes(withEllipsis).length - 1
+    };
+  }
+
+  // First line doesn't fit - try width-based truncation on first line
+  const firstLineWidth = typeof measureFn === 'function' ? ((_measureFn = measureFn(lines[0])) === null || _measureFn === void 0 ? void 0 : _measureFn.width) || 1000 : 1000; // Fallback width
+
+  return truncateByWidth(lines[0], firstLineWidth, ellipsisChar, 0, measureFn);
+}
+
+/**
+ * Core Text Layout Engine
+ * 
+ * Implements Konva-compatible text layout with support for:
+ * - Multiple wrap modes (word/char/none)
+ * - Ellipsis truncation
+ * - Justify alignment with proper space distribution
+ * - RTL/LTR text direction
+ * - Advanced grapheme handling
+ */
+
+/**
+ * Main text layout function - converts text and options into positioned layout
+ */
+function layoutText(options) {
+  var _ellipsisResult;
+  const {
+    text,
+    width: containerWidth,
+    height: containerHeight,
+    wrap,
+    align,
+    ellipsis,
+    direction,
+    padding = 0,
+    verticalAlign = 'top'
+  } = options;
+
+  // Handle empty text
+  if (!text) {
+    return {
+      lines: [],
+      totalWidth: 0,
+      totalHeight: 0,
+      isTruncated: false,
+      graphemeCount: 0
+    };
+  }
+
+  // Calculate available space
+  const maxWidth = containerWidth ? containerWidth - padding * 2 : Infinity;
+  const maxHeight = containerHeight ? containerHeight - padding * 2 : Infinity;
+
+  // Split text into paragraphs (by \n)
+  const paragraphs = text.split('\n');
+
+  // Process each paragraph
+  const allLines = [];
+  let totalHeight = 0;
+  let maxLineWidth = 0;
+  let totalGraphemes = 0;
+  for (let i = 0; i < paragraphs.length; i++) {
+    const paragraph = paragraphs[i];
+    const isLastParagraph = i === paragraphs.length - 1;
+
+    // Layout this paragraph
+    const paragraphLines = layoutParagraph(paragraph, {
+      ...options,
+      width: maxWidth,
+      isLastParagraph
+    });
+
+    // Check height constraints
+    for (const line of paragraphLines) {
+      if (containerHeight && totalHeight + line.height > maxHeight) {
+        // Height exceeded - truncate here
+        const truncatedResult = handleHeightOverflow(allLines, line, maxHeight - totalHeight, options);
+        return {
+          lines: truncatedResult.lines,
+          totalWidth: Math.max(maxLineWidth, ...truncatedResult.lines.map(l => l.width)),
+          totalHeight: maxHeight,
+          isTruncated: true,
+          graphemeCount: totalGraphemes + truncatedResult.addedGraphemes,
+          ellipsisApplied: truncatedResult.ellipsisResult
+        };
+      }
+
+      // Mark last line in paragraph
+      if (line === paragraphLines[paragraphLines.length - 1]) {
+        line.isLastInParagraph = true;
+      }
+      allLines.push(line);
+      totalHeight += line.height;
+      maxLineWidth = Math.max(maxLineWidth, line.width);
+      totalGraphemes += line.graphemes.length;
+    }
+  }
+
+  // Apply ellipsis if width exceeded and ellipsis enabled
+  let ellipsisResult;
+  if (ellipsis && containerWidth) {
+    for (const line of allLines) {
+      if (line.width > maxWidth) {
+        ellipsisResult = applyEllipsis(line.text, {
+          maxWidth,
+          maxHeight: Infinity,
+          ellipsisChar: typeof ellipsis === 'string' ? ellipsis : '…',
+          measureFn: text => measureLineWidth(text, options)
+        });
+        if (ellipsisResult.isTruncated) {
+          // Rebuild truncated line
+          const truncatedLine = layoutSingleLine(ellipsisResult.truncatedText, options);
+          Object.assign(line, truncatedLine);
+          break;
+        }
+      }
+    }
+  }
+
+  // Apply alignment
+  const alignedLines = applyAlignment(allLines, align, maxLineWidth, options);
+
+  // Apply vertical alignment
+  const verticalOffset = calculateVerticalOffset(totalHeight, containerHeight || totalHeight, verticalAlign);
+
+  // Adjust line positions for vertical alignment
+  alignedLines.forEach(line => {
+    line.bounds.forEach(bound => {
+      bound.y += verticalOffset;
+    });
+  });
+  return {
+    lines: alignedLines,
+    totalWidth: maxLineWidth,
+    totalHeight: totalHeight,
+    isTruncated: !!((_ellipsisResult = ellipsisResult) !== null && _ellipsisResult !== void 0 && _ellipsisResult.isTruncated),
+    graphemeCount: totalGraphemes,
+    ellipsisApplied: ellipsisResult
+  };
+}
+
+/**
+ * Layout a single paragraph with wrapping
+ */
+function layoutParagraph(text, options) {
+  const {
+    wrap,
+    width: maxWidth
+  } = options;
+  if (!text) {
+    // Empty paragraph - create empty line
+    return [createEmptyLine(options)];
+  }
+
+  // Handle no wrapping
+  if (wrap === 'none' || maxWidth === Infinity) {
+    return [layoutSingleLine(text, options, 0)];
+  }
+
+  // Apply wrapping
+  const lines = [];
+  if (wrap === 'word') {
+    lines.push(...wrapByWords(text, maxWidth, options));
+  } else if (wrap === 'char') {
+    lines.push(...wrapByCharacters(text, maxWidth, options));
+  }
+
+  // Convert wrapped lines to layout lines, tracking text offset
+  let textOffset = 0;
+  const layoutLines = lines.map(lineText => {
+    const line = layoutSingleLine(lineText, options, textOffset);
+    textOffset += lineText.length + 1; // +1 for newline character
+    return line;
+  });
+  return layoutLines;
+}
+
+/**
+ * Layout a single line of text (no wrapping)
+ */
+function layoutSingleLine(text, options) {
+  let textOffset = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
+  const graphemes = segmentGraphemes(text);
+  const bounds = [];
+  const measurementOptions = createMeasurementOptions(options);
+  let x = 0;
+  let lineWidth = 0;
+  let lineHeight = 0;
+  let charIndex = textOffset; // Track character position in original text
+
+  // Measure each grapheme
+  for (let i = 0; i < graphemes.length; i++) {
+    const grapheme = graphemes[i];
+    const prevGrapheme = i > 0 ? graphemes[i - 1] : undefined;
+
+    // Measure with kerning
+    const measurement = measureGraphemeWithKerning(grapheme, prevGrapheme, measurementOptions);
+
+    // Apply letter spacing (Konva style - applied to ALL characters including last)
+    const letterSpacing = options.letterSpacing || 0;
+    const charSpacing = options.charSpacing ? options.fontSize * options.charSpacing / 1000 : 0;
+    const totalSpacing = letterSpacing + charSpacing;
+    const effectiveWidth = measurement.kernedWidth + totalSpacing;
+    bounds.push({
+      grapheme,
+      x,
+      y: 0,
+      // Will be adjusted later
+      width: measurement.width,
+      height: measurement.height,
+      kernedWidth: measurement.kernedWidth,
+      left: x,
+      baseline: measurement.baseline,
+      charIndex: charIndex,
+      // Character position in original text
+      graphemeIndex: textOffset + i // Grapheme index in original text
+    });
+
+    // Update character index for next iteration
+    charIndex += grapheme.length;
+    x += effectiveWidth;
+    lineWidth += effectiveWidth;
+    lineHeight = Math.max(lineHeight, measurement.height);
+  }
+
+  // Remove trailing spacing from total width (but keep in bounds for rendering)
+  if (bounds.length > 0) {
+    options.letterSpacing || 0;
+    options.charSpacing ? options.fontSize * options.charSpacing / 1000 : 0;
+
+    // Konva applies letterSpacing to all chars, so we don't remove it
+    // lineWidth -= totalSpacing;
+  }
+
+  // Apply line height
+  const finalHeight = lineHeight * options.lineHeight;
+  return {
+    text,
+    graphemes,
+    width: lineWidth,
+    height: finalHeight,
+    bounds,
+    isWrapped: false,
+    isLastInParagraph: false,
+    baseline: finalHeight * 0.8 // Approximate baseline position
+  };
+}
+
+/**
+ * Word-based wrapping algorithm
+ */
+function wrapByWords(text, maxWidth, options) {
+  const lines = [];
+  const words = text.split(/(\s+)/); // Preserve whitespace
+  let currentLine = '';
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const wordWidth = measureLineWidth(word, options);
+    const testLine = currentLine ? currentLine + word : word;
+    const testWidth = measureLineWidth(testLine, options);
+
+    // If adding this word exceeds max width and we have content
+    if (testWidth > maxWidth && currentLine) {
+      lines.push(currentLine.trim());
+      currentLine = word;
+    }
+    // If single word is too long, break it by characters
+    else if (wordWidth > maxWidth && !currentLine) {
+      const brokenWord = wrapByCharacters(word, maxWidth, options);
+      lines.push(...brokenWord.slice(0, -1)); // All but last part
+      currentLine = brokenWord[brokenWord.length - 1]; // Last part
+      measureLineWidth(currentLine, options);
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) {
+    lines.push(currentLine.trim());
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
+/**
+ * Character-based wrapping algorithm  
+ */
+function wrapByCharacters(text, maxWidth, options) {
+  const lines = [];
+  const graphemes = segmentGraphemes(text);
+  let currentLine = '';
+  for (const grapheme of graphemes) {
+    const testLine = currentLine + grapheme;
+    const testWidth = measureLineWidth(testLine, options);
+    if (testWidth > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = grapheme;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
+/**
+ * Apply text alignment to lines
+ */
+function applyAlignment(lines, align, containerWidth, options) {
+  return lines.map(line => {
+    let offsetX = 0;
+    switch (align) {
+      case 'center':
+        offsetX = (containerWidth - line.width) / 2;
+        break;
+      case 'right':
+        offsetX = containerWidth - line.width;
+        break;
+      case 'justify':
+        if (!line.isLastInParagraph && line.graphemes.length > 1) {
+          return applyJustification(line, containerWidth, options);
+        }
+        break;
+      case 'left':
+      default:
+        offsetX = 0;
+        break;
+    }
+
+    // Apply offset to all bounds
+    if (offsetX !== 0) {
+      line.bounds.forEach(bound => {
+        bound.x += offsetX;
+        bound.left += offsetX;
+      });
+    }
+    return line;
+  });
+}
+
+/**
+ * Apply justify alignment by expanding spaces
+ */
+function applyJustification(line, containerWidth, options) {
+  const spaces = line.graphemes.filter(g => /\s/.test(g)).length;
+  if (spaces === 0) return line;
+  const extraSpace = containerWidth - line.width;
+  const spaceExpansion = extraSpace / spaces;
+  let offsetX = 0;
+  line.bounds.forEach(bound => {
+    bound.x += offsetX;
+    bound.left += offsetX;
+    if (/\s/.test(bound.grapheme)) {
+      bound.kernedWidth += spaceExpansion;
+      bound.width += spaceExpansion;
+      offsetX += spaceExpansion;
+    }
+  });
+  line.width = containerWidth;
+  line.justifyRatio = 1 + spaceExpansion / (options.fontSize * 0.25); // Approximate space width
+
+  return line;
+}
+
+/**
+ * Calculate vertical alignment offset
+ */
+function calculateVerticalOffset(contentHeight, containerHeight, align) {
+  switch (align) {
+    case 'middle':
+      return (containerHeight - contentHeight) / 2;
+    case 'bottom':
+      return containerHeight - contentHeight;
+    case 'top':
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Handle height overflow with ellipsis
+ */
+function handleHeightOverflow(existingLines, overflowLine, remainingHeight, options) {
+  // If ellipsis is enabled, try to fit part of the overflow line
+  if (options.ellipsis && remainingHeight > 0) {
+    const ellipsisChar = typeof options.ellipsis === 'string' ? options.ellipsis : '…';
+    const maxWidth = options.width || Infinity;
+    const ellipsisResult = applyEllipsis(overflowLine.text, {
+      maxWidth,
+      maxHeight: remainingHeight,
+      ellipsisChar,
+      measureFn: text => measureLineWidth(text, options)
+    });
+    if (ellipsisResult.isTruncated) {
+      const truncatedLine = layoutSingleLine(ellipsisResult.truncatedText, options);
+      truncatedLine.isLastInParagraph = true;
+      return {
+        lines: [...existingLines, truncatedLine],
+        addedGraphemes: truncatedLine.graphemes.length,
+        ellipsisResult
+      };
+    }
+  }
+  return {
+    lines: existingLines,
+    addedGraphemes: 0
+  };
+}
+
+/**
+ * Create empty line for empty paragraphs
+ */
+function createEmptyLine(options) {
+  const height = options.fontSize * options.lineHeight;
+  return {
+    text: '',
+    graphemes: [],
+    width: 0,
+    height,
+    bounds: [],
+    isWrapped: false,
+    isLastInParagraph: true,
+    baseline: height * 0.8
+  };
+}
+
+/**
+ * Measure width of a line of text
+ */
+function measureLineWidth(text, options) {
+  const graphemes = segmentGraphemes(text);
+  const measurementOptions = createMeasurementOptions(options);
+  let width = 0;
+  for (let i = 0; i < graphemes.length; i++) {
+    const grapheme = graphemes[i];
+    const prevGrapheme = i > 0 ? graphemes[i - 1] : undefined;
+    const measurement = measureGraphemeWithKerning(grapheme, prevGrapheme, measurementOptions);
+    const letterSpacing = options.letterSpacing || 0;
+    const charSpacing = options.charSpacing ? options.fontSize * options.charSpacing / 1000 : 0;
+    width += measurement.kernedWidth + letterSpacing + charSpacing;
+  }
+  return width;
+}
+
+/**
+ * Convert layout options to measurement options
+ */
+function createMeasurementOptions(options) {
+  return {
+    fontFamily: options.fontFamily,
+    fontSize: options.fontSize,
+    fontStyle: options.fontStyle,
+    fontWeight: options.fontWeight,
+    letterSpacing: options.letterSpacing,
+    direction: options.direction === 'inherit' ? 'ltr' : options.direction
+  };
+}
+
 const multipleSpacesRegex = /  +/g;
 const dblQuoteRegex = /"/g;
 function createSVGInlineRect(color, left, top, width, height) {
@@ -18883,6 +19867,172 @@ class TextSVGExportMixin extends FabricObjectSVGExportMixin {
   }
 }
 
+/**
+ * Browser Line Break Extraction
+ * 
+ * Captures exact line breaks as rendered by the browser to ensure
+ * pixel-perfect consistency between DOM editing and canvas rendering.
+ */
+
+/**
+ * Segment text into graphemes safely using Intl.Segmenter or fallback
+ */
+function segmentIntoGraphemes(text) {
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    const segmenter = new Intl.Segmenter(undefined, {
+      granularity: 'grapheme'
+    });
+    return Array.from(segmenter.segment(text), s => s.segment);
+  }
+
+  // Fallback: Use Array.from which handles basic Unicode correctly
+  return Array.from(text);
+}
+
+/**
+ * Extract line break information from a textarea by creating a mirror element
+ * with identical computed styles and measuring grapheme positions.
+ */
+function extractLinesFromDOM(textarea) {
+  const text = textarea.value;
+  if (!text) {
+    return {
+      lines: [],
+      totalWidth: 0,
+      totalHeight: 0
+    };
+  }
+
+  // Get computed styles from the textarea
+  const computedStyle = getComputedStyle(textarea);
+  const container = textarea.parentElement;
+  if (!container) {
+    throw new Error('Textarea must be in DOM to extract lines');
+  }
+
+  // Create mirror div with identical styling
+  const mirror = document.createElement('div');
+  mirror.style.position = 'absolute';
+  mirror.style.left = '-9999px';
+  mirror.style.top = '-9999px';
+  mirror.style.visibility = 'hidden';
+  mirror.style.pointerEvents = 'none';
+
+  // Copy all relevant text styling
+  const stylesToCopy = ['fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textAlign', 'textTransform', 'whiteSpace', 'overflowWrap', 'wordBreak', 'direction', 'unicodeBidi', 'width', 'height', 'maxWidth', 'maxHeight', 'minWidth', 'minHeight', 'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'border', 'borderTop', 'borderRight', 'borderBottom', 'borderLeft', 'boxSizing'];
+  stylesToCopy.forEach(prop => {
+    mirror.style[prop] = computedStyle[prop];
+  });
+
+  // Ensure the mirror has the same dimensions and overflow behavior as textarea
+  mirror.style.overflow = 'hidden';
+  mirror.style.resize = 'none';
+  container.appendChild(mirror);
+  try {
+    // Segment text into graphemes
+    const graphemes = segmentIntoGraphemes(text);
+    const spans = [];
+
+    // Create a span for each grapheme
+    graphemes.forEach((grapheme, index) => {
+      const span = document.createElement('span');
+      span.textContent = grapheme;
+      span.setAttribute('data-index', index.toString());
+      mirror.appendChild(span);
+      spans.push(span);
+    });
+
+    // Group spans by their offsetTop (line position)
+    const lineGroups = new Map();
+    spans.forEach((span, index) => {
+      const top = span.offsetTop;
+      if (!lineGroups.has(top)) {
+        lineGroups.set(top, {
+          spans: [],
+          indices: []
+        });
+      }
+      lineGroups.get(top).spans.push(span);
+      lineGroups.get(top).indices.push(index);
+    });
+
+    // Convert line groups to BrowserLine objects
+    const lines = [];
+    const sortedTops = Array.from(lineGroups.keys()).sort((a, b) => a - b);
+    sortedTops.forEach(top => {
+      const group = lineGroups.get(top);
+      const sortedIndices = group.indices.sort((a, b) => a - b);
+      const start = sortedIndices[0];
+      const end = sortedIndices[sortedIndices.length - 1] + 1;
+      const lineText = graphemes.slice(start, end).join('');
+      lines.push({
+        text: lineText,
+        start,
+        end
+      });
+    });
+
+    // Calculate total dimensions
+    const totalWidth = Math.max(...spans.map(span => span.offsetLeft + span.offsetWidth));
+    const totalHeight = spans.length > 0 ? Math.max(...spans.map(span => span.offsetTop + span.offsetHeight)) : 0;
+    return {
+      lines,
+      totalWidth,
+      totalHeight
+    };
+  } finally {
+    // Clean up mirror element
+    container.removeChild(mirror);
+  }
+}
+
+/**
+ * Create a hash of layout-affecting properties to detect when browser lines are still valid
+ */
+function createLayoutHash(target) {
+  const properties = [target.text, target.width, target.height, target.fontFamily, target.fontSize, target.fontWeight, target.fontStyle, target.lineHeight, target.charSpacing, target.textAlign, target.direction];
+  return properties.map(p => String(p)).join('|');
+}
+
+/**
+ * Check if stored browser lines are still valid for the current target state
+ */
+function areBrowserLinesValid(target, storedHash) {
+  if (!storedHash || !target.__lastBrowserLines) {
+    return false;
+  }
+  const currentHash = createLayoutHash(target);
+  return currentHash === storedHash;
+}
+
+/**
+ * Store browser lines on a target object with validity hash
+ */
+function storeBrowserLines(target, lines, layoutHash) {
+  target.__lastBrowserLines = lines;
+  target.__lastBrowserLinesHash = createLayoutHash(target);
+}
+
+/**
+ * Clear stored browser lines from a target object
+ */
+function clearBrowserLines(target) {
+  delete target.__lastBrowserLines;
+  delete target.__lastBrowserLinesHash;
+}
+
+/**
+ * Get stored browser lines if they're still valid
+ */
+function getBrowserLines(target) {
+  const lines = target.__lastBrowserLines;
+  const hash = target.__lastBrowserLinesHash;
+  if (lines && areBrowserLinesValid(target, hash)) {
+    return lines;
+  }
+  return null;
+}
+
 let measuringContext;
 
 /**
@@ -18956,8 +20106,14 @@ class FabricText extends StyledText {
   /**
    * @private
    * Divides text into lines of text and lines of graphemes.
+   * Uses browser lines when available for pixel-perfect consistency.
    */
   _splitText() {
+    // Check if we have valid browser lines and should use them
+    const browserLines = getBrowserLines(this);
+    if (browserLines && this.useOverlayEditing) {
+      return this._splitTextFromBrowserLines(browserLines);
+    }
     const newLines = this._splitTextIntoLines(this.text);
     this.textLines = newLines.lines;
     this._textLines = newLines.graphemeLines;
@@ -18967,11 +20123,51 @@ class FabricText extends StyledText {
   }
 
   /**
+   * Create TextLinesInfo from browser-extracted lines
+   * @private
+   */
+  _splitTextFromBrowserLines(browserLines) {
+    const lines = [];
+    const graphemeLines = [];
+    const unwrappedLines = [];
+    let graphemeText = [];
+    for (const browserLine of browserLines) {
+      lines.push(browserLine.text);
+      const lineGraphemes = this.graphemeSplit(browserLine.text);
+      graphemeLines.push(lineGraphemes);
+      unwrappedLines.push(lineGraphemes);
+      graphemeText = graphemeText.concat(lineGraphemes);
+
+      // Add newline separator between lines (except for the last line)
+      if (browserLine !== browserLines[browserLines.length - 1]) {
+        graphemeText.push('\n');
+      }
+    }
+    const result = {
+      lines,
+      graphemeLines,
+      graphemeText,
+      _unwrappedLines: unwrappedLines
+    };
+
+    // Update instance properties
+    this.textLines = result.lines;
+    this._textLines = result.graphemeLines;
+    this._unwrappedTextLines = result._unwrappedLines;
+    this._text = result.graphemeText;
+    return result;
+  }
+
+  /**
    * Initialize or update text dimensions.
    * Updates this.width and this.height with the proper values.
    * Does not return dimensions.
    */
   initDimensions() {
+    // Use advanced layout if enabled
+    if (this.enableAdvancedLayout && !this.path) {
+      return this.initDimensionsAdvanced();
+    }
     this._splitText();
     this._clearCache();
     this.dirty = true;
@@ -19015,6 +20211,104 @@ class FabricText extends StyledText {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Advanced layout using new text engine (Konva-compatible)
+   * @private
+   */
+  _layoutTextAdvanced() {
+    const options = this._getAdvancedLayoutOptions();
+    return layoutText(options);
+  }
+
+  /**
+   * Get advanced layout options from current text properties
+   * @private
+   */
+  _getAdvancedLayoutOptions() {
+    return {
+      text: this.text,
+      width: this.width,
+      height: this.height,
+      wrap: this.wrap || 'word',
+      align: this._mapTextAlignToAlign(this.textAlign),
+      ellipsis: this.ellipsis || false,
+      fontSize: this.fontSize,
+      lineHeight: this.lineHeight,
+      letterSpacing: this.letterSpacing || 0,
+      charSpacing: this.charSpacing,
+      direction: this.direction === 'inherit' ? 'ltr' : this.direction,
+      fontFamily: this.fontFamily,
+      fontStyle: this.fontStyle,
+      fontWeight: this.fontWeight,
+      verticalAlign: this.verticalAlign || 'top'
+    };
+  }
+
+  /**
+   * Map Fabric textAlign to Konva align format
+   * @private
+   */
+  _mapTextAlignToAlign(textAlign) {
+    switch (textAlign) {
+      case 'center':
+      case CENTER:
+        return 'center';
+      case 'right':
+      case RIGHT:
+        return 'right';
+      case 'justify':
+      case JUSTIFY:
+      case JUSTIFY_LEFT:
+      case JUSTIFY_RIGHT:
+      case JUSTIFY_CENTER:
+        return 'justify';
+      default:
+        return 'left';
+    }
+  }
+
+  /**
+   * Enhanced initDimensions that uses advanced layout when enabled
+   */
+  initDimensionsAdvanced() {
+    if (!this.enableAdvancedLayout) {
+      return this.initDimensions();
+    }
+    const layout = this._layoutTextAdvanced();
+
+    // Update dimensions from layout
+    this.width = layout.totalWidth || this.MIN_TEXT_WIDTH;
+    this.height = layout.totalHeight;
+
+    // Convert layout to legacy format for compatibility
+    this._convertLayoutToLegacyFormat(layout);
+    this.dirty = true;
+  }
+
+  /**
+   * Convert new layout format to legacy _textLines and __charBounds format
+   * @private
+   */
+  _convertLayoutToLegacyFormat(layout) {
+    this._textLines = layout.lines.map(line => line.graphemes);
+    this.textLines = layout.lines.map(line => line.text);
+
+    // Convert bounds to legacy format
+    this.__charBounds = layout.lines.map(line => line.bounds.map(bound => ({
+      left: bound.left,
+      top: bound.y,
+      width: bound.width,
+      height: bound.height,
+      kernedWidth: bound.kernedWidth,
+      deltaY: bound.deltaY || 0
+    })));
+
+    // Update grapheme info for compatibility
+    if (layout.lines.length > 0) {
+      this._unwrappedTextLines = layout.lines.map(line => line.graphemes);
     }
   }
 
@@ -19108,6 +20402,10 @@ class FabricText extends StyledText {
    * @param {CanvasRenderingContext2D} ctx Context to render on
    */
   _renderText(ctx) {
+    // Skip text rendering if in overlay editing mode
+    if (this.__overlayEditor) {
+      return;
+    }
     if (this.paintFirst === STROKE) {
       this._renderTextStroke(ctx);
       this._renderTextFill(ctx);
@@ -20070,6 +21368,8 @@ class FabricText extends StyledText {
       this.setPathInfo();
     }
     if (needsDims && this.initialized) {
+      // Clear browser lines when layout-affecting properties change
+      clearBrowserLines(this);
       this.initDimensions();
       this.setCoords();
     }
@@ -20525,6 +21825,457 @@ class DraggableTextDelegate {
 }
 
 /**
+ * Canva/Polotno-style Overlay Text Editor
+ *
+ * Provides seamless inline text editing using an HTML textarea overlay
+ * that matches canvas text positioning, styling, and transformations.
+ */
+
+class OverlayEditor {
+  constructor(options) {
+    _defineProperty(this, "canvas", void 0);
+    _defineProperty(this, "target", void 0);
+    _defineProperty(this, "container", void 0);
+    _defineProperty(this, "textarea", void 0);
+    _defineProperty(this, "hostDiv", void 0);
+    _defineProperty(this, "savedCursors", void 0);
+    _defineProperty(this, "isDestroyed", false);
+    _defineProperty(this, "isComposing", false);
+    _defineProperty(this, "lastText", void 0);
+    _defineProperty(this, "onCommit", void 0);
+    _defineProperty(this, "onCancel", void 0);
+    // Bound event handlers for cleanup
+    _defineProperty(this, "boundHandlers", {
+      onInput: this.handleInput.bind(this),
+      onKeyDown: this.handleKeyDown.bind(this),
+      onBlur: this.handleBlur.bind(this),
+      onCompositionStart: this.handleCompositionStart.bind(this),
+      onCompositionEnd: this.handleCompositionEnd.bind(this),
+      onAfterRender: this.handleAfterRender.bind(this),
+      onMouseWheel: this.handleMouseWheel.bind(this),
+      onFocus: this.handleFocus.bind(this),
+      onMouseDown: this.handleMouseDown.bind(this)
+    });
+    this.canvas = options.canvas;
+    this.target = options.target;
+    this.onCommit = options.onCommit;
+    this.onCancel = options.onCancel;
+    this.lastText = this.target.text || '';
+    this.container = this.getCanvasContainer();
+    this.createOverlayDOM();
+    this.attachEventListeners();
+    this.refresh();
+    this.focusTextarea();
+
+    // Save and override object cursors (use Fabric's API, not DOM hacks)
+    this.savedCursors = {
+      hover: this.target.hoverCursor || undefined,
+      move: this.target.moveCursor || undefined
+    };
+    this.target.hoverCursor = 'move';
+    this.target.moveCursor = 'move';
+  }
+
+  /**
+   * Get the container element for the overlay (parent of upperCanvasEl)
+   */
+  getCanvasContainer() {
+    const upperCanvas = this.canvas.upperCanvasEl;
+    const container = upperCanvas.parentElement;
+    if (!container) {
+      throw new Error('Canvas must be mounted in DOM to use overlay editing');
+    }
+
+    // Ensure the container is positioned for absolute overlay positioning
+    container.style.position = 'relative';
+    return container;
+  }
+
+  /**
+   * Create the overlay DOM structure
+   */
+  createOverlayDOM() {
+    // Host div for positioning and overflow control
+    this.hostDiv = document.createElement('div');
+    this.hostDiv.style.position = 'absolute';
+    this.hostDiv.style.pointerEvents = 'none';
+    this.hostDiv.style.zIndex = '1000';
+    this.hostDiv.style.transformOrigin = 'left top';
+
+    // Textarea for actual text input
+    this.textarea = document.createElement('textarea');
+    this.textarea.style.position = 'absolute';
+    this.textarea.style.left = '0';
+    this.textarea.style.top = '0';
+    this.textarea.style.margin = '0';
+    this.textarea.style.resize = 'none';
+    this.textarea.style.pointerEvents = 'auto';
+    // Set appropriate unicodeBidi based on content and direction
+    const hasArabicText = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(this.target.text || '');
+    const isLTRDirection = this.target.direction === 'ltr';
+    if (hasArabicText && isLTRDirection) {
+      // For Arabic text in LTR mode, use embed to preserve shaping while respecting direction
+      this.textarea.style.unicodeBidi = 'embed';
+    } else {
+      // Default to plaintext for natural text flow
+      this.textarea.style.unicodeBidi = 'plaintext';
+    }
+    this.textarea.style.caretColor = 'auto';
+
+    // Polotno-like base
+    this.textarea.style.border = 'none';
+    this.textarea.style.padding = '0';
+    this.textarea.style.background = 'transparent'; // Transparent so Fabric text shows through
+    this.textarea.style.outline = 'none';
+    this.textarea.style.overflow = 'visible'; // Allow text to overflow if needed
+    this.textarea.style.whiteSpace = 'pre-wrap';
+    this.textarea.style.wordBreak = 'normal';
+    this.textarea.style.overflowWrap = 'break-word';
+    this.textarea.style.userSelect = 'text';
+    this.textarea.style.textTransform = 'none';
+
+    // Start visible - we'll handle transitions differently
+    this.textarea.style.opacity = '1';
+
+    // Set initial text
+    this.textarea.value = this.target.text || '';
+    this.hostDiv.appendChild(this.textarea);
+    document.body.appendChild(this.hostDiv);
+  }
+
+  /**
+   * Attach all event listeners
+   */
+  attachEventListeners() {
+    // Textarea events
+    this.textarea.addEventListener('input', this.boundHandlers.onInput);
+    this.textarea.addEventListener('keydown', this.boundHandlers.onKeyDown);
+    this.textarea.addEventListener('blur', this.boundHandlers.onBlur);
+    this.textarea.addEventListener('compositionstart', this.boundHandlers.onCompositionStart);
+    this.textarea.addEventListener('compositionend', this.boundHandlers.onCompositionEnd);
+    this.textarea.addEventListener('focus', this.boundHandlers.onFocus);
+
+    // Canvas events for synchronization
+    this.canvas.on('after:render', this.boundHandlers.onAfterRender);
+    this.canvas.on('mouse:wheel', this.boundHandlers.onMouseWheel);
+    this.canvas.on('mouse:down', this.boundHandlers.onMouseDown);
+  }
+
+  /**
+   * Remove all event listeners
+   */
+  removeEventListeners() {
+    this.textarea.removeEventListener('input', this.boundHandlers.onInput);
+    this.textarea.removeEventListener('keydown', this.boundHandlers.onKeyDown);
+    this.textarea.removeEventListener('blur', this.boundHandlers.onBlur);
+    this.textarea.removeEventListener('compositionstart', this.boundHandlers.onCompositionStart);
+    this.textarea.removeEventListener('compositionend', this.boundHandlers.onCompositionEnd);
+    this.textarea.removeEventListener('focus', this.boundHandlers.onFocus);
+    this.canvas.off('after:render', this.boundHandlers.onAfterRender);
+    this.canvas.off('mouse:wheel', this.boundHandlers.onMouseWheel);
+    this.canvas.off('mouse:down', this.boundHandlers.onMouseDown);
+  }
+
+  /**
+   * Simple method to refresh positioning when canvas changes
+   */
+  updatePosition() {
+    this.applyOverlayStyle();
+  }
+
+  /**
+   * Update the Fabric object bounds to match current textarea size
+   * This ensures Fabric.js selection controls follow the growing textbox
+   */
+  updateObjectBounds() {
+    if (this.isDestroyed) return;
+    const target = this.target;
+    const zoom = this.canvas.getZoom();
+
+    // Get current textbox dimensions from the host div (in canvas coordinates)
+    parseFloat(this.hostDiv.style.width) / zoom;
+    const currentHeight = parseFloat(this.hostDiv.style.height) / zoom;
+
+    // Only update if there's a meaningful change (avoid float precision issues)
+    const heightDiff = Math.abs(currentHeight - target.height);
+    const threshold = 1; // 1px threshold to avoid micro-changes
+
+    if (heightDiff > threshold) {
+      target.height = currentHeight;
+      target.setCoords(); // Update control positions
+      this.canvas.requestRenderAll(); // Re-render to show updated selection
+    }
+  }
+
+  /**
+   * Convert Fabric charSpacing (1/1000 em) to CSS letter-spacing (px)
+   */
+  letterSpacingPx(charSpacing, fontSize) {
+    return charSpacing / 1000 * fontSize;
+  }
+
+  /**
+   * Detect text direction using first strong directional character
+   */
+  firstStrongDir(text) {
+    // Hebrew: \u0590-\u05FF, Arabic: \u0600-\u06FF, \u0750-\u077F, \uFB50-\uFDFF, \uFE70-\uFEFF
+    const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+    return rtlRegex.test(text) ? 'rtl' : 'ltr';
+  }
+  applyOverlayStyle() {
+    var _target$fontSize, _target$fill;
+    const target = this.target;
+    const canvas = this.canvas;
+
+    // 1. Freshen object's transformations - use aCoords like rtl-test.html
+    target.setCoords();
+    const aCoords = target.aCoords;
+
+    // 2. Get canvas position and scroll offsets (like rtl-test.html)
+    const canvasEl = canvas.upperCanvasEl;
+    const canvasRect = canvasEl.getBoundingClientRect();
+    const scrollX = window.scrollX || window.pageXOffset;
+    const scrollY = window.scrollY || window.pageYOffset;
+
+    // 3. Position using aCoords.tl (absolute coordinates) - with minimal padding to avoid selection handles
+    const handlePadding = 4; // Minimal padding to avoid selection handles
+    const zoom = canvas.getZoom();
+    const left = canvasRect.left + scrollX + aCoords.tl.x + handlePadding / 2;
+    const top = canvasRect.top + scrollY + aCoords.tl.y + handlePadding / 2;
+
+    // 4. Get dimensions with zoom scaling - reduce padding and add extra height for text overflow
+    const width = target.getScaledWidth() * zoom - handlePadding;
+    const height = Math.max(target.getScaledHeight() * zoom - handlePadding, 40); // Minimum height for text
+
+    // 5. Apply styles to host DIV - absolute positioning like rtl-test.html
+    this.hostDiv.style.position = 'absolute';
+    this.hostDiv.style.left = `${left}px`;
+    this.hostDiv.style.top = `${top}px`;
+    this.hostDiv.style.width = `${width}px`;
+    this.hostDiv.style.height = `${height}px`;
+    this.hostDiv.style.transform = `rotate(${target.angle || 0}deg)`;
+    this.hostDiv.style.transformOrigin = '0 0';
+
+    // 6. Style the textarea - match Fabric's exact rendering with rounding
+    // Apply scaling to font size to match how the text appears on canvas
+    const baseFontSize = (_target$fontSize = target.fontSize) !== null && _target$fontSize !== void 0 ? _target$fontSize : 16;
+    const scaleY = target.scaleY || 1;
+    const finalFontSize = baseFontSize * scaleY;
+    const fabricLineHeight = target.lineHeight || 1.16;
+    const actualLineHeight = Math.round(fabricLineHeight * finalFontSize * 100) / 100;
+    this.textarea.style.width = '100%';
+    this.textarea.style.height = '100%';
+    this.textarea.style.fontSize = `${finalFontSize}px`;
+    this.textarea.style.lineHeight = `${actualLineHeight}px`;
+    this.textarea.style.fontFamily = target.fontFamily || 'Arial';
+    this.textarea.style.fontWeight = String(target.fontWeight || 'normal');
+    this.textarea.style.fontStyle = target.fontStyle || 'normal';
+    this.textarea.style.textAlign = target.textAlign || 'left';
+    this.textarea.style.color = ((_target$fill = target.fill) === null || _target$fill === void 0 ? void 0 : _target$fill.toString()) || '#000'; // Use original text color
+    this.textarea.style.letterSpacing = `${(target.charSpacing || 0) / 1000}em`;
+    this.textarea.style.direction = target.direction || this.firstStrongDir(this.textarea.value || '');
+
+    // Ensure consistent font rendering between Fabric and CSS (from rtl-test.html)
+    this.textarea.style.fontVariant = 'normal';
+    this.textarea.style.fontStretch = 'normal';
+    this.textarea.style.textRendering = 'auto';
+    this.textarea.style.fontKerning = 'auto';
+    this.textarea.style.boxSizing = 'border-box';
+
+    // Initial bounds are set correctly by Fabric.js - don't force update here
+  }
+
+  /**
+   * Focus the textarea and position cursor at end
+   */
+  focusTextarea() {
+    // For overlay editing, we want to keep the object in "selection mode" not "editing mode"
+    // This means keeping selected=true and isEditing=false to show boundaries
+
+    // Hide the text content only (not the entire object)
+    this.target.opacity = 0.01; // Nearly transparent but not fully hidden
+
+    // Ensure object stays selected to show boundaries
+    this.target.selected = true;
+    this.target.isEditing = false; // Override any editing state
+
+    // Make sure controls are enabled  
+    this.target.set({
+      hasControls: true,
+      hasBorders: true,
+      selectable: true
+    });
+
+    // Keep as active object
+    this.canvas.setActiveObject(this.target);
+    this.canvas.requestRenderAll();
+    this.target.setCoords();
+    this.applyOverlayStyle();
+    this.textarea.focus();
+    this.textarea.setSelectionRange(this.textarea.value.length, this.textarea.value.length);
+
+    // Ensure the object stays selected even after textarea focus
+    this.canvas.setActiveObject(this.target);
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Refresh overlay positioning and styling
+   */
+  refresh() {
+    if (this.isDestroyed) return;
+    this.updatePosition();
+    // Don't update object bounds on every refresh - only when textarea actually resizes
+  }
+
+  /**
+   * Destroy the overlay editor
+   */
+  destroy() {
+    let commit = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : true;
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    this.removeEventListeners();
+
+    // Restore target visibility before handling commit/cancel
+    if (this.target.__overlayEditor === this) {
+      this.target.__overlayEditor = undefined;
+
+      // Restore original opacity
+      if (this.target.__overlayOriginalOpacity !== undefined) {
+        this.target.opacity = this.target.__overlayOriginalOpacity;
+        delete this.target.__overlayOriginalOpacity;
+      }
+    }
+
+    // Remove DOM first
+    if (this.hostDiv.parentNode) {
+      this.hostDiv.parentNode.removeChild(this.hostDiv);
+    }
+
+    // Handle commit/cancel after restoring visibility
+    if (commit && !this.isComposing) {
+      const finalText = this.textarea.value;
+      if (this.onCommit) {
+        this.onCommit(finalText);
+      }
+    } else if (!commit && this.onCancel) {
+      this.onCancel();
+    }
+
+    // Restore Fabric cursors for this object
+    if (this.savedCursors) {
+      var _this$savedCursors$ho, _this$savedCursors$mo;
+      this.target.hoverCursor = (_this$savedCursors$ho = this.savedCursors.hover) !== null && _this$savedCursors$ho !== void 0 ? _this$savedCursors$ho : this.target.hoverCursor;
+      this.target.moveCursor = (_this$savedCursors$mo = this.savedCursors.move) !== null && _this$savedCursors$mo !== void 0 ? _this$savedCursors$mo : this.target.moveCursor;
+      this.savedCursors = undefined;
+    }
+
+    // Request canvas re-render
+    this.canvas.requestRenderAll();
+  }
+
+  // Event handlers
+  handleInput() {
+    if (!this.isComposing && this.target.text !== this.textarea.value) {
+      // Live update target text
+      this.target.text = this.textarea.value;
+
+      // Auto-resize textarea to match new content
+      this.autoResizeTextarea();
+
+      // Ensure object stays in selection mode (not editing mode) to show controls
+      this.target.selected = true;
+      this.target.isEditing = false;
+      this.canvas.setActiveObject(this.target);
+      this.canvas.requestRenderAll();
+    }
+  }
+  autoResizeTextarea() {
+    // Allow both vertical growth and shrinking; host width stays fixed
+    const oldHeight = parseFloat(window.getComputedStyle(this.textarea).height);
+
+    // Reset height to measure actual needed height
+    this.textarea.style.height = 'auto';
+    const scrollHeight = this.textarea.scrollHeight;
+
+    // Add extra padding to prevent text clipping (especially for line height)
+    const lineHeightBuffer = 8; // Extra space to prevent clipping
+    const newHeight = Math.max(scrollHeight + lineHeightBuffer, 25); // Minimum height with buffer
+    const heightChanged = Math.abs(newHeight - oldHeight) > 2; // Only if meaningful change
+
+    this.textarea.style.height = `${newHeight}px`;
+    this.hostDiv.style.height = `${newHeight}px`; // Match exactly
+
+    // Only update object bounds if height actually changed
+    if (heightChanged) {
+      this.updateObjectBounds();
+    }
+  }
+  handleKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      this.destroy(false); // Cancel
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      this.destroy(true); // Commit
+    }
+  }
+  handleFocus() {
+    // Focus handler - could be used for future enhancements
+  }
+  handleBlur() {
+    // Commit on blur unless we're in composition mode
+    if (!this.isComposing) {
+      this.destroy(true);
+    }
+  }
+  handleCompositionStart() {
+    this.isComposing = true;
+  }
+  handleCompositionEnd() {
+    this.isComposing = false;
+    this.handleInput(); // Update text after composition
+  }
+  handleAfterRender() {
+    this.refresh();
+  }
+  handleMouseWheel() {
+    this.refresh();
+  }
+  handleMouseDown(e) {
+    if (e.target !== this.target) {
+      this.destroy(true);
+    }
+  }
+}
+
+/**
+ * Enter overlay text editing mode for a text object
+ */
+function enterTextOverlayEdit(canvas, target, options) {
+  // If already in overlay editing, destroy existing editor first
+  if (target.__overlayEditor) {
+    target.__overlayEditor.destroy(false);
+  }
+
+  // Store original opacity so we can restore it later
+  target.__overlayOriginalOpacity = target.opacity;
+  const editor = new OverlayEditor({
+    canvas,
+    target,
+    onCommit: options === null || options === void 0 ? void 0 : options.onCommit,
+    onCancel: options === null || options === void 0 ? void 0 : options.onCancel
+  });
+
+  // We no longer change fill, so no need to store it
+
+  // Store reference on target for cleanup
+  target.__overlayEditor = editor;
+  return editor;
+}
+
+/**
  *  extend this regex to support non english languages
  *
  *  - ` `      Matches a SPACE character (char code 32).
@@ -20840,14 +22591,76 @@ class ITextBehavior extends FabricText {
       this.canvas.textEditingManager.exitTextEditing();
     }
     this.isEditing = true;
-    this.initHiddenTextarea();
-    this.hiddenTextarea.focus();
-    this.hiddenTextarea.value = this.text;
-    this._updateTextarea();
+
+    // Check if using overlay editing
+    if (this.useOverlayEditing) {
+      this.enterOverlayEditing();
+    } else {
+      this.initHiddenTextarea();
+      this.hiddenTextarea.focus();
+      this.hiddenTextarea.value = this.text;
+      this._updateTextarea();
+      this._saveEditingProps();
+      this._setEditingProps();
+      this._textBeforeEdit = this.text;
+      this._tick();
+    }
+  }
+
+  /**
+   * Enter overlay editing mode using DOM textarea overlay
+   */
+  enterOverlayEditing() {
     this._saveEditingProps();
     this._setEditingProps();
     this._textBeforeEdit = this.text;
-    this._tick();
+    if (!this.canvas) {
+      return;
+    }
+
+    // Create overlay editor
+    enterTextOverlayEdit(this.canvas, this, {
+      onCommit: text => {
+        this.commitOverlayEdit(text);
+      },
+      onCancel: () => {
+        this.cancelOverlayEdit();
+      }
+    });
+  }
+
+  /**
+   * Commit overlay editing changes
+   */
+  commitOverlayEdit(text) {
+    const overlayEditor = this.__overlayEditor;
+    if (overlayEditor) {
+      // Extract browser lines for pixel-perfect rendering
+      try {
+        const result = extractLinesFromDOM(overlayEditor.textareaElement);
+        storeBrowserLines(this, result.lines);
+      } catch (error) {
+        console.warn('Failed to extract browser lines:', error);
+      }
+    }
+
+    // Update text content and trigger layout recalculation
+    this.text = text;
+    this.dirty = true;
+    this.initDimensions();
+    this.setCoords();
+    this.exitEditing();
+    this.fire('changed');
+    this.canvas && this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Cancel overlay editing without changes
+   */
+  cancelOverlayEdit() {
+    // Restore original text
+    this.text = this._textBeforeEdit || this.text;
+    this.exitEditing();
   }
 
   /**
@@ -22078,9 +23891,16 @@ class ITextClickBehavior extends ITextKeyBehavior {
   }
 
   /**
-   * Default handler for double click, select a word
+   * Default handler for double click, select a word or enter overlay editing
    */
   doubleClickHandler(options) {
+    // Check if we should enter overlay editing mode
+    if (!this.isEditing && this.useOverlayEditing && this.editable) {
+      this.enterEditing(options.e);
+      return;
+    }
+
+    // Default behavior: select word if already editing
     if (!this.isEditing) {
       return;
     }
@@ -22233,6 +24053,311 @@ class ITextClickBehavior extends ITextKeyBehavior {
     const result = this.flipX ? lineStartIndex + (charLength - lineCharIndex) : charIndex;
     return Math.min(result, this._text.length);
   }
+}
+
+/**
+ * Hit Testing and Cursor Positioning System
+ * 
+ * Maps pointer coordinates to text positions and provides cursor rectangles
+ * for interactive text editing with grapheme-aware boundaries.
+ */
+
+/**
+ * Hit test a point against laid out text to find insertion position
+ */
+function hitTest(x, y, layout, options) {
+  if (layout.lines.length === 0) {
+    return {
+      lineIndex: 0,
+      charIndex: 0,
+      graphemeIndex: 0,
+      isAtLineEnd: true,
+      isAtTextEnd: true,
+      insertionIndex: 0
+    };
+  }
+
+  // Find the line containing the y coordinate
+  const lineResult = findLineAtY(y, layout.lines);
+  const line = layout.lines[lineResult.lineIndex];
+  if (!line || line.bounds.length === 0) {
+    return {
+      lineIndex: lineResult.lineIndex,
+      charIndex: 0,
+      graphemeIndex: 0,
+      isAtLineEnd: true,
+      isAtTextEnd: lineResult.lineIndex >= layout.lines.length - 1,
+      insertionIndex: calculateInsertionIndex(lineResult.lineIndex, 0, layout)
+    };
+  }
+
+  // Find the character position within the line
+  const charResult = findCharAtX(x, line);
+
+  // Calculate total insertion index
+  const insertionIndex = calculateInsertionIndex(lineResult.lineIndex, charResult.graphemeIndex, layout);
+  return {
+    lineIndex: lineResult.lineIndex,
+    charIndex: charResult.charIndex,
+    graphemeIndex: charResult.graphemeIndex,
+    isAtLineEnd: charResult.isAtLineEnd,
+    isAtTextEnd: lineResult.lineIndex >= layout.lines.length - 1 && charResult.isAtLineEnd,
+    insertionIndex,
+    closestBound: charResult.closestBound
+  };
+}
+
+/**
+ * Get cursor rectangle for a given insertion index
+ */
+function getCursorRect(insertionIndex, layout, options) {
+  if (layout.lines.length === 0) {
+    return {
+      x: 0,
+      y: 0,
+      width: 2,
+      // Default cursor width
+      height: options.fontSize,
+      baseline: options.fontSize * 0.8
+    };
+  }
+  const position = findPositionFromIndex(insertionIndex, layout);
+  const line = layout.lines[position.lineIndex];
+  if (!line) {
+    // Past end of text
+    const lastLine = layout.lines[layout.lines.length - 1];
+    return {
+      x: lastLine.width,
+      y: (layout.lines.length - 1) * (options.fontSize * options.lineHeight),
+      width: 2,
+      height: options.fontSize * options.lineHeight,
+      baseline: options.fontSize * 0.8
+    };
+  }
+
+  // Get position within line
+  let x = 0;
+  if (position.graphemeIndex > 0 && line.bounds.length > 0) {
+    const boundIndex = Math.min(position.graphemeIndex - 1, line.bounds.length - 1);
+    const bound = line.bounds[boundIndex];
+    x = bound.x + bound.kernedWidth;
+  }
+  const y = calculateLineY(position.lineIndex, layout);
+  return {
+    x,
+    y,
+    width: 2,
+    // Standard cursor width
+    height: line.height,
+    baseline: y + line.baseline
+  };
+}
+
+// Private helper functions
+
+/**
+ * Find which line contains the given Y coordinate
+ */
+function findLineAtY(y, lines) {
+  var _lines;
+  let currentY = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (y >= currentY && y < currentY + line.height) {
+      return {
+        lineIndex: i,
+        offsetY: y - currentY
+      };
+    }
+    currentY += line.height;
+  }
+
+  // Y is past all lines - return last line
+  return {
+    lineIndex: lines.length - 1,
+    offsetY: ((_lines = lines[lines.length - 1]) === null || _lines === void 0 ? void 0 : _lines.height) || 0
+  };
+}
+
+/**
+ * Find character position within a line at given X coordinate
+ */
+function findCharAtX(x, line, options) {
+  if (line.bounds.length === 0) {
+    return {
+      charIndex: 0,
+      graphemeIndex: 0,
+      isAtLineEnd: true
+    };
+  }
+
+  // Create visual ordering: sort bounds by visual X position (left-to-right)
+  // This handles mixed LTR/RTL content where visual order != logical order
+  const visualBounds = line.bounds.map((bound, logicalIndex) => ({
+    bound,
+    logicalIndex,
+    visualX: bound.x,
+    visualXEnd: bound.x + bound.kernedWidth
+  })).sort((a, b) => a.visualX - b.visualX);
+
+  // Find leftmost and rightmost visual positions
+  const leftmostX = visualBounds[0].visualX;
+  const rightmostX = visualBounds[visualBounds.length - 1].visualXEnd;
+
+  // Handle clicks before the line starts
+  if (x < leftmostX) {
+    // Find the character that appears visually first
+    const firstVisualBound = visualBounds[0];
+    return {
+      charIndex: firstVisualBound.bound.charIndex,
+      graphemeIndex: firstVisualBound.bound.graphemeIndex,
+      isAtLineEnd: false,
+      closestBound: firstVisualBound.bound
+    };
+  }
+
+  // Handle clicks after the line ends
+  if (x >= rightmostX) {
+    // Find the character that appears visually last
+    const lastVisualBound = visualBounds[visualBounds.length - 1];
+    return {
+      charIndex: lastVisualBound.bound.charIndex + 1,
+      graphemeIndex: lastVisualBound.bound.graphemeIndex + 1,
+      isAtLineEnd: true,
+      closestBound: lastVisualBound.bound
+    };
+  }
+
+  // Find the character containing the X coordinate
+  for (let i = 0; i < visualBounds.length; i++) {
+    const {
+      bound,
+      visualX,
+      visualXEnd
+    } = visualBounds[i];
+    if (x >= visualX && x < visualXEnd) {
+      // Determine if closer to start or end of character
+      const midpoint = visualX + (visualXEnd - visualX) / 2;
+      const insertBeforeChar = x < midpoint;
+      if (insertBeforeChar) {
+        return {
+          charIndex: bound.charIndex,
+          graphemeIndex: bound.graphemeIndex,
+          isAtLineEnd: false,
+          closestBound: bound
+        };
+      } else {
+        // Insert after this character
+        return {
+          charIndex: bound.charIndex + 1,
+          graphemeIndex: bound.graphemeIndex + 1,
+          isAtLineEnd: false,
+          closestBound: bound
+        };
+      }
+    }
+
+    // Check if x is in the gap between this character and the next
+    if (i < visualBounds.length - 1) {
+      const nextVisual = visualBounds[i + 1];
+      if (x >= visualXEnd && x < nextVisual.visualX) {
+        // Click in gap - place cursor after current character
+        return {
+          charIndex: bound.charIndex + 1,
+          graphemeIndex: bound.graphemeIndex + 1,
+          isAtLineEnd: false,
+          closestBound: bound
+        };
+      }
+    }
+  }
+
+  // Fallback - find closest character
+  const closestBound = visualBounds.reduce((closest, current) => {
+    const closestDistance = Math.abs((closest.visualX + closest.visualXEnd) / 2 - x);
+    const currentDistance = Math.abs((current.visualX + current.visualXEnd) / 2 - x);
+    return currentDistance < closestDistance ? current : closest;
+  });
+  return {
+    charIndex: closestBound.bound.charIndex,
+    graphemeIndex: closestBound.bound.graphemeIndex,
+    isAtLineEnd: false,
+    closestBound: closestBound.bound
+  };
+}
+
+/**
+ * Calculate total insertion index from line and character indices
+ */
+function calculateInsertionIndex(lineIndex, graphemeIndex, layout) {
+  let insertionIndex = 0;
+
+  // Add characters from all previous lines
+  for (let i = 0; i < lineIndex && i < layout.lines.length; i++) {
+    insertionIndex += layout.lines[i].graphemes.length;
+    // Add newline character (except for last line)
+    if (i < layout.lines.length - 1) {
+      insertionIndex += 1; // \n character
+    }
+  }
+
+  // Add characters within current line
+  insertionIndex += graphemeIndex;
+  return insertionIndex;
+}
+
+/**
+ * Find line and grapheme position from insertion index
+ */
+function findPositionFromIndex(insertionIndex, layout) {
+  let currentIndex = 0;
+  for (let lineIndex = 0; lineIndex < layout.lines.length; lineIndex++) {
+    const line = layout.lines[lineIndex];
+    const lineLength = line.graphemes.length;
+
+    // Check if index is within this line
+    if (insertionIndex >= currentIndex && insertionIndex <= currentIndex + lineLength) {
+      return {
+        lineIndex,
+        graphemeIndex: insertionIndex - currentIndex
+      };
+    }
+
+    // Move to next line
+    currentIndex += lineLength;
+
+    // Add newline character (except after last line)
+    if (lineIndex < layout.lines.length - 1) {
+      currentIndex += 1; // \n character
+
+      // If insertion index is exactly at the newline
+      if (insertionIndex === currentIndex - 1) {
+        return {
+          lineIndex,
+          graphemeIndex: lineLength
+        };
+      }
+    }
+  }
+
+  // Index is past end of text
+  const lastLineIndex = layout.lines.length - 1;
+  const lastLine = layout.lines[lastLineIndex];
+  return {
+    lineIndex: lastLineIndex,
+    graphemeIndex: lastLine ? lastLine.graphemes.length : 0
+  };
+}
+
+/**
+ * Calculate Y position of a line
+ */
+function calculateLineY(lineIndex, layout, options) {
+  let y = 0;
+  for (let i = 0; i < lineIndex && i < layout.lines.length; i++) {
+    y += layout.lines[i].height;
+  }
+  return y;
 }
 
 const MOVE_CURSOR_UP = 'moveCursorUp';
@@ -22621,15 +24746,13 @@ class IText extends ITextClickBehavior {
   _getCursorBoundaries() {
     let index = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.selectionStart;
     let skipCaching = arguments.length > 1 ? arguments[1] : undefined;
-    const left = this._getLeftOffset(),
-      top = this._getTopOffset(),
-      offsets = this._getCursorBoundariesOffsets(index, skipCaching);
-    return {
-      left: left,
-      top: top,
-      leftOffset: offsets.left,
-      topOffset: offsets.top
-    };
+    // Use advanced cursor positioning if available
+    if (this.enableAdvancedLayout) {
+      return this._getCursorBoundariesAdvanced(index);
+    }
+
+    // Fall back to original method
+    return this._getCursorBoundariesOriginal(index, skipCaching);
   }
 
   /**
@@ -22646,6 +24769,56 @@ class IText extends ITextClickBehavior {
       return this.cursorOffsetCache;
     }
     return this.cursorOffsetCache = this.__getCursorBoundariesOffsets(index);
+  }
+
+  /**
+   * Enhanced cursor boundaries using advanced hit testing when available
+   * @private
+   */
+  _getCursorBoundariesAdvanced(index) {
+    if (!this.enableAdvancedLayout || !this._layoutTextAdvanced) {
+      return this._getCursorBoundariesOriginal(index);
+    }
+    const layout = this._layoutTextAdvanced();
+    const cursorRect = getCursorRect(index, layout, this._getAdvancedLayoutOptions());
+    return {
+      left: this._getLeftOffset(),
+      top: this._getTopOffset(),
+      leftOffset: cursorRect.x,
+      topOffset: cursorRect.y
+    };
+  }
+
+  /**
+   * Enhanced selection start from pointer using BiDi-aware hit testing
+   * @override
+   */
+  getSelectionStartFromPointer(e) {
+    if (!this.enableAdvancedLayout || !this._layoutTextAdvanced) {
+      return super.getSelectionStartFromPointer(e);
+    }
+    const mouseOffset = this.canvas.getScenePoint(e).transform(invertTransform(this.calcTransformMatrix())).add(new Point(-this._getLeftOffset(), -this._getTopOffset()));
+
+    // Use BiDi-aware hit testing instead of naive RTL coordinate flipping
+    const layout = this._layoutTextAdvanced();
+    const hitResult = hitTest(mouseOffset.x, mouseOffset.y, layout, this._getAdvancedLayoutOptions());
+    return Math.min(hitResult.charIndex, this._text.length);
+  }
+
+  /**
+   * Original cursor boundaries implementation
+   * @private
+   */
+  _getCursorBoundariesOriginal(index, skipCaching) {
+    const left = this._getLeftOffset(),
+      top = this._getTopOffset(),
+      offsets = this._getCursorBoundariesOffsets(index, skipCaching);
+    return {
+      left: left,
+      top: top,
+      leftOffset: offsets.left,
+      topOffset: offsets.top
+    };
   }
 
   /**
@@ -22997,6 +25170,11 @@ class Textbox extends IText {
     if (!this.initialized) {
       return;
     }
+
+    // Use advanced layout if enabled
+    if (this.enableAdvancedLayout) {
+      return this.initDimensionsAdvanced();
+    }
     this.isEditing && this.initDelayedCursor();
     this._clearCache();
     // clear dynamicMinWidth as it will be different after we re-wrap line
@@ -23013,6 +25191,87 @@ class Textbox extends IText {
     }
     // clear cache and re-calculate height
     this.height = this.calcTextHeight();
+  }
+
+  /**
+   * Advanced dimensions calculation using new layout engine
+   * @private
+   */
+  initDimensionsAdvanced() {
+    if (!this.initialized) {
+      return;
+    }
+    this.isEditing && this.initDelayedCursor();
+    this._clearCache();
+    this.dynamicMinWidth = 0;
+
+    // Use new layout engine
+    const layout = layoutText({
+      text: this.text,
+      width: this.width,
+      height: this.height,
+      wrap: this.wrap || 'word',
+      align: this._mapTextAlignToAlign(this.textAlign),
+      ellipsis: this.ellipsis || false,
+      fontSize: this.fontSize,
+      lineHeight: this.lineHeight,
+      letterSpacing: this.letterSpacing || 0,
+      charSpacing: this.charSpacing,
+      direction: this.direction === 'inherit' ? 'ltr' : this.direction,
+      fontFamily: this.fontFamily,
+      fontStyle: this.fontStyle,
+      fontWeight: this.fontWeight,
+      verticalAlign: this.verticalAlign || 'top'
+    });
+
+    // Update dynamic minimum width based on layout
+    if (layout.lines.length > 0) {
+      const maxLineWidth = Math.max(...layout.lines.map(line => line.width));
+      this.dynamicMinWidth = Math.max(this.minWidth, maxLineWidth);
+    }
+
+    // Adjust width if needed (preserving Textbox behavior)
+    if (this.dynamicMinWidth > this.width) {
+      this._set('width', this.dynamicMinWidth);
+      // Re-layout with new width
+      const newLayout = layoutText({
+        ...this._getAdvancedLayoutOptions(),
+        width: this.width
+      });
+      this.height = newLayout.totalHeight;
+      this._convertLayoutToLegacyFormat(newLayout);
+    } else {
+      this.height = layout.totalHeight;
+      this._convertLayoutToLegacyFormat(layout);
+    }
+
+    // Generate style map for compatibility
+    this._styleMap = this._generateStyleMapFromLayout(layout);
+    this.dirty = true;
+  }
+
+  /**
+   * Generate style map from new layout format
+   * @private
+   */
+  _generateStyleMapFromLayout(layout) {
+    const map = {};
+    let realLineCount = 0;
+    let charCount = 0;
+    layout.lines.forEach((line, i) => {
+      if (line.text.includes('\n') && i > 0) {
+        realLineCount++;
+      }
+      map[i] = {
+        line: realLineCount,
+        offset: 0
+      };
+      charCount += line.graphemes.length;
+      if (i < layout.lines.length - 1) {
+        charCount += 1; // newline character
+      }
+    });
+    return map;
   }
 
   /**

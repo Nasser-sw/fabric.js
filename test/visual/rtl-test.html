@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Fabric.js RTL Text Selection Test</title>
+    <title>Fabric.js RTL HTML Editor Test</title>
     <style>
         body {
             margin: 20px;
@@ -31,6 +31,7 @@
         }
         
         .canvas-container {
+            position: relative; /* Required for editor positioning */
             margin: 10px 0;
             border: 1px solid #ccc;
         }
@@ -56,49 +57,56 @@
 </head>
 <body>
     <div class="container">
-        <h1>Fabric.js RTL Text Selection Bug Reproduction</h1>
+        <h1>Fabric.js RTL HTML Editor Implementation</h1>
         
         <div class="instructions">
-            <strong>RTL Text Selection Test Instructions:</strong>
+            <strong>RTL Text HTML Editor Test Instructions:</strong>
             <ol>
-                <li><strong>Click on Arabic text</strong> to enter edit mode - cursor should appear at the RIGHT side of Arabic text</li>
-                <li><strong>Try clicking different positions</strong> in the Arabic text - cursor should follow your mouse correctly</li>
-                <li><strong>Drag to select text</strong> - selection should work naturally (not mirrored)</li>
-                <li><strong>Use arrow keys</strong> to navigate - Left arrow should move toward text start (visually right), Right arrow toward text end (visually left)</li>
-                <li><strong>Type Arabic characters</strong> - they should appear correctly at cursor position</li>
-                <li>Compare RTL behavior with LTR text below to see the difference</li>
-                <li>Check the console output below for technical details</li>
+                <li><strong>Rotate an object slightly</strong> using its corner handle.</li>
+                <li><strong>Double-click the rotated text</strong> to enter HTML editor mode.</li>
+                <li>Observe the transition. It should be **perfectly seamless with zero jump**.</li>
+                <li>While editing, scroll the page or resize the window. The editor will "stick" to the rotated object's position.</li>
             </ol>
-            <p><strong>Expected Result:</strong> Arabic text should behave like in professional editors (e.g., Microsoft Word, Google Docs) with proper right-to-left cursor and selection behavior.</p>
+            <p><strong>Expected Result:</strong> A robust, seamless transition for objects at any position, scale, or rotation.</p>
         </div>
         
         <div class="test-section">
             <div class="test-title">1. Arabic RTL Text - Cursor & Selection Test</div>
-            <canvas id="rtl-canvas" width="600" height="150"></canvas>
+            <div class="canvas-container">
+                <canvas id="rtl-canvas" width="600" height="150"></canvas>
+            </div>
             <div id="rtl-log" class="log-output">RTL selection logs will appear here...</div>
         </div>
         
         <div class="test-section">
             <div class="test-title">2. English LTR Text (Reference)</div>
-            <canvas id="ltr-canvas" width="600" height="150"></canvas>
+            <div class="canvas-container">
+                <canvas id="ltr-canvas" width="600" height="150"></canvas>
+            </div>
             <div id="ltr-log" class="log-output">LTR selection logs will appear here...</div>
         </div>
         
         <div class="test-section">
             <div class="test-title">3. Mixed BiDi Text (Complex Case)</div>
-            <canvas id="bidi-canvas" width="600" height="150"></canvas>
+            <div class="canvas-container">
+                <canvas id="bidi-canvas" width="600" height="150"></canvas>
+            </div>
             <div id="bidi-log" class="log-output">BiDi selection logs will appear here...</div>
         </div>
         
         <div class="test-section">
             <div class="test-title">4. Multi-line RTL Text (Textbox with wrapping)</div>
-            <canvas id="multiline-canvas" width="600" height="200"></canvas>
+            <div class="canvas-container">
+                <canvas id="multiline-canvas" width="600" height="200"></canvas>
+            </div>
             <div id="multiline-log" class="log-output">Multi-line RTL logs will appear here...</div>
         </div>
         
         <div class="test-section">
             <div class="test-title">5. RTL Text with Different Alignments</div>
-            <canvas id="alignment-canvas" width="600" height="300"></canvas>
+            <div class="canvas-container">
+                <canvas id="alignment-canvas" width="600" height="300"></canvas>
+            </div>
             <div id="alignment-log" class="log-output">Alignment test logs will appear here...</div>
         </div>
     </div>
@@ -107,52 +115,207 @@
     <script src="../../dist/index.js"></script>
     
     <script>
-        // Test configuration
-        const tests = [
-            {
-                id: 'rtl-canvas',
-                logId: 'rtl-log',
-                text: 'مرحبا بكم في Fabric.js - هذا نص عربي للاختبار',
-                direction: 'rtl',
-                textAlign: 'right',
-                width: 500
-            },
-            {
-                id: 'ltr-canvas', 
-                logId: 'ltr-log',
-                text: 'Welcome to Fabric.js - This is English text for testing',
-                direction: 'ltr',
-                textAlign: 'left',
-                width: 500
-            },
-            {
-                id: 'bidi-canvas',
-                logId: 'bidi-log', 
-                text: 'Fabric.js مرحبا welcome نص مختلط mixed text',
-                direction: 'ltr',
-                textAlign: 'left',
-                width: 500
-            },
-            {
-                id: 'multiline-canvas',
-                logId: 'multiline-log',
-                text: 'هذا نص طويل باللغة العربية يجب أن يلتف إلى عدة أسطر لاختبار الاختيار متعدد الأسطر في النصوص من اليمين إلى اليسار',
-                direction: 'rtl',
-                textAlign: 'right',
-                width: 400
-            },
-            {
-                id: 'alignment-canvas',
-                logId: 'alignment-log',
-                text: 'اختبار محاذاة النص',
-                direction: 'rtl',
-                textAlign: 'center', 
-                width: 500,
-                isAlignment: true
+        // --- SEAMLESS HTML EDITOR SYSTEM (HERO VERSION) ---
+        class FabricHTMLEditor {
+            constructor() {
+                this.textarea = null;
+                this.activeObject = null;
+                this.canvas = null;
+                this.isActive = false;
+                this.boundReposition = this.repositionEditor.bind(this);
+                this.initEditor();
             }
+            
+            initEditor() {
+                this.textarea = document.createElement('textarea');
+                this.textarea.style.cssText = `
+                    position: absolute;
+                    display: none;
+                    resize: none;
+                    overflow: auto;
+                    padding: 0;
+                    margin: 0;
+                    border: none;
+                    background: transparent;
+                    box-sizing: border-box;
+                    outline: none;
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                    z-index: 1000;
+                    min-height: inherit;
+                `;
+                document.body.appendChild(this.textarea);
+                this.textarea.addEventListener('blur', () => this.exitEditMode());
+                this.textarea.addEventListener('input', () => this.autoResizeTextarea());
+            }
+            
+            startEditMode(fabricObject, canvas) {
+                if (this.isActive) return;
+                
+                this.activeObject = fabricObject;
+                this.canvas = canvas;
+                this.isActive = true;
+                
+                // Synchronize and position the editor
+                this.repositionEditor();
+                this.synchronizeStyles();
+                this.synchronizeTransforms();
+                
+                this.executeSwap();
+                
+                window.addEventListener('scroll', this.boundReposition, true);
+                window.addEventListener('resize', this.boundReposition);
+            }
+
+            repositionEditor() {
+                if (!this.isActive) return;
+                const geometry = this.calculateGeometry();
+                this.textarea.style.left = geometry.left + 'px';
+                this.textarea.style.top = geometry.top + 'px';
+                this.textarea.style.width = geometry.width + 'px';
+                this.textarea.style.height = geometry.height + 'px';
+            }
+            
+            autoResizeTextarea() {
+                if (!this.isActive) return;
+                
+                // Reset height to auto to get the natural content height
+                this.textarea.style.height = 'auto';
+                // Set height to scrollHeight to fit all content
+                this.textarea.style.height = this.textarea.scrollHeight + 'px';
+                
+                console.log(`HTML Editor: Auto-resized to ${this.textarea.scrollHeight}px height`);
+            }
+            
+            // HERO'S FIX 1/3: New geometry calculation using transformed coordinates
+            calculateGeometry() {
+                const obj = this.activeObject;
+                const canvas = this.canvas;
+                const canvasEl = canvas.getElement();
+                const canvasRect = canvasEl.getBoundingClientRect();
+                const zoom = canvas.getZoom();
+
+                // Get the object's absolute corner coordinates (aCoords), which account for rotation.
+                // This is the key to perfect alignment.
+                const aCoords = obj.aCoords;
+                
+                const scrollX = window.scrollX || window.pageXOffset;
+                const scrollY = window.scrollY || window.pageYOffset;
+
+                // Position the editor at the object's true top-left corner
+                const left = canvasRect.left + scrollX + aCoords.tl.x;
+                const top = canvasRect.top + scrollY + aCoords.tl.y;
+
+                // Set the editor's size to the object's un-rotated, scaled dimensions
+                const width = obj.getScaledWidth() * zoom;
+                const height = obj.getScaledHeight() * zoom;
+
+                log(obj.logId, `Editor Reposition (Rotated): left=${left.toFixed(1)}, top=${top.toFixed(1)}`);
+                
+                return { left, top, width, height, zoom };
+            }
+            
+            synchronizeStyles() {
+                const obj = this.activeObject;
+                const zoom = this.canvas.getZoom();
+                const textarea = this.textarea;
+                
+                textarea.style.fontFamily = obj.fontFamily || 'Arial';
+                textarea.style.fontSize = obj.fontSize + 'px';  // Don't multiply by zoom - container size already accounts for it
+                textarea.style.fontWeight = obj.fontWeight || 'normal';
+                textarea.style.fontStyle = obj.fontStyle || 'normal';
+                
+                // Ensure consistent font rendering between Fabric and CSS
+                textarea.style.fontVariant = 'normal';
+                textarea.style.fontStretch = 'normal';
+                textarea.style.textRendering = 'auto';
+                textarea.style.fontKerning = 'auto';
+                textarea.style.color = obj.fill || '#000000';
+                textarea.style.textAlign = obj.textAlign || 'left';
+                // Debug line height values
+                console.log(`HTML Editor: Fabric lineHeight = ${obj.lineHeight}, fontSize = ${obj.fontSize}`);
+                
+                // Fabric.js uses lineHeight as a multiplier of fontSize (usually 1.16 default)
+                // We need to convert this to match exactly how Fabric renders lines
+                const fabricLineHeight = obj.lineHeight || 1.16;
+                const actualLineHeight = fabricLineHeight * obj.fontSize;
+                
+                // Set as pixel value to match Fabric's calculation exactly
+                textarea.style.lineHeight = actualLineHeight + 'px';
+                
+                textarea.style.letterSpacing = (obj.charSpacing || 0) / 1000 + 'em';
+                textarea.style.direction = obj.direction || 'ltr';
+                
+                console.log(`HTML Editor: Set CSS lineHeight = ${actualLineHeight}px (${fabricLineHeight} × ${obj.fontSize})`);
+                
+                let textDecoration = 'none';
+                if (obj.underline) textDecoration += ' underline';
+                if (obj.overline) textDecoration += ' overline';  
+                if (obj.linethrough) textDecoration += ' line-through';
+                textarea.style.textDecoration = textDecoration.trim();
+                
+                textarea.value = obj.text || '';
+            }
+
+            // HERO'S FIX 2/3: Update transform logic for the new positioning method
+            synchronizeTransforms() {
+                const obj = this.activeObject;
+                const textarea = this.textarea;
+
+                // We only need to apply rotation, as position and scale are handled directly.
+                textarea.style.transform = `rotate(${obj.angle || 0}deg)`;
+                
+                // HERO'S FIX 3/3: The transform origin MUST be top-left (0 0)
+                // because we positioned the textarea using the object's top-left corner (aCoords.tl).
+                textarea.style.transformOrigin = '0 0';
+            }
+
+            executeSwap() {
+                const obj = this.activeObject;
+                log(obj.logId, 'HTML Editor: Executing swap - textarea visible, Fabric object hidden.');
+                
+                this.textarea.style.display = 'block';
+                obj.visible = false;
+                this.canvas.requestRenderAll();
+                
+                setTimeout(() => {
+                    this.textarea.focus();
+                    this.textarea.select();
+                    this.autoResizeTextarea();  // Ensure proper initial sizing
+                }, 10);
+            }
+            
+            exitEditMode() {
+                if (!this.isActive) return;
+                
+                log(this.activeObject.logId, 'HTML Editor: Exiting edit mode - reverse swap.');
+                
+                window.removeEventListener('scroll', this.boundReposition, true);
+                window.removeEventListener('resize', this.boundReposition);
+
+                this.activeObject.set('text', this.textarea.value);
+                this.activeObject.set('visible', true);
+                this.canvas.requestRenderAll();
+                this.textarea.style.display = 'none';
+                
+                this.isActive = false;
+                this.activeObject = null;
+                this.canvas = null;
+            }
+        }
+        
+        // --- TEST SETUP ---
+        
+        const htmlEditor = new FabricHTMLEditor();
+        
+        const tests = [
+            { id: 'rtl-canvas', logId: 'rtl-log', text: 'مرحبا بكم في Fabric.js - هذا نص عربي للاختبار', direction: 'rtl', textAlign: 'right', width: 500 },
+            { id: 'ltr-canvas', logId: 'ltr-log', text: 'Welcome to Fabric.js - This is English text for testing', direction: 'ltr', textAlign: 'left', width: 500 },
+            { id: 'bidi-canvas', logId: 'bidi-log', text: 'Fabric.js مرحبا welcome نص مختلط mixed text', direction: 'ltr', textAlign: 'left', width: 500 },
+            { id: 'multiline-canvas', logId: 'multiline-log', text: 'هذا نص طويل باللغة العربية يجب أن يلتف إلى عدة أسطر لاختبار الاختيار متعدد الأسطر في النصوص من اليمين إلى اليسار', direction: 'rtl', textAlign: 'right', width: 400 },
+            { id: 'alignment-canvas', logId: 'alignment-log', text: 'اختبار محاذاة النص', direction: 'rtl', textAlign: 'center', width: 500, isAlignment: true }
         ];
         
-        // Logger utility
         function log(testId, message) {
             const logElement = document.getElementById(testId);
             const timestamp = new Date().toLocaleTimeString();
@@ -161,99 +324,43 @@
             console.log(`[${testId}] ${message}`);
         }
         
-        // Create test instances
         tests.forEach(test => {
-            const canvas = new fabric.Canvas(test.id, {
-                backgroundColor: 'white',
-                selection: false
-            });
+            const canvas = new fabric.Canvas(test.id, { backgroundColor: '#f9f9f9', selection: true });
             
+            canvas.on('text:editing:entered', (e) => e.target && e.target.exitEditing());
+
+            const createTextbox = (text, options) => {
+                const textbox = new fabric.Textbox(text, options);
+                textbox.logId = test.logId;
+                
+                textbox.on('mousedblclick', function() {
+                    log(test.logId, `Double-click detected - starting HTML editor mode.`);
+                    htmlEditor.startEditMode(this, canvas);
+                });
+                return textbox;
+            };
+
             if (test.isAlignment) {
-                // Create multiple textboxes with different alignments for alignment test
                 const alignments = ['left', 'center', 'right'];
                 alignments.forEach((align, index) => {
-                    const textbox = new fabric.Textbox(test.text + ' - ' + align, {
-                        left: 50,
-                        top: 30 + (index * 80),
-                        width: test.width,
-                        fontSize: 20,
-                        fontFamily: 'Arial',
-                        direction: test.direction,
-                        textAlign: align,
-                        editable: true,
-                        selectable: true
+                    const textbox = createTextbox(test.text + ' - ' + align, {
+                        left: 50, top: 30 + (index * 80), width: test.width, fontSize: 20,
+                        fontFamily: 'Arial', direction: test.direction, textAlign: align,
                     });
-                    
                     canvas.add(textbox);
-                    
-                    // Add event handlers
-                    addEventHandlers(textbox, test.logId, align);
                 });
-                
-                log(test.logId, `Initialized alignment test with alignments: ${alignments.join(', ')}`);
+                log(test.logId, `Initialized alignment test with alignments: ${alignments.join(', ')}.`);
             } else {
-                const textbox = new fabric.Textbox(test.text, {
-                    left: 50,
-                    top: 50,
-                    width: test.width,
-                    fontSize: 24,
-                    fontFamily: 'Arial',
-                    direction: test.direction,
-                    textAlign: test.textAlign,
-                    editable: true,
-                    selectable: true
+                const textbox = createTextbox(test.text, {
+                    left: 50, top: 50, width: test.width, fontSize: 24,
+                    fontFamily: 'Arial', direction: test.direction, textAlign: test.textAlign,
                 });
-                
                 canvas.add(textbox);
-                canvas.setActiveObject(textbox);
-                
-                // Add event handlers
-                addEventHandlers(textbox, test.logId);
-                
-                // Log initial state
-                log(test.logId, `Initialized: text="${test.text}", direction="${test.direction}", align="${test.textAlign}"`);
+                log(test.logId, `Initialized: text="${test.text}", direction="${test.direction}", align="${test.textAlign}".`);
             }
         });
         
-        // Helper function to add event handlers
-        function addEventHandlers(textbox, logId, suffix = '') {
-            const logPrefix = suffix ? `[${suffix}] ` : '';
-            
-            // Monitor selection changes
-            textbox.on('selection:changed', function() {
-                log(logId, `${logPrefix}Selection: start=${this.selectionStart}, end=${this.selectionEnd}, text="${this.getSelectedText()}"`);
-            });
-            
-            // Monitor mouse events for detailed tracking
-            textbox.on('mousedown', function(e) {
-                const startIndex = this.getSelectionStartFromPointer(e.e);
-                log(logId, `${logPrefix}MouseDown: pointer=(${e.pointer.x.toFixed(1)}, ${e.pointer.y.toFixed(1)}), startIndex=${startIndex}`);
-                this.__debugStartIndex = startIndex; // Store for comparison
-            });
-            
-            textbox.on('mousemove', function(e) {
-                if (this.isEditing && e.e.buttons === 1) { // Only when dragging
-                    const currentIndex = this.getSelectionStartFromPointer(e.e);
-                    const startIndex = this.__debugStartIndex || this.__selectionStartOnMouseDown;
-                    log(logId, `${logPrefix}MouseMove: pointer=(${e.pointer.x.toFixed(1)}, ${e.pointer.y.toFixed(1)})`);
-                    log(logId, `${logPrefix}  → StartIndex=${startIndex}, CurrentIndex=${currentIndex}, Direction=${this.direction}`);
-                    log(logId, `${logPrefix}  → Will select: ${Math.min(startIndex, currentIndex)} to ${Math.max(startIndex, currentIndex)}`);
-                }
-            });
-            
-            // Monitor cursor boundaries for debugging
-            const originalGetCursorBoundaries = textbox._getCursorBoundaries;
-            textbox._getCursorBoundaries = function(index, skipCaching) {
-                const boundaries = originalGetCursorBoundaries.call(this, index, skipCaching);
-                if (this.isEditing) {
-                    log(logId, `${logPrefix}CursorBounds[${index}]: left=${boundaries.left.toFixed(1)}, top=${boundaries.top.toFixed(1)}`);
-                }
-                return boundaries;
-            };
-        }
-        
-        // Add global keyboard shortcut for clearing logs
-        document.addEventListener('keydown', function(e) {
+        document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'l') {
                 e.preventDefault();
                 tests.forEach(test => {
@@ -262,7 +369,7 @@
             }
         });
         
-        console.log('RTL Test Page loaded. Press Ctrl+L to clear logs.');
+        console.log('RTL HTML Editor Test Page loaded. Double-click text to edit. Press Ctrl+L to clear logs.');
     </script>
 </body>
 </html>

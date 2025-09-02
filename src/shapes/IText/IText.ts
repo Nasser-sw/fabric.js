@@ -1,6 +1,8 @@
 import { Canvas } from '../../canvas/Canvas';
 import type { ITextEvents } from './ITextBehavior';
 import { ITextClickBehavior } from './ITextClickBehavior';
+import { hitTest, getCursorRect, getSelectionRects } from '../../text/hitTest';
+import type { HitTestResult, CursorRect } from '../../text/hitTest';
 import {
   ctrlKeysMapDown,
   ctrlKeysMapUp,
@@ -8,6 +10,7 @@ import {
   keysMapRtl,
 } from './constants';
 import type { TClassProperties, TFiller, TOptions } from '../../typedefs';
+import type { TPointerEvent } from '../../EventTypeDefs';
 import { classRegistry } from '../../ClassRegistry';
 import type { SerializedTextProps, TextProps } from '../Text/Text';
 import {
@@ -21,6 +24,8 @@ import type { ObjectToCanvasElementOptions } from '../Object/Object';
 import type { FabricObject } from '../Object/FabricObject';
 import { createCanvasElementFor } from '../../util/misc/dom';
 import { applyCanvasTransform } from '../../util/internals/applyCanvasTransform';
+import { Point } from '../../Point';
+import { invertTransform } from '../../util/misc/matrix';
 
 export type CursorBoundaries = {
   left: number;
@@ -464,16 +469,15 @@ export class IText<
     index: number = this.selectionStart,
     skipCaching?: boolean,
   ): CursorBoundaries {
-    const left = this._getLeftOffset(),
-      top = this._getTopOffset(),
-      offsets = this._getCursorBoundariesOffsets(index, skipCaching);
-    return {
-      left: left,
-      top: top,
-      leftOffset: offsets.left,
-      topOffset: offsets.top,
-    };
+    // Use advanced cursor positioning if available
+    if (this.enableAdvancedLayout) {
+      return this._getCursorBoundariesAdvanced(index);
+    }
+    
+    // Fall back to original method
+    return this._getCursorBoundariesOriginal(index, skipCaching);
   }
+
 
   /**
    * Caches and returns cursor left/top offset relative to instance's center point
@@ -492,6 +496,62 @@ export class IText<
       return this.cursorOffsetCache as { left: number; top: number };
     }
     return (this.cursorOffsetCache = this.__getCursorBoundariesOffsets(index));
+  }
+
+  /**
+   * Enhanced cursor boundaries using advanced hit testing when available
+   * @private
+   */
+  _getCursorBoundariesAdvanced(index: number): CursorBoundaries {
+    if (!this.enableAdvancedLayout || !(this as any)._layoutTextAdvanced) {
+      return this._getCursorBoundariesOriginal(index);
+    }
+
+    const layout = (this as any)._layoutTextAdvanced();
+    const cursorRect = getCursorRect(index, layout, (this as any)._getAdvancedLayoutOptions());
+    
+    return {
+      left: this._getLeftOffset(),
+      top: this._getTopOffset(),
+      leftOffset: cursorRect.x,
+      topOffset: cursorRect.y,
+    };
+  }
+
+  /**
+   * Enhanced selection start from pointer using BiDi-aware hit testing
+   * @override
+   */
+  getSelectionStartFromPointer(e: TPointerEvent): number {
+    if (!this.enableAdvancedLayout || !(this as any)._layoutTextAdvanced) {
+      return super.getSelectionStartFromPointer(e);
+    }
+
+    const mouseOffset = this.canvas!.getScenePoint(e)
+      .transform(invertTransform(this.calcTransformMatrix()))
+      .add(new Point(-this._getLeftOffset(), -this._getTopOffset()));
+
+    // Use BiDi-aware hit testing instead of naive RTL coordinate flipping
+    const layout = (this as any)._layoutTextAdvanced();
+    const hitResult = hitTest(mouseOffset.x, mouseOffset.y, layout, (this as any)._getAdvancedLayoutOptions());
+    
+    return Math.min(hitResult.charIndex, this._text.length);
+  }
+
+  /**
+   * Original cursor boundaries implementation
+   * @private
+   */
+  _getCursorBoundariesOriginal(index: number, skipCaching?: boolean): CursorBoundaries {
+    const left = this._getLeftOffset(),
+      top = this._getTopOffset(),
+      offsets = this._getCursorBoundariesOffsets(index, skipCaching);
+    return {
+      left: left,
+      top: top,
+      leftOffset: offsets.left,
+      topOffset: offsets.top,
+    };
   }
 
   /**
