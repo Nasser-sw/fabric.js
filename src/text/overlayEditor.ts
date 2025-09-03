@@ -82,10 +82,10 @@ export class OverlayEditor {
     if (!container) {
       throw new Error('Canvas must be mounted in DOM to use overlay editing');
     }
-    
+
     // Ensure the container is positioned for absolute overlay positioning
     container.style.position = 'relative';
-    
+
     return container;
   }
 
@@ -109,10 +109,17 @@ export class OverlayEditor {
     this.textarea.style.resize = 'none';
     this.textarea.style.pointerEvents = 'auto';
     // Set appropriate unicodeBidi based on content and direction
-    const hasArabicText = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(this.target.text || '');
+    const hasArabicText =
+      /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(
+        this.target.text || '',
+      );
+    const hasLatinText = /[a-zA-Z]/.test(this.target.text || '');
     const isLTRDirection = (this.target as any).direction === 'ltr';
-    
-    if (hasArabicText && isLTRDirection) {
+
+    if (hasArabicText && hasLatinText && isLTRDirection) {
+      // For mixed Arabic/Latin text in LTR mode, use embed for consistent line wrapping
+      this.textarea.style.unicodeBidi = 'embed';
+    } else if (hasArabicText && isLTRDirection) {
       // For Arabic text in LTR mode, use embed to preserve shaping while respecting direction
       this.textarea.style.unicodeBidi = 'embed';
     } else {
@@ -165,7 +172,7 @@ export class OverlayEditor {
     this.canvas.on('after:render', this.boundHandlers.onAfterRender);
     this.canvas.on('mouse:wheel', this.boundHandlers.onMouseWheel);
     this.canvas.on('mouse:down', this.boundHandlers.onMouseDown);
-    
+
     // Store original methods to detect viewport changes
     this.setupViewportChangeDetection();
   }
@@ -190,7 +197,7 @@ export class OverlayEditor {
     this.canvas.off('after:render', this.boundHandlers.onAfterRender);
     this.canvas.off('mouse:wheel', this.boundHandlers.onMouseWheel);
     this.canvas.off('mouse:down', this.boundHandlers.onMouseDown);
-    
+
     // Restore original methods
     this.restoreViewportChangeDetection();
   }
@@ -211,19 +218,33 @@ export class OverlayEditor {
 
     const target = this.target;
     const zoom = this.canvas.getZoom();
-    
+
     // Get current textbox dimensions from the host div (in canvas coordinates)
     const currentWidth = parseFloat(this.hostDiv.style.width) / zoom;
     const currentHeight = parseFloat(this.hostDiv.style.height) / zoom;
-    
-    // Only update if there's a meaningful change (avoid float precision issues)
+
+    // Always update height for responsive controls (especially important for line deletion)
     const heightDiff = Math.abs(currentHeight - target.height);
-    const threshold = 1; // 1px threshold to avoid micro-changes
-    
+    const threshold = 0.5; // Lower threshold for better responsiveness to line changes
+
     if (heightDiff > threshold) {
+      const oldHeight = target.height;
       target.height = currentHeight;
       target.setCoords(); // Update control positions
+
+      // Force dirty to ensure proper re-rendering
+      target.dirty = true;
       this.canvas.requestRenderAll(); // Re-render to show updated selection
+
+      // IMPORTANT: Reposition overlay after height change
+      requestAnimationFrame(() => {
+        if (!this.isDestroyed) {
+          this.applyOverlayStyle();
+          console.log(
+            '📐 Height changed - rechecking alignment after repositioning:',
+          );
+        }
+      });
     }
   }
 
@@ -251,15 +272,7 @@ export class OverlayEditor {
     // 1. Freshen object's transformations - use aCoords like rtl-test.html
     target.setCoords();
     const aCoords = target.aCoords;
-    
-    // DEBUG: Log dimensions before edit
-    console.log('BEFORE EDIT:');
-    console.log('  target.width =', (target as any).width);
-    console.log('  target.height =', target.height);
-    console.log('  target.getScaledWidth() =', target.getScaledWidth());
-    console.log('  target.getScaledHeight() =', target.getScaledHeight());
-    console.log('  target.padding =', (target as any).padding);
-    
+
     // 2. Get canvas position and scroll offsets (like rtl-test.html)
     const canvasEl = canvas.upperCanvasEl;
     const canvasRect = canvasEl.getBoundingClientRect();
@@ -275,20 +288,20 @@ export class OverlayEditor {
 
     // Transform object's top-left corner coordinates to screen coordinates using viewport transform
     // aCoords.tl already accounts for object positioning and scaling, just need viewport transform
-    const screenPoint = transformPoint({ x: aCoords.tl.x, y: aCoords.tl.y }, vpt);
-    
+    const screenPoint = transformPoint(
+      { x: aCoords.tl.x, y: aCoords.tl.y },
+      vpt,
+    );
+
     const left = canvasRect.left + scrollX + screenPoint.x;
     const top = canvasRect.top + scrollY + screenPoint.y;
 
-    // 4. Get dimensions with zoom scaling - use target.width for text wrapping, scaled height for container
-    const width = (target as any).width * (target.scaleX || 1) * zoom; // Account for object scale and viewport zoom
-    const height = target.height * (target.scaleY || 1) * zoom;
-    
-    console.log('WIDTH CALCULATION:');
-    console.log('  target.width =', (target as any).width);
-    console.log('  scaledWidth =', target.getScaledWidth());
-    console.log('  zoom =', zoom);
-    console.log('  final width =', width);
+    // 4. Calculate the precise width and height for the container
+    // **THE FIX:** Use getBoundingRect() for BOTH width and height.
+    // This is the most reliable measure of the object's final rendered dimensions.
+    const objectBounds = target.getBoundingRect();
+    const width = Math.round(objectBounds.width * zoom);
+    const height = Math.round(objectBounds.height * zoom);
 
     // 5. Apply styles to host DIV - absolute positioning like rtl-test.html
     this.hostDiv.style.position = 'absolute';
@@ -307,99 +320,308 @@ export class OverlayEditor {
     }
 
     // 6. Style the textarea - match Fabric's exact rendering with padding
-    const baseFontSize = (target.fontSize ?? 16);
+    const baseFontSize = target.fontSize ?? 16;
     // Use scaleX for font scaling to match Fabric text scaling exactly
     const scaleX = target.scaleX || 1;
     const finalFontSize = baseFontSize * scaleX * zoom;
     const fabricLineHeight = target.lineHeight || 1.16;
-    // Apply padding and dimensions to textarea
-    const textareaWidth = paddingX > 0 ? `calc(100% - ${2 * paddingX}px)` : '100%';
-    const textareaHeight = paddingY > 0 ? `calc(100% - ${2 * paddingY}px)` : '100%';
-    
-    this.textarea.style.width = textareaWidth;
-    this.textarea.style.height = textareaHeight;
+    // **THE FIX:** Use 'border-box' so the width property includes padding.
+    // This makes alignment much easier and more reliable.
+    this.textarea.style.boxSizing = 'border-box';
+
+    // **THE FIX:** Set the textarea width to be IDENTICAL to the host div's width.
+    // The padding will now be correctly contained *inside* this width.
+    this.textarea.style.width = `${width}px`;
+    this.textarea.style.height = '100%'; // Let hostDiv control height
     this.textarea.style.padding = `${paddingY}px ${paddingX}px`;
-    
+
+    // Apply all other font and text styles to match Fabric
+    const letterSpacingPx = ((target.charSpacing || 0) / 1000) * finalFontSize;
+
     this.textarea.style.fontSize = `${finalFontSize}px`;
-    this.textarea.style.lineHeight = String(fabricLineHeight); // Use unit-less multiplier
+    this.textarea.style.lineHeight = String(fabricLineHeight);
     this.textarea.style.fontFamily = target.fontFamily || 'Arial';
     this.textarea.style.fontWeight = String(target.fontWeight || 'normal');
     this.textarea.style.fontStyle = target.fontStyle || 'normal';
     this.textarea.style.textAlign = (target as any).textAlign || 'left';
     this.textarea.style.color = target.fill?.toString() || '#000';
-    this.textarea.style.letterSpacing = `${((target.charSpacing || 0) / 1000)}em`;
-    this.textarea.style.direction = (target as any).direction || this.firstStrongDir(this.textarea.value || '');
-    
-    // Ensure consistent font rendering between Fabric and CSS
+    this.textarea.style.letterSpacing = `${letterSpacingPx}px`;
+    this.textarea.style.direction =
+      (target as any).direction ||
+      this.firstStrongDir(this.textarea.value || '');
     this.textarea.style.fontVariant = 'normal';
     this.textarea.style.fontStretch = 'normal';
-    this.textarea.style.textRendering = 'auto';
-    this.textarea.style.fontKerning = 'auto';
-    this.textarea.style.boxSizing = 'content-box'; // Padding is added outside width/height
+    this.textarea.style.textRendering = 'optimizeLegibility';
+    this.textarea.style.fontKerning = 'normal';
+    this.textarea.style.fontFeatureSettings = 'normal';
+    this.textarea.style.fontVariationSettings = 'normal';
     this.textarea.style.margin = '0';
     this.textarea.style.border = 'none';
     this.textarea.style.outline = 'none';
     this.textarea.style.background = 'transparent';
-    this.textarea.style.wordWrap = 'break-word';
+    this.textarea.style.overflowWrap = 'break-word';
     this.textarea.style.whiteSpace = 'pre-wrap';
+    this.textarea.style.hyphens = 'none';
     
-    // DEBUG: Log final textarea dimensions
-    console.log('TEXTAREA AFTER SETUP:');
-    console.log('  textarea width =', this.textarea.style.width);
-    console.log('  textarea height =', this.textarea.style.height);
-    console.log('  textarea padding =', this.textarea.style.padding);
-    console.log('  paddingX =', paddingX, 'paddingY =', paddingY);
-    console.log('  baseFontSize =', baseFontSize);
-    console.log('  scaleX =', scaleX);
-    console.log('  zoom =', zoom);
-    console.log('  finalFontSize =', finalFontSize);
-    console.log('  fabricLineHeight =', fabricLineHeight);
+    (this.textarea.style as any).webkitFontSmoothing = 'antialiased';
+    (this.textarea.style as any).mozOsxFontSmoothing = 'grayscale';
+
+    // Debug: Compare textarea and canvas object bounding boxes
+    this.debugBoundingBoxComparison();
+
+    // Debug: Compare text wrapping behavior
+    this.debugTextWrapping();
 
     // Initial bounds are set correctly by Fabric.js - don't force update here
-
-    
   }
+
+  /**
+   * Debug method to compare textarea and canvas object bounding boxes
+   */
+  private debugBoundingBoxComparison(): void {
+    const target = this.target;
+    const canvas = this.canvas;
+    const zoom = canvas.getZoom();
+
+    // Get textarea bounding box (in screen coordinates)
+    const textareaRect = this.textarea.getBoundingClientRect();
+    const hostRect = this.hostDiv.getBoundingClientRect();
+
+    // Get canvas object bounding box (in screen coordinates)
+    const canvasBounds = target.getBoundingRect();
+    const canvasRect = canvas.upperCanvasEl.getBoundingClientRect();
+
+    // Convert canvas object bounds to screen coordinates
+    const vpt = canvas.viewportTransform;
+    const screenObjectBounds = {
+      left: canvasRect.left + canvasBounds.left * zoom + vpt[4],
+      top: canvasRect.top + canvasBounds.top * zoom + vpt[5],
+      width: canvasBounds.width * zoom,
+      height: canvasBounds.height * zoom,
+    };
+
+    console.log('🔍 BOUNDING BOX COMPARISON:');
+    console.log('📦 Textarea Rect:', {
+      left: Math.round(textareaRect.left * 100) / 100,
+      top: Math.round(textareaRect.top * 100) / 100,
+      width: Math.round(textareaRect.width * 100) / 100,
+      height: Math.round(textareaRect.height * 100) / 100,
+    });
+    console.log('📦 Host Div Rect:', {
+      left: Math.round(hostRect.left * 100) / 100,
+      top: Math.round(hostRect.top * 100) / 100,
+      width: Math.round(hostRect.width * 100) / 100,
+      height: Math.round(hostRect.height * 100) / 100,
+    });
+    console.log('📦 Canvas Object Bounds (screen):', {
+      left: Math.round(screenObjectBounds.left * 100) / 100,
+      top: Math.round(screenObjectBounds.top * 100) / 100,
+      width: Math.round(screenObjectBounds.width * 100) / 100,
+      height: Math.round(screenObjectBounds.height * 100) / 100,
+    });
+    console.log('📦 Canvas Object Bounds (canvas):', canvasBounds);
+
+    // Calculate differences
+    const hostVsObject = {
+      leftDiff:
+        Math.round((hostRect.left - screenObjectBounds.left) * 100) / 100,
+      topDiff: Math.round((hostRect.top - screenObjectBounds.top) * 100) / 100,
+      widthDiff:
+        Math.round((hostRect.width - screenObjectBounds.width) * 100) / 100,
+      heightDiff:
+        Math.round((hostRect.height - screenObjectBounds.height) * 100) / 100,
+    };
+
+    const textareaVsObject = {
+      leftDiff:
+        Math.round((textareaRect.left - screenObjectBounds.left) * 100) / 100,
+      topDiff:
+        Math.round((textareaRect.top - screenObjectBounds.top) * 100) / 100,
+      widthDiff:
+        Math.round((textareaRect.width - screenObjectBounds.width) * 100) / 100,
+      heightDiff:
+        Math.round((textareaRect.height - screenObjectBounds.height) * 100) /
+        100,
+    };
+
+    console.log('📏 Host Div vs Canvas Object Diff:', hostVsObject);
+    console.log('📏 Textarea vs Canvas Object Diff:', textareaVsObject);
+
+    // Check if they're aligned (within 2px tolerance)
+    const tolerance = 2;
+    const hostAligned =
+      Math.abs(hostVsObject.leftDiff) < tolerance &&
+      Math.abs(hostVsObject.topDiff) < tolerance &&
+      Math.abs(hostVsObject.widthDiff) < tolerance &&
+      Math.abs(hostVsObject.heightDiff) < tolerance;
+
+    const textareaAligned =
+      Math.abs(textareaVsObject.leftDiff) < tolerance &&
+      Math.abs(textareaVsObject.topDiff) < tolerance &&
+      Math.abs(textareaVsObject.widthDiff) < tolerance &&
+      Math.abs(textareaVsObject.heightDiff) < tolerance;
+
+    console.log(
+      hostAligned
+        ? '✅ Host Div ALIGNED with canvas object'
+        : '❌ Host Div MISALIGNED with canvas object',
+    );
+    console.log(
+      textareaAligned
+        ? '✅ Textarea ALIGNED with canvas object'
+        : '❌ Textarea MISALIGNED with canvas object',
+    );
+    console.log('🔍 Zoom:', zoom, 'Viewport Transform:', vpt);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }
+
+  /**
+   * Debug method to compare text wrapping between textarea and Fabric text object
+   */
+  private debugTextWrapping(): void {
+    const target = this.target;
+    const text = this.textarea.value;
+
+    console.log('📝 TEXT WRAPPING COMPARISON:');
+    console.log('📄 Text Content:', `"${text}"`);
+    console.log('📄 Text Length:', text.length);
+
+    // Analyze line breaks
+    const explicitLines = text.split('\n');
+    console.log('📄 Explicit Lines (\\n):', explicitLines.length);
+    explicitLines.forEach((line, i) => {
+      console.log(`   Line ${i + 1}: "${line}" (${line.length} chars)`);
+    });
+
+    // Get textarea computed styles for wrapping analysis
+    const textareaStyles = window.getComputedStyle(this.textarea);
+    console.log('📐 Textarea Wrapping Styles:');
+    console.log('   width:', textareaStyles.width);
+    console.log('   fontSize:', textareaStyles.fontSize);
+    console.log('   fontFamily:', textareaStyles.fontFamily);
+    console.log('   fontWeight:', textareaStyles.fontWeight);
+    console.log('   letterSpacing:', textareaStyles.letterSpacing);
+    console.log('   lineHeight:', textareaStyles.lineHeight);
+    console.log('   whiteSpace:', textareaStyles.whiteSpace);
+    console.log('   wordWrap:', textareaStyles.wordWrap);
+    console.log('   overflowWrap:', textareaStyles.overflowWrap);
+    console.log('   direction:', textareaStyles.direction);
+    console.log('   textAlign:', textareaStyles.textAlign);
+
+    // Get Fabric text object properties for comparison
+    console.log('📐 Fabric Text Object Properties:');
+    console.log('   width:', (target as any).width);
+    console.log('   fontSize:', target.fontSize);
+    console.log('   fontFamily:', target.fontFamily);
+    console.log('   fontWeight:', target.fontWeight);
+    console.log('   charSpacing:', target.charSpacing);
+    console.log('   lineHeight:', target.lineHeight);
+    console.log('   direction:', (target as any).direction);
+    console.log('   textAlign:', (target as any).textAlign);
+    console.log('   scaleX:', target.scaleX);
+    console.log('   scaleY:', target.scaleY);
+
+    // Calculate effective dimensions for comparison - use actual rendered width
+    // **THE FIX:** Use getBoundingRect to get the *actual rendered width* of the Fabric object.
+    const fabricEffectiveWidth = this.target.getBoundingRect().width;
+    // Use the exact width set on textarea for comparison
+    const textareaComputedWidth = parseFloat(
+      window.getComputedStyle(this.textarea).width,
+    );
+    const textareaEffectiveWidth =
+      textareaComputedWidth / this.canvas.getZoom();
+    const widthDiff = Math.abs(textareaEffectiveWidth - fabricEffectiveWidth);
+
+    console.log('📏 Effective Width Comparison:');
+    console.log('   Textarea Effective Width:', textareaEffectiveWidth);
+    console.log('   Fabric Effective Width:', fabricEffectiveWidth);
+    console.log('   Width Difference:', widthDiff.toFixed(2) + 'px');
+    console.log(
+      widthDiff < 1
+        ? '✅ Widths MATCH for wrapping'
+        : '❌ Width MISMATCH may cause different wrapping',
+    );
+
+    // Check text direction and bidi handling
+    const hasRTLText =
+      /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(
+        text,
+      );
+    const hasBidiText = /[\u0590-\u06FF]/.test(text) && /[a-zA-Z]/.test(text);
+
+    console.log('🌍 Text Direction Analysis:');
+    console.log('   Has RTL characters:', hasRTLText);
+    console.log('   Has mixed Bidi text:', hasBidiText);
+    console.log('   Textarea direction:', textareaStyles.direction);
+    console.log('   Fabric direction:', (target as any).direction || 'auto');
+    console.log('   Textarea unicodeBidi:', textareaStyles.unicodeBidi);
+
+    // Measure actual rendered line count
+    const textareaScrollHeight = this.textarea.scrollHeight;
+    const textareaLineHeight =
+      parseFloat(textareaStyles.lineHeight) ||
+      parseFloat(textareaStyles.fontSize) * 1.2;
+    const estimatedTextareaLines = Math.round(
+      textareaScrollHeight / textareaLineHeight,
+    );
+
+    console.log('📊 Line Count Analysis:');
+    console.log('   Textarea scrollHeight:', textareaScrollHeight);
+    console.log('   Textarea lineHeight:', textareaLineHeight);
+    console.log('   Estimated rendered lines:', estimatedTextareaLines);
+    console.log('   Explicit line breaks:', explicitLines.length);
+
+    if (estimatedTextareaLines > explicitLines.length) {
+      console.log('🔄 Text wrapping detected in textarea');
+      console.log(
+        '   Wrapped lines:',
+        estimatedTextareaLines - explicitLines.length,
+      );
+    } else {
+      console.log('📏 No text wrapping in textarea');
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }
+
 
   /**
    * Focus the textarea and position cursor at end
    */
   private focusTextarea(): void {
-    
-
     // For overlay editing, we want to keep the object in "selection mode" not "editing mode"
     // This means keeping selected=true and isEditing=false to show boundaries
-    
+
     // Hide the text content only (not the entire object)
     this.target.opacity = 0.01; // Nearly transparent but not fully hidden
-    
+
     // Ensure object stays selected to show boundaries
     (this.target as any).selected = true;
     (this.target as any).isEditing = false; // Override any editing state
-    
+
     // Make sure controls are enabled and movement is allowed during overlay editing
     this.target.set({
       hasControls: true,
       hasBorders: true,
       selectable: true,
       lockMovementX: false,
-      lockMovementY: false
+      lockMovementY: false,
     });
-    
+
     // Keep as active object
     this.canvas.setActiveObject(this.target);
-    
+
     this.canvas.requestRenderAll();
     this.target.setCoords();
     this.applyOverlayStyle();
 
-    
-
     this.textarea.focus();
+
     this.textarea.setSelectionRange(
       this.textarea.value.length,
       this.textarea.value.length,
     );
-    
+
     // Ensure the object stays selected even after textarea focus
     this.canvas.setActiveObject(this.target);
     this.canvas.requestRenderAll();
@@ -470,6 +692,7 @@ export class OverlayEditor {
       // Live update target text
       this.target.text = this.textarea.value;
 
+
       // Auto-resize textarea to match new content
       this.autoResizeTextarea();
 
@@ -482,25 +705,40 @@ export class OverlayEditor {
   }
 
   private autoResizeTextarea(): void {
-    // Allow both vertical growth and shrinking; host width stays fixed
-    const oldHeight = parseFloat(window.getComputedStyle(this.textarea).height);
-    
-    // Reset height to measure actual needed height
-    this.textarea.style.height = 'auto';
+    // Store the scroll position and the container's old height for comparison.
+    const scrollTop = this.textarea.scrollTop;
+    const oldHeight = parseFloat(this.hostDiv.style.height || '0');
+
+    // 1. **Force a reliable reflow.**
+    //    First, reset the textarea's height to a minimal value. This is the crucial step
+    //    that forces the browser to recalculate the content's height from scratch,
+    //    ignoring the hostDiv's larger, stale height.
+    this.textarea.style.height = '1px';
+
+    // 2. Read the now-accurate scrollHeight. This value reflects the minimum
+    //    height required for the content, whether it's single or multi-line.
     const scrollHeight = this.textarea.scrollHeight;
-    
-    // Add extra padding to prevent text clipping (especially for line height)
-    const lineHeightBuffer = 8; // Extra space to prevent clipping
-    const newHeight = Math.max(scrollHeight + lineHeightBuffer, 25); // Minimum height with buffer
-    const heightChanged = Math.abs(newHeight - oldHeight) > 2; // Only if meaningful change
-    
-    this.textarea.style.height = `${newHeight}px`;
-    this.hostDiv.style.height = `${newHeight}px`; // Match exactly
-    
-    // Only update object bounds if height actually changed
+
+    // A small buffer for rendering consistency across browsers.
+    const buffer = 2;
+    const newHeight = scrollHeight + buffer;
+
+    // Check if the height has changed significantly.
+    const heightChanged = Math.abs(newHeight - oldHeight) > 1;
+
+    // 4. Only update heights and object bounds if there was a change.
     if (heightChanged) {
+      this.textarea.style.height = `${newHeight}px`;
+      this.hostDiv.style.height = `${newHeight}px`;
       this.updateObjectBounds();
+    } else {
+      // If no significant change, ensure the textarea's height matches the container
+      // to prevent any minor visual misalignment.
+      this.textarea.style.height = this.hostDiv.style.height;
     }
+
+    // 5. Restore the original scroll position.
+    this.textarea.scrollTop = scrollTop;
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
@@ -510,6 +748,23 @@ export class OverlayEditor {
     } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       this.destroy(true); // Commit
+    } else if (
+      e.key === 'Enter' ||
+      e.key === 'Backspace' ||
+      e.key === 'Delete'
+    ) {
+      // For keys that might change the height, schedule a resize check
+      // Use both immediate and delayed checks to catch all scenarios
+      requestAnimationFrame(() => {
+        if (!this.isDestroyed) {
+          this.autoResizeTextarea();
+        }
+      });
+      setTimeout(() => {
+        if (!this.isDestroyed) {
+          this.autoResizeTextarea();
+        }
+      }, 10); // Small delay to ensure DOM is updated
     }
   }
 
@@ -553,9 +808,10 @@ export class OverlayEditor {
   private setupViewportChangeDetection(): void {
     // Store original methods
     (this.canvas as any).__originalSetZoom = this.canvas.setZoom;
-    (this.canvas as any).__originalSetViewportTransform = this.canvas.setViewportTransform;
+    (this.canvas as any).__originalSetViewportTransform =
+      this.canvas.setViewportTransform;
     (this.canvas as any).__overlayEditor = this;
-    
+
     // Override setZoom to detect zoom changes
     const originalSetZoom = this.canvas.setZoom.bind(this.canvas);
     this.canvas.setZoom = (value: number) => {
@@ -565,9 +821,11 @@ export class OverlayEditor {
       }
       return result;
     };
-    
+
     // Override setViewportTransform to detect pan changes
-    const originalSetViewportTransform = this.canvas.setViewportTransform.bind(this.canvas);
+    const originalSetViewportTransform = this.canvas.setViewportTransform.bind(
+      this.canvas,
+    );
     this.canvas.setViewportTransform = (vpt: TMat2D) => {
       const result = originalSetViewportTransform(vpt);
       if ((this.canvas as any).__overlayEditor && !this.isDestroyed) {
@@ -576,7 +834,7 @@ export class OverlayEditor {
       return result;
     };
   }
-  
+
   /**
    * Restore original viewport methods
    */
@@ -586,13 +844,13 @@ export class OverlayEditor {
       delete (this.canvas as any).__originalSetZoom;
     }
     if ((this.canvas as any).__originalSetViewportTransform) {
-      this.canvas.setViewportTransform = (this.canvas as any).__originalSetViewportTransform;
+      this.canvas.setViewportTransform = (
+        this.canvas as any
+      ).__originalSetViewportTransform;
       delete (this.canvas as any).__originalSetViewportTransform;
     }
     delete (this.canvas as any).__overlayEditor;
   }
-
-  
 }
 
 /**
@@ -622,7 +880,7 @@ export function enterTextOverlayEdit(
   });
 
   // We no longer change fill, so no need to store it
-  
+
   // Store reference on target for cleanup
   (target as any).__overlayEditor = editor;
 

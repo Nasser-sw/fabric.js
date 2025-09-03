@@ -1,8 +1,8 @@
 {
-  "name": "fabric",
+  "name": "@nasser-sw/fabric",
   "description": "Object model for HTML5 canvas, and SVG-to-canvas parser. Backed by jsdom and node-canvas.",
   "homepage": "http://fabricjs.com/",
-  "version": "7.0.0-beta1",
+  "version": "7.0.1-beta1",
   "author": "Juriy Zaytsev <kangax@gmail.com>",
   "contributors": [
     {
@@ -31,6 +31,9 @@
     "HTML5",
     "object model"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/fabricjs/fabric.js"

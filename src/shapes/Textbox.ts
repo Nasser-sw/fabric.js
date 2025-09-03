@@ -108,6 +108,7 @@ export class Textbox<
    */
   constructor(text: string, options?: Props) {
     super(text, { ...Textbox.ownDefaults, ...options } as Props);
+    this.initializeEventListeners();
   }
 
   /**
@@ -646,6 +647,124 @@ export class Textbox<
       if (!linesToKeep.has(prop)) {
         delete this.styles[prop];
       }
+    }
+  }
+
+  /**
+   * Initialize event listeners for safety snap functionality
+   * @private
+   */
+  private initializeEventListeners(): void {
+    // Track which side is being used for resize to handle position compensation
+    let resizeOrigin: 'left' | 'right' | null = null;
+    
+    // Detect resize origin during resizing
+    this.on('resizing', (e: any) => {
+      // Check transform origin to determine which side is being resized
+      if (e.transform) {
+        const { originX } = e.transform;
+        // originX tells us which side is the anchor - opposite side is being dragged
+        resizeOrigin = originX === 'right' ? 'left' : originX === 'left' ? 'right' : null;
+      } else if (e.originX) {
+        const { originX } = e;
+        resizeOrigin = originX === 'right' ? 'left' : originX === 'left' ? 'right' : null;
+      }
+    });
+    
+    // Only trigger safety snap after resize is complete (not during)
+    // Use 'modified' event which fires after user releases the mouse
+    this.on('modified', () => {
+      const currentResizeOrigin = resizeOrigin; // Capture the value before reset
+      // Small delay to ensure text layout is updated
+      setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
+      resizeOrigin = null; // Reset after capturing
+    });
+    
+    // Also listen to canvas-level modified event as backup
+    this.canvas?.on('object:modified', (e) => {
+      if (e.target === this) {
+        const currentResizeOrigin = resizeOrigin; // Capture the value before reset
+        setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
+        resizeOrigin = null; // Reset after capturing
+      }
+    });
+  }
+
+  /**
+   * Safety snap to prevent glyph clipping after manual resize.
+   * Similar to Polotno - checks if any glyphs are too close to edges
+   * and automatically expands width if needed.
+   * @private
+   * @param resizeOrigin - Which side was used for resizing ('left' or 'right')
+   */
+  private safetySnapWidth(resizeOrigin?: 'left' | 'right' | null): void {
+    // For Textbox objects, we always want to check for clipping regardless of isWrapping flag
+    if (!this._textLines || this.type.toLowerCase() !== 'textbox' || this._textLines.length === 0) {
+      return;
+    }
+    
+    const lineCount = this._textLines.length;
+    if (lineCount === 0) return;
+
+    // Check all lines, not just the last one
+    let maxActualLineWidth = 0; // Actual measured width without buffers
+    let maxRequiredWidth = 0;   // Width including RTL buffer
+    
+    for (let i = 0; i < lineCount; i++) {
+      const lineText = this._textLines[i].join(''); // Convert grapheme array to string
+      const lineWidth = this.getLineWidth(i);
+      maxActualLineWidth = Math.max(maxActualLineWidth, lineWidth);
+      
+      // RTL detection - regex for Arabic, Hebrew, and other RTL characters
+      const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+      if (rtlRegex.test(lineText)) {
+        // Add minimal RTL compensation buffer - just enough to prevent clipping
+        const rtlBuffer = (this.fontSize || 16) * 0.15; // 15% of font size (much smaller)
+        maxRequiredWidth = Math.max(maxRequiredWidth, lineWidth + rtlBuffer);
+      } else {
+        maxRequiredWidth = Math.max(maxRequiredWidth, lineWidth);
+      }
+    }
+
+    // Safety margin - how close glyphs can get before we snap
+    const safetyThreshold = 2; // px - very subtle trigger
+    
+    if (maxRequiredWidth > this.width - safetyThreshold) {
+      // Set width to exactly what's needed + minimal safety margin
+      const newWidth = maxRequiredWidth + 1; // Add just 1px safety margin
+      
+      // Store original position before width change
+      const originalLeft = this.left;
+      const originalTop = this.top;
+      const widthIncrease = newWidth - this.width;
+      
+      // Change width 
+      this.set('width', newWidth);
+      
+      // Force text layout recalculation
+      this.initDimensions();
+      
+      // Only compensate position when resizing from left handle
+      // Right handle resize doesn't shift the text position
+      if (resizeOrigin === 'left') {
+        // When resizing from left, the expansion pushes text right
+        // Compensate by moving the textbox left by the width increase
+        this.set({
+          'left': originalLeft - widthIncrease,
+          'top': originalTop
+        });
+      }
+      
+      this.setCoords();
+      
+      // Also refresh the overlay editor if it exists
+      if ((this as any).__overlayEditor) {
+        setTimeout(() => {
+          (this as any).__overlayEditor.refresh();
+        }, 0);
+      }
+      
+      this.canvas?.requestRenderAll();
     }
   }
 
