@@ -6,6 +6,7 @@ change-output.md
 /debug/
 ._*
 **/._*
+fabric-test-editor.html
 /npm-debug.log
 before_commit
 /coverage/

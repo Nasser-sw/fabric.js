@@ -410,7 +410,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.0-beta1";
+var version = "7.0.1-beta1";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -20245,6 +20245,7 @@ class FabricText extends StyledText {
    */
   enlargeSpaces() {
     let diffSpace, currentLineWidth, numberOfSpaces, accumulatedSpace, line, charBound, spaces;
+    const isRtl = this.direction === 'rtl';
     for (let i = 0, len = this._textLines.length; i < len; i++) {
       if (this.textAlign !== JUSTIFY && (i === len - 1 || this.isEndOfWrapping(i))) {
         continue;
@@ -20255,15 +20256,44 @@ class FabricText extends StyledText {
       if (currentLineWidth < this.width && (spaces = this.textLines[i].match(this._reSpacesAndTabs))) {
         numberOfSpaces = spaces.length;
         diffSpace = (this.width - currentLineWidth) / numberOfSpaces;
-        for (let j = 0; j <= line.length; j++) {
-          charBound = this.__charBounds[i][j];
-          if (this._reSpaceAndTab.test(line[j])) {
-            charBound.width += diffSpace;
-            charBound.kernedWidth += diffSpace;
-            charBound.left += accumulatedSpace;
-            accumulatedSpace += diffSpace;
-          } else {
-            charBound.left += accumulatedSpace;
+        if (isRtl) {
+          for (let j = 0; j < line.length; j++) {
+            if (this._reSpaceAndTab.test(line[j])) ;
+          }
+
+          // For RTL, we need to work backwards through the visual positions
+          // but still update logical positions correctly
+          let spaceCount = 0;
+          for (let j = 0; j <= line.length; j++) {
+            charBound = this.__charBounds[i][j];
+            if (charBound) {
+              if (this._reSpaceAndTab.test(line[j])) {
+                charBound.width += diffSpace;
+                charBound.kernedWidth += diffSpace;
+                spaceCount++;
+              }
+
+              // For RTL, shift all characters to the right by the total expansion
+              // minus the expansion that comes after this character
+              const remainingSpaces = numberOfSpaces - spaceCount;
+              const shiftAmount = remainingSpaces * diffSpace;
+              charBound.left += shiftAmount;
+            }
+          }
+        } else {
+          // LTR processing (original logic)
+          for (let j = 0; j <= line.length; j++) {
+            charBound = this.__charBounds[i][j];
+            if (charBound) {
+              if (this._reSpaceAndTab.test(line[j])) {
+                charBound.width += diffSpace;
+                charBound.kernedWidth += diffSpace;
+                charBound.left += accumulatedSpace;
+                accumulatedSpace += diffSpace;
+              } else {
+                charBound.left += accumulatedSpace;
+              }
+            }
           }
         }
       }
@@ -20921,7 +20951,15 @@ class FabricText extends StyledText {
     if (currentDirection !== this.direction) {
       ctx.canvas.setAttribute('dir', isLtr ? 'ltr' : 'rtl');
       ctx.direction = isLtr ? 'ltr' : 'rtl';
-      ctx.textAlign = isLtr ? LEFT : RIGHT;
+
+      // For justify alignments, we need to set the correct canvas text alignment
+      // This is crucial for RTL text to render in the correct order
+      if (isJustify) {
+        // Justify uses LEFT alignment as a base, letting the character positioning handle justification
+        ctx.textAlign = LEFT;
+      } else {
+        ctx.textAlign = isLtr ? LEFT : RIGHT;
+      }
     }
     top -= lineHeight * this._fontSizeFraction / this.lineHeight;
     if (shortCut) {
@@ -21157,9 +21195,21 @@ class FabricText extends StyledText {
       direction = this.direction,
       isEndOfWrapping = this.isEndOfWrapping(lineIndex);
     let leftOffset = 0;
-    if (textAlign === JUSTIFY || textAlign === JUSTIFY_CENTER && !isEndOfWrapping || textAlign === JUSTIFY_RIGHT && !isEndOfWrapping || textAlign === JUSTIFY_LEFT && !isEndOfWrapping) {
-      return 0;
+
+    // Handle justify alignments (excluding last lines and wrapped line ends)
+    const isJustifyLine = textAlign === JUSTIFY || textAlign === JUSTIFY_CENTER && !isEndOfWrapping || textAlign === JUSTIFY_RIGHT && !isEndOfWrapping || textAlign === JUSTIFY_LEFT && !isEndOfWrapping;
+    if (isJustifyLine) {
+      // Justify lines should start at the left edge for LTR and right edge for RTL
+      // The space distribution is handled by enlargeSpaces()
+      if (direction === 'rtl') {
+        // For RTL justify, we need to account for the line being right-aligned
+        return 0;
+      } else {
+        return 0;
+      }
     }
+
+    // Handle non-justify alignments
     if (textAlign === CENTER) {
       leftOffset = lineDiff / 2;
     }
@@ -21172,6 +21222,8 @@ class FabricText extends StyledText {
     if (textAlign === JUSTIFY_RIGHT) {
       leftOffset = lineDiff;
     }
+
+    // Apply RTL adjustments for non-justify alignments
     if (direction === 'rtl') {
       if (textAlign === RIGHT || textAlign === JUSTIFY || textAlign === JUSTIFY_RIGHT) {
         leftOffset = 0;
@@ -22167,13 +22219,86 @@ class OverlayEditor {
     this.textarea.style.fontFamily = target.fontFamily || 'Arial';
     this.textarea.style.fontWeight = String(target.fontWeight || 'normal');
     this.textarea.style.fontStyle = target.fontStyle || 'normal';
-    this.textarea.style.textAlign = target.textAlign || 'left';
+    // Handle text alignment and justification
+    const textAlign = target.textAlign || 'left';
+    let cssTextAlign = textAlign;
+
+    // Detect text direction from content for proper justify handling
+    const autoDetectedDirection = this.firstStrongDir(this.textarea.value || '');
+
+    // DEBUG: Log alignment details
+    console.log('🔍 ALIGNMENT DEBUG:');
+    console.log('   Fabric textAlign:', textAlign);
+    console.log('   Fabric direction:', target.direction);
+    console.log('   Text content:', JSON.stringify(target.text));
+    console.log('   Detected direction:', autoDetectedDirection);
+
+    // Map fabric.js justify to CSS
+    if (textAlign.includes('justify')) {
+      // Try to match fabric.js justify behavior more precisely
+      try {
+        // For justify, we need to replicate fabric.js space expansion
+        // Use CSS justify but with specific settings to match fabric.js better
+        cssTextAlign = 'justify';
+
+        // Set text-align-last based on justify type and detected direction
+        // Smart justify: respect detected direction even when fabric alignment doesn't match
+        if (textAlign === 'justify') {
+          this.textarea.style.textAlignLast = autoDetectedDirection === 'rtl' ? 'right' : 'left';
+        } else if (textAlign === 'justify-left') {
+          // If text is RTL but fabric says justify-left, override to justify-right for better UX
+          if (autoDetectedDirection === 'rtl') {
+            this.textarea.style.textAlignLast = 'right';
+            console.log('   → Overrode justify-left to justify-right for RTL text');
+          } else {
+            this.textarea.style.textAlignLast = 'left';
+          }
+        } else if (textAlign === 'justify-right') {
+          // If text is LTR but fabric says justify-right, override to justify-left for better UX  
+          if (autoDetectedDirection === 'ltr') {
+            this.textarea.style.textAlignLast = 'left';
+            console.log('   → Overrode justify-right to justify-left for LTR text');
+          } else {
+            this.textarea.style.textAlignLast = 'right';
+          }
+        } else if (textAlign === 'justify-center') {
+          this.textarea.style.textAlignLast = 'center';
+        }
+
+        // Enhanced justify settings for better fabric.js matching
+        this.textarea.style.textJustify = 'inter-word';
+        this.textarea.style.wordSpacing = 'normal';
+
+        // Additional CSS properties for better justify matching
+        this.textarea.style.textAlign = 'justify';
+        this.textarea.style.textAlignLast = this.textarea.style.textAlignLast;
+
+        // Try to force better justify behavior
+        this.textarea.style.textJustifyTrim = 'none';
+        this.textarea.style.textAutospace = 'none';
+        console.log('   → Applied justify alignment:', textAlign, 'with last-line:', this.textarea.style.textAlignLast);
+      } catch (error) {
+        console.warn('   → Justify setup failed, falling back to standard alignment:', error);
+        cssTextAlign = textAlign.replace('justify-', '').replace('justify', 'left');
+      }
+    } else {
+      this.textarea.style.textAlignLast = 'auto';
+      this.textarea.style.textJustify = 'auto';
+      this.textarea.style.wordSpacing = 'normal';
+      console.log('   → Applied standard alignment:', cssTextAlign);
+    }
+    this.textarea.style.textAlign = cssTextAlign;
     this.textarea.style.color = ((_target$fill = target.fill) === null || _target$fill === void 0 ? void 0 : _target$fill.toString()) || '#000';
     this.textarea.style.letterSpacing = `${letterSpacingPx}px`;
-    this.textarea.style.direction = target.direction || this.firstStrongDir(this.textarea.value || '');
+
+    // Use the already detected direction from above
+    const fabricDirection = target.direction;
+
+    // Use auto-detected direction for better BiDi support, but respect fabric direction if it makes sense
+    this.textarea.style.direction = autoDetectedDirection || fabricDirection || 'ltr';
     this.textarea.style.fontVariant = 'normal';
     this.textarea.style.fontStretch = 'normal';
-    this.textarea.style.textRendering = 'optimizeLegibility';
+    this.textarea.style.textRendering = 'auto'; // Changed from 'optimizeLegibility' to match canvas
     this.textarea.style.fontKerning = 'normal';
     this.textarea.style.fontFeatureSettings = 'normal';
     this.textarea.style.fontVariationSettings = 'normal';
@@ -22184,14 +22309,58 @@ class OverlayEditor {
     this.textarea.style.overflowWrap = 'break-word';
     this.textarea.style.whiteSpace = 'pre-wrap';
     this.textarea.style.hyphens = 'none';
-    this.textarea.style.webkitFontSmoothing = 'antialiased';
-    this.textarea.style.mozOsxFontSmoothing = 'grayscale';
 
-    // Debug: Compare textarea and canvas object bounding boxes
-    this.debugBoundingBoxComparison();
+    // DEBUG: Log final CSS properties
+    console.log('🎨 FINAL TEXTAREA CSS:');
+    console.log('   textAlign:', this.textarea.style.textAlign);
+    console.log('   textAlignLast:', this.textarea.style.textAlignLast);
+    console.log('   direction:', this.textarea.style.direction);
+    console.log('   unicodeBidi:', this.textarea.style.unicodeBidi);
+    console.log('   width:', this.textarea.style.width);
+    console.log('   textJustify:', this.textarea.style.textJustify);
+    console.log('   wordSpacing:', this.textarea.style.wordSpacing);
+    console.log('   whiteSpace:', this.textarea.style.whiteSpace);
 
-    // Debug: Compare text wrapping behavior
-    this.debugTextWrapping();
+    // If justify, log Fabric object dimensions for comparison
+    if (textAlign.includes('justify')) {
+      var _calcTextWidth, _ref;
+      console.log('🔧 FABRIC OBJECT JUSTIFY INFO:');
+      console.log('   Fabric width:', target.width);
+      console.log('   Fabric calcTextWidth:', (_calcTextWidth = (_ref = target).calcTextWidth) === null || _calcTextWidth === void 0 ? void 0 : _calcTextWidth.call(_ref));
+      console.log('   Fabric textAlign:', target.textAlign);
+      console.log('   Text lines:', target.textLines);
+    }
+
+    // Debug font properties matching
+    console.log('🔤 FONT PROPERTIES COMPARISON:');
+    console.log('   Fabric fontFamily:', target.fontFamily);
+    console.log('   Fabric fontWeight:', target.fontWeight);
+    console.log('   Fabric fontStyle:', target.fontStyle);
+    console.log('   Fabric fontSize:', target.fontSize);
+    console.log('   → Textarea fontFamily:', this.textarea.style.fontFamily);
+    console.log('   → Textarea fontWeight:', this.textarea.style.fontWeight);
+    console.log('   → Textarea fontStyle:', this.textarea.style.fontStyle);
+    console.log('   → Textarea fontSize:', this.textarea.style.fontSize);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // Enhanced font rendering to better match fabric.js canvas rendering
+    // Default to auto for more natural rendering
+    this.textarea.style.webkitFontSmoothing = 'auto';
+    this.textarea.style.mozOsxFontSmoothing = 'auto';
+    this.textarea.style.fontSmooth = 'auto';
+    this.textarea.style.textSizeAdjust = 'none';
+
+    // For bold fonts, use subpixel rendering to match canvas thickness better
+    const fontWeight = String(target.fontWeight || 'normal');
+    const isBold = fontWeight === 'bold' || fontWeight === '700' || parseInt(fontWeight) >= 600;
+    if (isBold) {
+      this.textarea.style.webkitFontSmoothing = 'subpixel-antialiased';
+      this.textarea.style.mozOsxFontSmoothing = 'unset';
+      console.log('🔤 Applied enhanced bold rendering for better thickness matching');
+    }
+    console.log('🎨 FONT SMOOTHING APPLIED:');
+    console.log('   webkitFontSmoothing:', this.textarea.style.webkitFontSmoothing);
+    console.log('   mozOsxFontSmoothing:', this.textarea.style.mozOsxFontSmoothing);
 
     // Initial bounds are set correctly by Fabric.js - don't force update here
   }
@@ -22426,6 +22595,23 @@ class OverlayEditor {
     // Handle commit/cancel after restoring visibility
     if (commit && !this.isComposing) {
       const finalText = this.textarea.value;
+
+      // Auto-detect text direction and update fabric object if needed
+      const detectedDirection = this.firstStrongDir(finalText);
+      const currentDirection = this.target.direction || 'ltr';
+      if (detectedDirection && detectedDirection !== currentDirection) {
+        console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
+        console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
+
+        // Update the fabric object's direction
+        this.target.set('direction', detectedDirection);
+
+        // Force a re-render to apply the direction change
+        this.canvas.requestRenderAll();
+        console.log(`✅ Fabric object direction updated to: ${detectedDirection}`);
+      } else {
+        console.log(`📝 Overlay Exit: Direction unchanged (${currentDirection}), text: "${finalText.substring(0, 30)}..."`);
+      }
       if (this.onCommit) {
         this.onCommit(finalText);
       }
@@ -26016,30 +26202,17 @@ class Textbox extends IText {
     // Detect resize origin during resizing
     this.on('resizing', e => {
       // Check transform origin to determine which side is being resized
-      console.log('🔍 Resize event data:', e);
       if (e.transform) {
         const {
-          originX,
-          originY
+          originX
         } = e.transform;
-        console.log('🔍 Transform origins:', {
-          originX,
-          originY
-        });
         // originX tells us which side is the anchor - opposite side is being dragged
         resizeOrigin = originX === 'right' ? 'left' : originX === 'left' ? 'right' : null;
-        console.log('🎯 Setting resizeOrigin to:', resizeOrigin);
       } else if (e.originX) {
         const {
-          originX,
-          originY
+          originX
         } = e;
-        console.log('🔍 Event origins:', {
-          originX,
-          originY
-        });
         resizeOrigin = originX === 'right' ? 'left' : originX === 'left' ? 'right' : null;
-        console.log('🎯 Setting resizeOrigin to:', resizeOrigin);
       }
     });
 
@@ -26047,9 +26220,6 @@ class Textbox extends IText {
     // Use 'modified' event which fires after user releases the mouse
     this.on('modified', () => {
       const currentResizeOrigin = resizeOrigin; // Capture the value before reset
-      console.log('✅ Modified event fired - resize complete, triggering safety snap', {
-        resizeOrigin: currentResizeOrigin
-      });
       // Small delay to ensure text layout is updated
       setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
       resizeOrigin = null; // Reset after capturing
@@ -26059,7 +26229,6 @@ class Textbox extends IText {
     (_this$canvas = this.canvas) === null || _this$canvas === void 0 || _this$canvas.on('object:modified', e => {
       if (e.target === this) {
         const currentResizeOrigin = resizeOrigin; // Capture the value before reset
-        console.log('✅ Canvas object:modified fired for this textbox');
         setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
         resizeOrigin = null; // Reset after capturing
       }
@@ -26074,38 +26243,17 @@ class Textbox extends IText {
    * @param resizeOrigin - Which side was used for resizing ('left' or 'right')
    */
   safetySnapWidth(resizeOrigin) {
-    var _this$_textLines;
-    console.log('🔍 safetySnapWidth called', {
-      isWrapping: this.isWrapping,
-      hasTextLines: !!this._textLines,
-      lineCount: ((_this$_textLines = this._textLines) === null || _this$_textLines === void 0 ? void 0 : _this$_textLines.length) || 0,
-      currentWidth: this.width,
-      type: this.type,
-      text: this.text
-    });
-
     // For Textbox objects, we always want to check for clipping regardless of isWrapping flag
     if (!this._textLines || this.type.toLowerCase() !== 'textbox' || this._textLines.length === 0) {
-      var _this$_textLines2;
-      console.log('❌ Early return - missing requirements', {
-        hasTextLines: !!this._textLines,
-        typeMatch: this.type.toLowerCase() === 'textbox',
-        actualType: this.type,
-        hasLines: ((_this$_textLines2 = this._textLines) === null || _this$_textLines2 === void 0 ? void 0 : _this$_textLines2.length) > 0
-      });
       return;
     }
     const lineCount = this._textLines.length;
     if (lineCount === 0) return;
-
-    // Check all lines, not just the last one
-    let maxActualLineWidth = 0; // Actual measured width without buffers
     let maxRequiredWidth = 0; // Width including RTL buffer
 
     for (let i = 0; i < lineCount; i++) {
       const lineText = this._textLines[i].join(''); // Convert grapheme array to string
       const lineWidth = this.getLineWidth(i);
-      maxActualLineWidth = Math.max(maxActualLineWidth, lineWidth);
 
       // RTL detection - regex for Arabic, Hebrew, and other RTL characters
       const rtlRegex = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
@@ -26125,11 +26273,6 @@ class Textbox extends IText {
       var _this$canvas2;
       // Set width to exactly what's needed + minimal safety margin
       const newWidth = maxRequiredWidth + 1; // Add just 1px safety margin
-      console.log(`Safety snap: ${this.width.toFixed(0)}px -> ${newWidth.toFixed(0)}px`, {
-        maxActualLineWidth: maxActualLineWidth.toFixed(1),
-        maxRequiredWidth: maxRequiredWidth.toFixed(1),
-        difference: (newWidth - this.width).toFixed(1)
-      });
 
       // Store original position before width change
       const originalLeft = this.left;
@@ -26145,19 +26288,12 @@ class Textbox extends IText {
       // Only compensate position when resizing from left handle
       // Right handle resize doesn't shift the text position
       if (resizeOrigin === 'left') {
-        console.log('🔧 Compensating for left-side resize', {
-          originalLeft,
-          widthIncrease,
-          newLeft: originalLeft - widthIncrease
-        });
         // When resizing from left, the expansion pushes text right
         // Compensate by moving the textbox left by the width increase
         this.set({
           'left': originalLeft - widthIncrease,
           'top': originalTop
         });
-      } else {
-        console.log('✅ Right-side resize, no compensation needed');
       }
       this.setCoords();
 

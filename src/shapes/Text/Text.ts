@@ -593,6 +593,8 @@ export class FabricText<
       line,
       charBound,
       spaces;
+    const isRtl = this.direction === 'rtl';
+    
     for (let i = 0, len = this._textLines.length; i < len; i++) {
       if (
         this.textAlign !== JUSTIFY &&
@@ -609,15 +611,56 @@ export class FabricText<
       ) {
         numberOfSpaces = spaces.length;
         diffSpace = (this.width - currentLineWidth) / numberOfSpaces;
-        for (let j = 0; j <= line.length; j++) {
-          charBound = this.__charBounds[i][j];
-          if (this._reSpaceAndTab.test(line[j])) {
-            charBound.width += diffSpace;
-            charBound.kernedWidth += diffSpace;
-            charBound.left += accumulatedSpace;
-            accumulatedSpace += diffSpace;
-          } else {
-            charBound.left += accumulatedSpace;
+        
+        if (isRtl) {
+          // For RTL text, we need to redistribute spaces while maintaining correct visual order
+          // The key insight is that RTL text is stored in logical order but displayed in visual order
+          // We need to adjust bounds to account for the visual positioning
+          
+          // First, collect all space positions
+          const spaceIndices = [];
+          for (let j = 0; j < line.length; j++) {
+            if (this._reSpaceAndTab.test(line[j])) {
+              spaceIndices.push(j);
+            }
+          }
+          
+          // Calculate total expansion
+          const totalExpansion = diffSpace * numberOfSpaces;
+          
+          // For RTL, we need to work backwards through the visual positions
+          // but still update logical positions correctly
+          let spaceCount = 0;
+          for (let j = 0; j <= line.length; j++) {
+            charBound = this.__charBounds[i][j];
+            if (charBound) {
+              if (this._reSpaceAndTab.test(line[j])) {
+                charBound.width += diffSpace;
+                charBound.kernedWidth += diffSpace;
+                spaceCount++;
+              }
+              
+              // For RTL, shift all characters to the right by the total expansion
+              // minus the expansion that comes after this character
+              const remainingSpaces = numberOfSpaces - spaceCount;
+              const shiftAmount = remainingSpaces * diffSpace;
+              charBound.left += shiftAmount;
+            }
+          }
+        } else {
+          // LTR processing (original logic)
+          for (let j = 0; j <= line.length; j++) {
+            charBound = this.__charBounds[i][j];
+            if (charBound) {
+              if (this._reSpaceAndTab.test(line[j])) {
+                charBound.width += diffSpace;
+                charBound.kernedWidth += diffSpace;
+                charBound.left += accumulatedSpace;
+                accumulatedSpace += diffSpace;
+              } else {
+                charBound.left += accumulatedSpace;
+              }
+            }
           }
         }
       }
@@ -1376,7 +1419,15 @@ export class FabricText<
     if (currentDirection !== this.direction) {
       ctx.canvas.setAttribute('dir', isLtr ? 'ltr' : 'rtl');
       ctx.direction = isLtr ? 'ltr' : 'rtl';
-      ctx.textAlign = isLtr ? LEFT : RIGHT;
+      
+      // For justify alignments, we need to set the correct canvas text alignment
+      // This is crucial for RTL text to render in the correct order
+      if (isJustify) {
+        // Justify uses LEFT alignment as a base, letting the character positioning handle justification
+        ctx.textAlign = LEFT;
+      } else {
+        ctx.textAlign = isLtr ? LEFT : RIGHT;
+      }
     }
     top -= (lineHeight * this._fontSizeFraction) / this.lineHeight;
     if (shortCut) {
@@ -1665,14 +1716,26 @@ export class FabricText<
       direction = this.direction,
       isEndOfWrapping = this.isEndOfWrapping(lineIndex);
     let leftOffset = 0;
-    if (
+    
+    // Handle justify alignments (excluding last lines and wrapped line ends)
+    const isJustifyLine = 
       textAlign === JUSTIFY ||
       (textAlign === JUSTIFY_CENTER && !isEndOfWrapping) ||
       (textAlign === JUSTIFY_RIGHT && !isEndOfWrapping) ||
-      (textAlign === JUSTIFY_LEFT && !isEndOfWrapping)
-    ) {
-      return 0;
+      (textAlign === JUSTIFY_LEFT && !isEndOfWrapping);
+    
+    if (isJustifyLine) {
+      // Justify lines should start at the left edge for LTR and right edge for RTL
+      // The space distribution is handled by enlargeSpaces()
+      if (direction === 'rtl') {
+        // For RTL justify, we need to account for the line being right-aligned
+        return 0;
+      } else {
+        return 0;
+      }
     }
+    
+    // Handle non-justify alignments
     if (textAlign === CENTER) {
       leftOffset = lineDiff / 2;
     }
@@ -1685,6 +1748,8 @@ export class FabricText<
     if (textAlign === JUSTIFY_RIGHT) {
       leftOffset = lineDiff;
     }
+    
+    // Apply RTL adjustments for non-justify alignments
     if (direction === 'rtl') {
       if (
         textAlign === RIGHT ||

@@ -343,15 +343,88 @@ export class OverlayEditor {
     this.textarea.style.fontFamily = target.fontFamily || 'Arial';
     this.textarea.style.fontWeight = String(target.fontWeight || 'normal');
     this.textarea.style.fontStyle = target.fontStyle || 'normal';
-    this.textarea.style.textAlign = (target as any).textAlign || 'left';
+    // Handle text alignment and justification
+    const textAlign = (target as any).textAlign || 'left';
+    let cssTextAlign = textAlign;
+    
+    // Detect text direction from content for proper justify handling
+    const autoDetectedDirection = this.firstStrongDir(this.textarea.value || '');
+    
+    // DEBUG: Log alignment details
+    console.log('🔍 ALIGNMENT DEBUG:');
+    console.log('   Fabric textAlign:', textAlign);
+    console.log('   Fabric direction:', (target as any).direction);
+    console.log('   Text content:', JSON.stringify(target.text));
+    console.log('   Detected direction:', autoDetectedDirection);
+    
+    // Map fabric.js justify to CSS
+    if (textAlign.includes('justify')) {
+      // Try to match fabric.js justify behavior more precisely
+      try {
+        // For justify, we need to replicate fabric.js space expansion
+        // Use CSS justify but with specific settings to match fabric.js better
+        cssTextAlign = 'justify';
+        
+        // Set text-align-last based on justify type and detected direction
+        // Smart justify: respect detected direction even when fabric alignment doesn't match
+        if (textAlign === 'justify') {
+          this.textarea.style.textAlignLast = autoDetectedDirection === 'rtl' ? 'right' : 'left';
+        } else if (textAlign === 'justify-left') {
+          // If text is RTL but fabric says justify-left, override to justify-right for better UX
+          if (autoDetectedDirection === 'rtl') {
+            this.textarea.style.textAlignLast = 'right';
+            console.log('   → Overrode justify-left to justify-right for RTL text');
+          } else {
+            this.textarea.style.textAlignLast = 'left';
+          }
+        } else if (textAlign === 'justify-right') {
+          // If text is LTR but fabric says justify-right, override to justify-left for better UX  
+          if (autoDetectedDirection === 'ltr') {
+            this.textarea.style.textAlignLast = 'left';
+            console.log('   → Overrode justify-right to justify-left for LTR text');
+          } else {
+            this.textarea.style.textAlignLast = 'right';
+          }
+        } else if (textAlign === 'justify-center') {
+          this.textarea.style.textAlignLast = 'center';
+        }
+        
+        // Enhanced justify settings for better fabric.js matching
+        (this.textarea.style as any).textJustify = 'inter-word';
+        (this.textarea.style as any).wordSpacing = 'normal';
+        
+        // Additional CSS properties for better justify matching
+        this.textarea.style.textAlign = 'justify';
+        this.textarea.style.textAlignLast = this.textarea.style.textAlignLast;
+        
+        // Try to force better justify behavior
+        (this.textarea.style as any).textJustifyTrim = 'none';
+        (this.textarea.style as any).textAutospace = 'none';
+        
+        console.log('   → Applied justify alignment:', textAlign, 'with last-line:', this.textarea.style.textAlignLast);
+      } catch (error) {
+        console.warn('   → Justify setup failed, falling back to standard alignment:', error);
+        cssTextAlign = textAlign.replace('justify-', '').replace('justify', 'left');
+      }
+    } else {
+      this.textarea.style.textAlignLast = 'auto';
+      (this.textarea.style as any).textJustify = 'auto';
+      (this.textarea.style as any).wordSpacing = 'normal';
+      console.log('   → Applied standard alignment:', cssTextAlign);
+    }
+    
+    this.textarea.style.textAlign = cssTextAlign;
     this.textarea.style.color = target.fill?.toString() || '#000';
     this.textarea.style.letterSpacing = `${letterSpacingPx}px`;
-    this.textarea.style.direction =
-      (target as any).direction ||
-      this.firstStrongDir(this.textarea.value || '');
+    
+    // Use the already detected direction from above
+    const fabricDirection = (target as any).direction;
+    
+    // Use auto-detected direction for better BiDi support, but respect fabric direction if it makes sense
+    this.textarea.style.direction = autoDetectedDirection || fabricDirection || 'ltr';
     this.textarea.style.fontVariant = 'normal';
     this.textarea.style.fontStretch = 'normal';
-    this.textarea.style.textRendering = 'optimizeLegibility';
+    this.textarea.style.textRendering = 'auto'; // Changed from 'optimizeLegibility' to match canvas
     this.textarea.style.fontKerning = 'normal';
     this.textarea.style.fontFeatureSettings = 'normal';
     this.textarea.style.fontVariationSettings = 'normal';
@@ -363,14 +436,61 @@ export class OverlayEditor {
     this.textarea.style.whiteSpace = 'pre-wrap';
     this.textarea.style.hyphens = 'none';
     
-    (this.textarea.style as any).webkitFontSmoothing = 'antialiased';
-    (this.textarea.style as any).mozOsxFontSmoothing = 'grayscale';
+    // DEBUG: Log final CSS properties
+    console.log('🎨 FINAL TEXTAREA CSS:');
+    console.log('   textAlign:', this.textarea.style.textAlign);
+    console.log('   textAlignLast:', this.textarea.style.textAlignLast);
+    console.log('   direction:', this.textarea.style.direction);
+    console.log('   unicodeBidi:', this.textarea.style.unicodeBidi);
+    console.log('   width:', this.textarea.style.width);
+    console.log('   textJustify:', (this.textarea.style as any).textJustify);
+    console.log('   wordSpacing:', (this.textarea.style as any).wordSpacing);
+    console.log('   whiteSpace:', this.textarea.style.whiteSpace);
+    
+    // If justify, log Fabric object dimensions for comparison
+    if (textAlign.includes('justify')) {
+      console.log('🔧 FABRIC OBJECT JUSTIFY INFO:');
+      console.log('   Fabric width:', (target as any).width);
+      console.log('   Fabric calcTextWidth:', (target as any).calcTextWidth?.());
+      console.log('   Fabric textAlign:', (target as any).textAlign);
+      console.log('   Text lines:', (target as any).textLines);
+    }
+    
+    // Debug font properties matching
+    console.log('🔤 FONT PROPERTIES COMPARISON:');
+    console.log('   Fabric fontFamily:', target.fontFamily);
+    console.log('   Fabric fontWeight:', target.fontWeight);
+    console.log('   Fabric fontStyle:', target.fontStyle);
+    console.log('   Fabric fontSize:', target.fontSize);
+    console.log('   → Textarea fontFamily:', this.textarea.style.fontFamily);
+    console.log('   → Textarea fontWeight:', this.textarea.style.fontWeight);
+    console.log('   → Textarea fontStyle:', this.textarea.style.fontStyle);
+    console.log('   → Textarea fontSize:', this.textarea.style.fontSize);
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    // Enhanced font rendering to better match fabric.js canvas rendering
+    // Default to auto for more natural rendering
+    (this.textarea.style as any).webkitFontSmoothing = 'auto';
+    (this.textarea.style as any).mozOsxFontSmoothing = 'auto';
+    (this.textarea.style as any).fontSmooth = 'auto';
+    (this.textarea.style as any).textSizeAdjust = 'none';
+    
+    // For bold fonts, use subpixel rendering to match canvas thickness better
+    const fontWeight = String(target.fontWeight || 'normal');
+    const isBold = fontWeight === 'bold' || fontWeight === '700' || 
+                   (parseInt(fontWeight) >= 600);
+    
+    if (isBold) {
+      (this.textarea.style as any).webkitFontSmoothing = 'subpixel-antialiased';
+      (this.textarea.style as any).mozOsxFontSmoothing = 'unset';
+      console.log('🔤 Applied enhanced bold rendering for better thickness matching');
+    }
+    
+    console.log('🎨 FONT SMOOTHING APPLIED:');
+    console.log('   webkitFontSmoothing:', (this.textarea.style as any).webkitFontSmoothing);
+    console.log('   mozOsxFontSmoothing:', (this.textarea.style as any).mozOsxFontSmoothing);
 
-    // Debug: Compare textarea and canvas object bounding boxes
-    this.debugBoundingBoxComparison();
-
-    // Debug: Compare text wrapping behavior
-    this.debugTextWrapping();
 
     // Initial bounds are set correctly by Fabric.js - don't force update here
   }
@@ -664,6 +784,26 @@ export class OverlayEditor {
     // Handle commit/cancel after restoring visibility
     if (commit && !this.isComposing) {
       const finalText = this.textarea.value;
+      
+      // Auto-detect text direction and update fabric object if needed
+      const detectedDirection = this.firstStrongDir(finalText);
+      const currentDirection = (this.target as any).direction || 'ltr';
+      
+      if (detectedDirection && detectedDirection !== currentDirection) {
+        console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
+        console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
+        
+        // Update the fabric object's direction
+        (this.target as any).set('direction', detectedDirection);
+        
+        // Force a re-render to apply the direction change
+        this.canvas.requestRenderAll();
+        
+        console.log(`✅ Fabric object direction updated to: ${detectedDirection}`);
+      } else {
+        console.log(`📝 Overlay Exit: Direction unchanged (${currentDirection}), text: "${finalText.substring(0, 30)}..."`);
+      }
+      
       if (this.onCommit) {
         this.onCommit(finalText);
       }
