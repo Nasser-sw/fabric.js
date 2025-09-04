@@ -410,7 +410,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta1";
+var version = "7.0.1-beta2";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -17890,10 +17890,189 @@ _defineProperty(Line, "ATTRIBUTE_NAMES", SHARED_ATTRIBUTES.concat(coordProps));
 classRegistry.setClass(Line);
 classRegistry.setSVGClass(Line);
 
+/**
+ * Calculate the distance between two points
+ */
+function pointDistance(p1, p2) {
+  return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+}
+
+/**
+ * Normalize a vector
+ */
+function normalizeVector(vector) {
+  const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+  if (length === 0) return {
+    x: 0,
+    y: 0
+  };
+  return {
+    x: vector.x / length,
+    y: vector.y / length
+  };
+}
+
+/**
+ * Get the maximum allowed radius for a corner based on adjacent edge lengths
+ */
+function getMaxRadius(prevPoint, currentPoint, nextPoint) {
+  const dist1 = pointDistance(prevPoint, currentPoint);
+  const dist2 = pointDistance(currentPoint, nextPoint);
+  return Math.min(dist1, dist2) / 2;
+}
+
+/**
+ * Calculate rounded corner data for a single corner
+ */
+function calculateRoundedCorner(prevPoint, currentPoint, nextPoint, radius) {
+  // Calculate edge vectors
+  const edge1 = {
+    x: currentPoint.x - prevPoint.x,
+    y: currentPoint.y - prevPoint.y
+  };
+  const edge2 = {
+    x: nextPoint.x - currentPoint.x,
+    y: nextPoint.y - currentPoint.y
+  };
+
+  // Normalize edge vectors
+  const norm1 = normalizeVector(edge1);
+  const norm2 = normalizeVector(edge2);
+
+  // Calculate the maximum allowed radius
+  const maxRadius = getMaxRadius(prevPoint, currentPoint, nextPoint);
+  const actualRadius = Math.min(radius, maxRadius);
+
+  // Calculate start and end points of the rounded corner
+  const startPoint = {
+    x: currentPoint.x - norm1.x * actualRadius,
+    y: currentPoint.y - norm1.y * actualRadius
+  };
+  const endPoint = {
+    x: currentPoint.x + norm2.x * actualRadius,
+    y: currentPoint.y + norm2.y * actualRadius
+  };
+
+  // Calculate control points for bezier curve
+  // Using the magic number kRect for optimal circular approximation
+  const controlOffset = actualRadius * kRect;
+  const cp1 = {
+    x: startPoint.x + norm1.x * controlOffset,
+    y: startPoint.y + norm1.y * controlOffset
+  };
+  const cp2 = {
+    x: endPoint.x - norm2.x * controlOffset,
+    y: endPoint.y - norm2.y * controlOffset
+  };
+  return {
+    corner: currentPoint,
+    start: startPoint,
+    end: endPoint,
+    cp1,
+    cp2,
+    actualRadius
+  };
+}
+
+/**
+ * Apply corner radius to a polygon defined by points
+ */
+function applyCornerRadiusToPolygon(points, radius) {
+  let radiusAsPercentage = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
+  if (points.length < 3) {
+    throw new Error('Polygon must have at least 3 points');
+  }
+
+  // Calculate bounding box if radius is percentage-based
+  let actualRadius = radius;
+  if (radiusAsPercentage) {
+    const minX = Math.min(...points.map(p => p.x));
+    const maxX = Math.max(...points.map(p => p.x));
+    const minY = Math.min(...points.map(p => p.y));
+    const maxY = Math.max(...points.map(p => p.y));
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const minDimension = Math.min(width, height);
+    actualRadius = radius / 100 * minDimension;
+  }
+  const roundedCorners = [];
+  for (let i = 0; i < points.length; i++) {
+    const prevIndex = (i - 1 + points.length) % points.length;
+    const nextIndex = (i + 1) % points.length;
+    const prevPoint = points[prevIndex];
+    const currentPoint = points[i];
+    const nextPoint = points[nextIndex];
+    const roundedCorner = calculateRoundedCorner(prevPoint, currentPoint, nextPoint, actualRadius);
+    roundedCorners.push(roundedCorner);
+  }
+  return roundedCorners;
+}
+
+/**
+ * Render a rounded polygon to a canvas context
+ */
+function renderRoundedPolygon(ctx, roundedCorners) {
+  let closed = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
+  if (roundedCorners.length === 0) return;
+  ctx.beginPath();
+
+  // Start at the first corner's start point
+  const firstCorner = roundedCorners[0];
+  ctx.moveTo(firstCorner.start.x, firstCorner.start.y);
+  for (let i = 0; i < roundedCorners.length; i++) {
+    const corner = roundedCorners[i];
+    const nextIndex = (i + 1) % roundedCorners.length;
+    const nextCorner = roundedCorners[nextIndex];
+
+    // Draw the rounded corner using bezier curve
+    ctx.bezierCurveTo(corner.cp1.x, corner.cp1.y, corner.cp2.x, corner.cp2.y, corner.end.x, corner.end.y);
+
+    // Draw line to next corner's start point (if not the last segment in open path)
+    if (i < roundedCorners.length - 1 || closed) {
+      ctx.lineTo(nextCorner.start.x, nextCorner.start.y);
+    }
+  }
+  if (closed) {
+    ctx.closePath();
+  }
+}
+
+/**
+ * Generate SVG path data for a rounded polygon
+ */
+function generateRoundedPolygonPath(roundedCorners) {
+  let closed = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
+  if (roundedCorners.length === 0) return '';
+  const pathData = [];
+  const firstCorner = roundedCorners[0];
+
+  // Move to first corner's start point
+  pathData.push(`M ${firstCorner.start.x} ${firstCorner.start.y}`);
+  for (let i = 0; i < roundedCorners.length; i++) {
+    const corner = roundedCorners[i];
+    const nextIndex = (i + 1) % roundedCorners.length;
+    const nextCorner = roundedCorners[nextIndex];
+
+    // Add bezier curve for the rounded corner
+    pathData.push(`C ${corner.cp1.x} ${corner.cp1.y} ${corner.cp2.x} ${corner.cp2.y} ${corner.end.x} ${corner.end.y}`);
+
+    // Add line to next corner's start point (if not the last segment in open path)
+    if (i < roundedCorners.length - 1 || closed) {
+      pathData.push(`L ${nextCorner.start.x} ${nextCorner.start.y}`);
+    }
+  }
+  if (closed) {
+    pathData.push('Z');
+  }
+  return pathData.join(' ');
+}
+
 const triangleDefaultValues = {
   width: 100,
-  height: 100
+  height: 100,
+  cornerRadius: 0
 };
+const TRIANGLE_PROPS = ['cornerRadius'];
 class Triangle extends FabricObject {
   static getDefaults() {
     return {
@@ -17913,18 +18092,60 @@ class Triangle extends FabricObject {
   }
 
   /**
+   * Get triangle points as an array of XY coordinates
+   * @private
+   */
+  _getTrianglePoints() {
+    const widthBy2 = this.width / 2;
+    const heightBy2 = this.height / 2;
+    return [{
+      x: -widthBy2,
+      y: heightBy2
+    },
+    // bottom left
+    {
+      x: 0,
+      y: -heightBy2
+    },
+    // top center
+    {
+      x: widthBy2,
+      y: heightBy2
+    } // bottom right
+    ];
+  }
+
+  /**
    * @private
    * @param {CanvasRenderingContext2D} ctx Context to render on
    */
   _render(ctx) {
-    const widthBy2 = this.width / 2,
-      heightBy2 = this.height / 2;
-    ctx.beginPath();
-    ctx.moveTo(-widthBy2, heightBy2);
-    ctx.lineTo(0, -heightBy2);
-    ctx.lineTo(widthBy2, heightBy2);
-    ctx.closePath();
+    if (this.cornerRadius > 0) {
+      // Render rounded triangle
+      const points = this._getTrianglePoints();
+      const roundedCorners = applyCornerRadiusToPolygon(points, this.cornerRadius);
+      renderRoundedPolygon(ctx, roundedCorners, true);
+    } else {
+      // Render sharp triangle (original implementation)
+      const widthBy2 = this.width / 2;
+      const heightBy2 = this.height / 2;
+      ctx.beginPath();
+      ctx.moveTo(-widthBy2, heightBy2);
+      ctx.lineTo(0, -heightBy2);
+      ctx.lineTo(widthBy2, heightBy2);
+      ctx.closePath();
+    }
     this._renderPaintInOrder(ctx);
+  }
+
+  /**
+   * Returns object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} object representation of an instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return super.toObject([...TRIANGLE_PROPS, ...propertiesToInclude]);
   }
 
   /**
@@ -17933,13 +18154,27 @@ class Triangle extends FabricObject {
    * of the instance
    */
   _toSVG() {
-    const widthBy2 = this.width / 2,
-      heightBy2 = this.height / 2,
-      points = `${-widthBy2} ${heightBy2},0 ${-heightBy2},${widthBy2} ${heightBy2}`;
-    return ['<polygon ', 'COMMON_PARTS', 'points="', points, '" />'];
+    if (this.cornerRadius > 0) {
+      // Generate rounded triangle as path
+      const points = this._getTrianglePoints();
+      const roundedCorners = applyCornerRadiusToPolygon(points, this.cornerRadius);
+      const pathData = generateRoundedPolygonPath(roundedCorners, true);
+      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />`];
+    } else {
+      // Original sharp triangle implementation
+      const widthBy2 = this.width / 2;
+      const heightBy2 = this.height / 2;
+      const points = `${-widthBy2} ${heightBy2},0 ${-heightBy2},${widthBy2} ${heightBy2}`;
+      return ['<polygon ', 'COMMON_PARTS', 'points="', points, '" />'];
+    }
   }
 }
+/**
+ * Corner radius for rounded triangle corners
+ * @type Number
+ */
 _defineProperty(Triangle, "type", 'Triangle');
+_defineProperty(Triangle, "cacheProperties", [...cacheProperties, ...TRIANGLE_PROPS]);
 _defineProperty(Triangle, "ownDefaults", triangleDefaultValues);
 classRegistry.setClass(Triangle);
 classRegistry.setSVGClass(Triangle);
@@ -18104,7 +18339,8 @@ const polylineDefaultValues = {
   /**
    * @deprecated transient option soon to be removed in favor of a different design
    */
-  exactBoundingBox: false
+  exactBoundingBox: false,
+  cornerRadius: 0
 };
 class Polyline extends FabricObject {
   static getDefaults() {
@@ -18318,7 +18554,7 @@ class Polyline extends FabricObject {
   toObject() {
     let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
     return {
-      ...super.toObject(propertiesToInclude),
+      ...super.toObject(['cornerRadius', ...propertiesToInclude]),
       points: this.points.map(_ref => {
         let {
           x,
@@ -18338,14 +18574,28 @@ class Polyline extends FabricObject {
    * of the instance
    */
   _toSVG() {
-    const points = [],
-      diffX = this.pathOffset.x,
-      diffY = this.pathOffset.y,
-      NUM_FRACTION_DIGITS = config.NUM_FRACTION_DIGITS;
-    for (let i = 0, len = this.points.length; i < len; i++) {
-      points.push(toFixed(this.points[i].x - diffX, NUM_FRACTION_DIGITS), ',', toFixed(this.points[i].y - diffY, NUM_FRACTION_DIGITS), ' ');
+    if (this.cornerRadius > 0 && this.points.length >= 3) {
+      // Generate rounded polygon/polyline as path
+      const diffX = this.pathOffset.x;
+      const diffY = this.pathOffset.y;
+      const adjustedPoints = this.points.map(point => ({
+        x: point.x - diffX,
+        y: point.y - diffY
+      }));
+      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
+      const pathData = generateRoundedPolygonPath(roundedCorners, !this.isOpen());
+      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />\n`];
+    } else {
+      // Original sharp corners implementation
+      const points = [];
+      const diffX = this.pathOffset.x;
+      const diffY = this.pathOffset.y;
+      const NUM_FRACTION_DIGITS = config.NUM_FRACTION_DIGITS;
+      for (let i = 0, len = this.points.length; i < len; i++) {
+        points.push(toFixed(this.points[i].x - diffX, NUM_FRACTION_DIGITS), ',', toFixed(this.points[i].y - diffY, NUM_FRACTION_DIGITS), ' ');
+      }
+      return [`<${this.constructor.type.toLowerCase()} `, 'COMMON_PARTS', `points="${points.join('')}" />\n`];
     }
-    return [`<${this.constructor.type.toLowerCase()} `, 'COMMON_PARTS', `points="${points.join('')}" />\n`];
   }
 
   /**
@@ -18361,13 +18611,24 @@ class Polyline extends FabricObject {
       // NaN comes from parseFloat of a empty string in parser
       return;
     }
-    ctx.beginPath();
-    ctx.moveTo(this.points[0].x - x, this.points[0].y - y);
-    for (let i = 0; i < len; i++) {
-      const point = this.points[i];
-      ctx.lineTo(point.x - x, point.y - y);
+    if (this.cornerRadius > 0 && len >= 3) {
+      // Render with rounded corners
+      const adjustedPoints = this.points.map(point => ({
+        x: point.x - x,
+        y: point.y - y
+      }));
+      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
+      renderRoundedPolygon(ctx, roundedCorners, !this.isOpen());
+    } else {
+      // Original sharp corners implementation
+      ctx.beginPath();
+      ctx.moveTo(this.points[0].x - x, this.points[0].y - y);
+      for (let i = 0; i < len; i++) {
+        const point = this.points[i];
+        ctx.lineTo(point.x - x, point.y - y);
+      }
+      !this.isOpen() && ctx.closePath();
     }
-    !this.isOpen() && ctx.closePath();
     this._renderPaintInOrder(ctx);
   }
 
@@ -18432,10 +18693,15 @@ class Polyline extends FabricObject {
  * @type Boolean
  * @default false
  */
+/**
+ * Corner radius for rounded corners
+ * @type Number
+ * @default 0
+ */
 _defineProperty(Polyline, "ownDefaults", polylineDefaultValues);
 _defineProperty(Polyline, "type", 'Polyline');
 _defineProperty(Polyline, "layoutProperties", [SKEW_X, SKEW_Y, 'strokeLineCap', 'strokeLineJoin', 'strokeMiterLimit', 'strokeWidth', 'strokeUniform', 'points']);
-_defineProperty(Polyline, "cacheProperties", [...cacheProperties, 'points']);
+_defineProperty(Polyline, "cacheProperties", [...cacheProperties, 'points', 'cornerRadius']);
 _defineProperty(Polyline, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES]);
 classRegistry.setClass(Polyline);
 classRegistry.setSVGClass(Polyline);

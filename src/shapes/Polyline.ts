@@ -25,16 +25,23 @@ import {
   TOP,
 } from '../constants';
 import type { CSSRules } from '../parser/typedefs';
+import {
+  applyCornerRadiusToPolygon,
+  renderRoundedPolygon,
+  generateRoundedPolygonPath,
+} from '../util/misc/cornerRadius';
 
 export const polylineDefaultValues: Partial<TClassProperties<Polyline>> = {
   /**
    * @deprecated transient option soon to be removed in favor of a different design
    */
   exactBoundingBox: false,
+  cornerRadius: 0,
 };
 
 export interface SerializedPolylineProps extends SerializedObjectProps {
   points: XY[];
+  cornerRadius: number;
 }
 
 export class Polyline<
@@ -58,6 +65,13 @@ export class Polyline<
    * @default false
    */
   declare exactBoundingBox: boolean;
+
+  /**
+   * Corner radius for rounded corners
+   * @type Number
+   * @default 0
+   */
+  declare cornerRadius: number;
 
   declare private initialized: true | undefined;
 
@@ -91,7 +105,7 @@ export class Polyline<
 
   declare strokeOffset: Point;
 
-  static cacheProperties = [...cacheProperties, 'points'];
+  static cacheProperties = [...cacheProperties, 'points', 'cornerRadius'];
 
   strokeDiff: Point;
 
@@ -312,7 +326,7 @@ export class Polyline<
     K extends keyof T = never,
   >(propertiesToInclude: K[] = []): Pick<T, K> & SProps {
     return {
-      ...super.toObject(propertiesToInclude),
+      ...super.toObject(['cornerRadius', ...propertiesToInclude]),
       points: this.points.map(({ x, y }) => ({ x, y })),
     };
   }
@@ -323,28 +337,42 @@ export class Polyline<
    * of the instance
    */
   _toSVG() {
-    const points = [],
-      diffX = this.pathOffset.x,
-      diffY = this.pathOffset.y,
-      NUM_FRACTION_DIGITS = config.NUM_FRACTION_DIGITS;
+    if (this.cornerRadius > 0 && this.points.length >= 3) {
+      // Generate rounded polygon/polyline as path
+      const diffX = this.pathOffset.x;
+      const diffY = this.pathOffset.y;
+      const adjustedPoints = this.points.map(point => ({
+        x: point.x - diffX,
+        y: point.y - diffY,
+      }));
+      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
+      const pathData = generateRoundedPolygonPath(roundedCorners, !this.isOpen());
+      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />\n`];
+    } else {
+      // Original sharp corners implementation
+      const points = [];
+      const diffX = this.pathOffset.x;
+      const diffY = this.pathOffset.y;
+      const NUM_FRACTION_DIGITS = config.NUM_FRACTION_DIGITS;
 
-    for (let i = 0, len = this.points.length; i < len; i++) {
-      points.push(
-        toFixed(this.points[i].x - diffX, NUM_FRACTION_DIGITS),
-        ',',
-        toFixed(this.points[i].y - diffY, NUM_FRACTION_DIGITS),
-        ' ',
-      );
+      for (let i = 0, len = this.points.length; i < len; i++) {
+        points.push(
+          toFixed(this.points[i].x - diffX, NUM_FRACTION_DIGITS),
+          ',',
+          toFixed(this.points[i].y - diffY, NUM_FRACTION_DIGITS),
+          ' ',
+        );
+      }
+      return [
+        `<${
+          (this.constructor as typeof Polyline).type.toLowerCase() as
+            | 'polyline'
+            | 'polygon'
+        } `,
+        'COMMON_PARTS',
+        `points="${points.join('')}" />\n`,
+      ];
     }
-    return [
-      `<${
-        (this.constructor as typeof Polyline).type.toLowerCase() as
-          | 'polyline'
-          | 'polygon'
-      } `,
-      'COMMON_PARTS',
-      `points="${points.join('')}" />\n`,
-    ];
   }
 
   /**
@@ -361,13 +389,26 @@ export class Polyline<
       // NaN comes from parseFloat of a empty string in parser
       return;
     }
-    ctx.beginPath();
-    ctx.moveTo(this.points[0].x - x, this.points[0].y - y);
-    for (let i = 0; i < len; i++) {
-      const point = this.points[i];
-      ctx.lineTo(point.x - x, point.y - y);
+
+    if (this.cornerRadius > 0 && len >= 3) {
+      // Render with rounded corners
+      const adjustedPoints = this.points.map(point => ({
+        x: point.x - x,
+        y: point.y - y,
+      }));
+      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
+      renderRoundedPolygon(ctx, roundedCorners, !this.isOpen());
+    } else {
+      // Original sharp corners implementation
+      ctx.beginPath();
+      ctx.moveTo(this.points[0].x - x, this.points[0].y - y);
+      for (let i = 0; i < len; i++) {
+        const point = this.points[i];
+        ctx.lineTo(point.x - x, point.y - y);
+      }
+      !this.isOpen() && ctx.closePath();
     }
-    !this.isOpen() && ctx.closePath();
+
     this._renderPaintInOrder(ctx);
   }
 
