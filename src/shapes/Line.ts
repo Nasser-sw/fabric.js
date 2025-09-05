@@ -176,17 +176,17 @@ export class Line<
 
   setCoords() {
     if (this._useEndpointCoords) {
-      const minX = Math.min(this.x1, this.x2);
-      const maxX = Math.max(this.x1, this.x2);
-      const minY = Math.min(this.y1, this.y2);
-      const maxY = Math.max(this.y1, this.y2);
+      // Set the object's center to the geometric center of the line
+      const center = this._findCenterFromElement();
+      this.left = center.x;
+      this.top = center.y;
+      
+      // Set width and height for hit detection and bounding box
       const effectiveStrokeWidth =
         this.hitStrokeWidth === 'auto'
           ? this.strokeWidth
           : this.hitStrokeWidth;
       const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
-      this.left = minX - hitPadding + (maxX - minX + hitPadding * 2) / 2;
-      this.top = minY - hitPadding + (maxY - minY + hitPadding * 2) / 2;
       this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
       this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
     }
@@ -459,12 +459,31 @@ export class Line<
   }
 
   _toSVG() {
-    const { x1, x2, y1, y2 } = this.calcLinePoints();
-    return [
-      '<line ',
-      'COMMON_PARTS',
-      `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />\n`,
-    ];
+    if (this._useEndpointCoords) {
+      // Use absolute coordinates to bypass all Fabric.js transforms
+      return [
+        `<line stroke="${this.stroke}" stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `,
+        `x1="${this.x1}" y1="${this.y1}" x2="${this.x2}" y2="${this.y2}" />\n`,
+      ];
+    } else {
+      // Use standard calcLinePoints for legacy mode
+      const { x1, x2, y1, y2 } = this.calcLinePoints();
+      return [
+        '<line ',
+        'COMMON_PARTS',
+        `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />\n`,
+      ];
+    }
+  }
+
+  toSVG(reviver?: (markup: string) => string): string {
+    if (this._useEndpointCoords) {
+      // Override toSVG to prevent Fabric.js from adding transform wrapper
+      const markup = this._toSVG().join('');
+      return reviver ? reviver(markup) : markup;
+    }
+    // Use default behavior for legacy mode
+    return super.toSVG(reviver);
   }
 
   static ATTRIBUTE_NAMES = SHARED_ATTRIBUTES.concat(coordProps);
