@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta6";
+var version = "7.0.1-beta7";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -17580,6 +17580,7 @@ class Line extends FabricObject {
     _defineProperty(this, "hitStrokeWidth", 'auto');
     _defineProperty(this, "_updatingEndpoints", false);
     _defineProperty(this, "_useEndpointCoords", true);
+    _defineProperty(this, "_exportingSVG", false);
     this.setOptions(options);
     this.x1 = x1;
     this.x2 = x2;
@@ -17791,6 +17792,14 @@ class Line extends FabricObject {
         this.x2 = newX;
         this.y2 = newY;
       }
+
+      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
+      if (this.stroke instanceof Gradient && !this._exportingSVG) {
+        this.stroke.coords.x1 = this.x1;
+        this.stroke.coords.y1 = this.y1;
+        this.stroke.coords.x2 = this.x2;
+        this.stroke.coords.y2 = this.y2;
+      }
       this.dirty = true;
       this.setCoords();
       (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
@@ -17861,6 +17870,14 @@ class Line extends FabricObject {
     if (coordProps.includes(key)) {
       this._setWidthHeight();
       this.dirty = true;
+
+      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
+      if (this.stroke instanceof Gradient && !this._exportingSVG) {
+        this.stroke.coords.x1 = this.x1;
+        this.stroke.coords.y1 = this.y1;
+        this.stroke.coords.x2 = this.x2;
+        this.stroke.coords.y2 = this.y2;
+      }
     }
     if ((key === 'left' || key === 'top') && this.canvas && !this._updatingEndpoints) {
       const deltaX = this.left - oldLeft;
@@ -17871,6 +17888,14 @@ class Line extends FabricObject {
         this.y1 += deltaY;
         this.x2 += deltaX;
         this.y2 += deltaY;
+
+        // Update gradient coordinates if stroke is a gradient
+        if (this.stroke instanceof Gradient) {
+          this.stroke.coords.x1 = this.x1;
+          this.stroke.coords.y1 = this.y1;
+          this.stroke.coords.x2 = this.x2;
+          this.stroke.coords.y2 = this.y2;
+        }
         this._updatingEndpoints = false;
       }
     }
@@ -17884,17 +17909,23 @@ class Line extends FabricObject {
     super.render(ctx);
   }
   _renderDirectly(ctx) {
-    var _this$stroke;
     if (!this.visible) return;
     ctx.save();
     ctx.globalAlpha = this.opacity;
-    ctx.strokeStyle = ((_this$stroke = this.stroke) === null || _this$stroke === void 0 ? void 0 : _this$stroke.toString()) || '#000';
     ctx.lineWidth = this.strokeWidth;
     ctx.lineCap = this.strokeLineCap || 'butt';
     ctx.beginPath();
     ctx.moveTo(this.x1, this.y1);
     ctx.lineTo(this.x2, this.y2);
+    const origStrokeStyle = ctx.strokeStyle;
+    if (isFiller(this.stroke)) {
+      ctx.strokeStyle = this.stroke.toLive(ctx);
+    } else {
+      var _this$stroke;
+      ctx.strokeStyle = ((_this$stroke = this.stroke) === null || _this$stroke === void 0 ? void 0 : _this$stroke.toString()) || '#000';
+    }
     ctx.stroke();
+    ctx.strokeStyle = origStrokeStyle;
     ctx.restore();
   }
   _render(ctx) {
@@ -17969,7 +18000,15 @@ class Line extends FabricObject {
   _toSVG() {
     if (this._useEndpointCoords) {
       // Use absolute coordinates to bypass all Fabric.js transforms
-      return [`<line stroke="${this.stroke}" stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `, `x1="${this.x1}" y1="${this.y1}" x2="${this.x2}" y2="${this.y2}" />\n`];
+      // Handle gradients manually for proper SVG export
+      let strokeAttr = '';
+      if (this.stroke instanceof Gradient) {
+        // Let Fabric.js handle gradient definition, but we'll use the reference
+        strokeAttr = `stroke="url(#${this.stroke.id})"`;
+      } else {
+        strokeAttr = `stroke="${this.stroke || 'none'}"`;
+      }
+      return [`<line ${strokeAttr} stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `, `stroke-dasharray="${this.strokeDashArray ? this.strokeDashArray.join(' ') : 'none'}" `, `stroke-dashoffset="${this.strokeDashOffset}" stroke-linejoin="${this.strokeLineJoin}" `, `stroke-miterlimit="${this.strokeMiterLimit}" fill="${this.fill || 'none'}" `, `fill-rule="${this.fillRule}" opacity="${this.opacity}" `, `x1="${this.x1}" y1="${this.y1}" x2="${this.x2}" y2="${this.y2}" />\n`];
     } else {
       // Use standard calcLinePoints for legacy mode
       const {
@@ -17983,9 +18022,26 @@ class Line extends FabricObject {
   }
   toSVG(reviver) {
     if (this._useEndpointCoords) {
-      // Override toSVG to prevent Fabric.js from adding transform wrapper
-      const markup = this._toSVG().join('');
-      return reviver ? reviver(markup) : markup;
+      // For endpoint coords, we need to bypass transforms but still allow gradients
+      // Let's temporarily disable transforms during SVG generation
+      const originalLeft = this.left;
+      const originalTop = this.top;
+
+      // Set position to center of line for gradient calculation
+      this.left = (this.x1 + this.x2) / 2;
+      this.top = (this.y1 + this.y2) / 2;
+
+      // Get the SVG with standard system (for gradient handling)
+      const standardSVG = super.toSVG(reviver);
+
+      // Restore original position
+      this.left = originalLeft;
+      this.top = originalTop;
+
+      // Extract gradient definition and clean up the line element
+      // Remove the transform wrapper and update coordinates
+      const cleanSVG = standardSVG.replace(/<g transform="[^"]*"[^>]*>/g, '').replace(/<\/g>/g, '').replace(/x1="[^"]*"/g, `x1="${this.x1}"`).replace(/y1="[^"]*"/g, `y1="${this.y1}"`).replace(/x2="[^"]*"/g, `x2="${this.x2}"`).replace(/y2="[^"]*"/g, `y2="${this.y2}"`);
+      return cleanSVG;
     }
     // Use default behavior for legacy mode
     return super.toSVG(reviver);

@@ -12,7 +12,7 @@ import { CENTER, LEFT, TOP } from '../constants';
 import type { CSSRules } from '../parser/typedefs';
 import { Control } from '../controls/Control';
 import type { TPointerEvent, Transform } from '../EventTypeDefs';
-import { multiplyTransformMatrices } from '../util/misc/matrix';
+import { Gradient } from '../gradient/Gradient';
 
 const coordProps = ['x1', 'x2', 'y1', 'y2'] as const;
 
@@ -27,10 +27,10 @@ export interface SerializedLineProps
   extends SerializedObjectProps,
     UniqueLineCoords {}
 
-export class Line< 
+export class Line<
     Props extends TOptions<FabricObjectProps> = Partial<FabricObjectProps>,
     SProps extends SerializedLineProps = SerializedLineProps,
-    EventSpec extends ObjectEvents = ObjectEvents
+    EventSpec extends ObjectEvents = ObjectEvents,
   >
   extends FabricObject<Props, SProps, EventSpec>
   implements UniqueLineCoords
@@ -44,11 +44,15 @@ export class Line<
 
   private _updatingEndpoints = false;
   private _useEndpointCoords = true;
+  private _exportingSVG = false;
 
   static type = 'Line';
   static cacheProperties = [...cacheProperties, ...coordProps];
 
-  constructor([x1, y1, x2, y2] = [0, 0, 100, 0], options: Partial<Props & {hitStrokeWidth?: number | 'auto'}> = {}) {
+  constructor(
+    [x1, y1, x2, y2] = [0, 0, 100, 0],
+    options: Partial<Props & { hitStrokeWidth?: number | 'auto' }> = {},
+  ) {
     super();
     this.setOptions(options);
     this.x1 = x1;
@@ -110,7 +114,7 @@ export class Line<
   _renderEndpointControl(
     ctx: CanvasRenderingContext2D,
     left: number,
-    top: number
+    top: number,
   ) {
     const size = 12;
     ctx.save();
@@ -137,7 +141,9 @@ export class Line<
     ctx.save();
     ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
     ctx.strokeStyle =
-      styleOverride.borderColor || this.borderColor || 'rgba(100, 200, 200, 0.5)';
+      styleOverride.borderColor ||
+      this.borderColor ||
+      'rgba(100, 200, 200, 0.5)';
     ctx.lineWidth = (this.strokeWidth || 1) + 5;
     ctx.lineCap = this.strokeLineCap || 'butt';
     ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
@@ -159,9 +165,7 @@ export class Line<
     if (this._useEndpointCoords) {
       const { x1, y1, x2, y2 } = this;
       const effectiveStrokeWidth =
-        this.hitStrokeWidth === 'auto'
-          ? this.strokeWidth
-          : this.hitStrokeWidth;
+        this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
       const padding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
       return {
         left: Math.min(x1, x2) - padding,
@@ -177,13 +181,11 @@ export class Line<
     if (this._useEndpointCoords) {
       // Set width and height for hit detection and bounding box
       const effectiveStrokeWidth =
-        this.hitStrokeWidth === 'auto'
-          ? this.strokeWidth
-          : this.hitStrokeWidth;
+        this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
       const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
       this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
       this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
-      
+
       // Only update left/top if they haven't been explicitly set (e.g., during loading)
       if (this.left === 0 && this.top === 0) {
         const center = this._findCenterFromElement();
@@ -199,20 +201,19 @@ export class Line<
       const deltaX = this.x2 - this.x1;
       const deltaY = this.y2 - this.y1;
       const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      
+
       if (length === 0) {
         return super.getCoords() as [Point, Point, Point, Point];
       }
-      
-      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' 
-        ? this.strokeWidth 
-        : this.hitStrokeWidth;
+
+      const effectiveStrokeWidth =
+        this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
       const halfWidth = Math.max(effectiveStrokeWidth / 2 + 2, 5);
-      
+
       // Unit vector perpendicular to line
       const perpX = -deltaY / length;
       const perpY = deltaX / length;
-      
+
       // Four corners of oriented rectangle
       return [
         new Point(this.x1 + perpX * halfWidth, this.y1 + perpY * halfWidth),
@@ -230,10 +231,11 @@ export class Line<
         return super.containsPoint(point);
       }
       const distance = this._distanceToLineSegment(point.x, point.y);
-      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' 
-        ? this.strokeWidth 
-        : this.hitStrokeWidth || 1;
-      
+      const effectiveStrokeWidth =
+        this.hitStrokeWidth === 'auto'
+          ? this.strokeWidth
+          : this.hitStrokeWidth || 1;
+
       const tolerance = Math.max(effectiveStrokeWidth / 2 + 2, 5);
       return distance <= tolerance;
     }
@@ -241,15 +243,18 @@ export class Line<
   }
 
   _distanceToLineSegment(px: number, py: number): number {
-    const x1 = this.x1, y1 = this.y1, x2 = this.x2, y2 = this.y2;
-    
+    const x1 = this.x1,
+      y1 = this.y1,
+      x2 = this.x2,
+      y2 = this.y2;
+
     const pd2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
     if (pd2 === 0) {
       return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
     }
-    
+
     const u = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / pd2;
-    
+
     let closestX: number, closestY: number;
     if (u < 0) {
       closestX = x1;
@@ -261,15 +266,17 @@ export class Line<
       closestX = x1 + u * (x2 - x1);
       closestY = y1 + u * (y2 - y1);
     }
-    
-    return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
+
+    return Math.sqrt(
+      (px - closestX) * (px - closestX) + (py - closestY) * (py - closestY),
+    );
   }
 
   _endpointActionHandler(
     eventData: TPointerEvent,
     transformData: Transform,
     x: number,
-    y: number
+    y: number,
   ) {
     const controlKey = transformData.corner;
     const pointer = new Point(x, y);
@@ -293,6 +300,15 @@ export class Line<
         this.x2 = newX;
         this.y2 = newY;
       }
+
+      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
+      if (this.stroke instanceof Gradient && !this._exportingSVG) {
+        this.stroke.coords.x1 = this.x1;
+        this.stroke.coords.y1 = this.y1;
+        this.stroke.coords.x2 = this.x2;
+        this.stroke.coords.y2 = this.y2;
+      }
+
       this.dirty = true;
       this.setCoords();
       this.canvas?.requestRenderAll();
@@ -312,7 +328,11 @@ export class Line<
     this.dirty = true;
     this._updatingEndpoints = false;
     this.canvas?.requestRenderAll();
-    this.fire('modified', { transform: transformData, target: this, e: eventData });
+    this.fire('modified', {
+      transform: transformData,
+      target: this,
+      e: eventData,
+    });
     return true;
   }
 
@@ -320,7 +340,7 @@ export class Line<
     fromX: number,
     fromY: number,
     toX: number,
-    toY: number
+    toY: number,
   ): { x: number; y: number } {
     const deltaX = toX - fromX;
     const deltaY = toY - fromY;
@@ -347,7 +367,7 @@ export class Line<
       this.setPositionByOrigin(
         new Point(left + width / 2, top + height / 2),
         CENTER,
-        CENTER
+        CENTER,
       );
     }
   }
@@ -359,8 +379,20 @@ export class Line<
     if (coordProps.includes(key as keyof UniqueLineCoords)) {
       this._setWidthHeight();
       this.dirty = true;
+
+      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
+      if (this.stroke instanceof Gradient && !this._exportingSVG) {
+        this.stroke.coords.x1 = this.x1;
+        this.stroke.coords.y1 = this.y1;
+        this.stroke.coords.x2 = this.x2;
+        this.stroke.coords.y2 = this.y2;
+      }
     }
-    if ((key === 'left' || key === 'top') && this.canvas && !this._updatingEndpoints) {
+    if (
+      (key === 'left' || key === 'top') &&
+      this.canvas &&
+      !this._updatingEndpoints
+    ) {
       const deltaX = this.left - oldLeft;
       const deltaY = this.top - oldTop;
       if (deltaX !== 0 || deltaY !== 0) {
@@ -369,6 +401,15 @@ export class Line<
         this.y1 += deltaY;
         this.x2 += deltaX;
         this.y2 += deltaY;
+
+        // Update gradient coordinates if stroke is a gradient
+        if (this.stroke instanceof Gradient) {
+          this.stroke.coords.x1 = this.x1;
+          this.stroke.coords.y1 = this.y1;
+          this.stroke.coords.x2 = this.x2;
+          this.stroke.coords.y2 = this.y2;
+        }
+
         this._updatingEndpoints = false;
       }
     }
@@ -387,13 +428,21 @@ export class Line<
     if (!this.visible) return;
     ctx.save();
     ctx.globalAlpha = this.opacity;
-    ctx.strokeStyle = this.stroke?.toString() || '#000';
     ctx.lineWidth = this.strokeWidth;
     ctx.lineCap = this.strokeLineCap || 'butt';
     ctx.beginPath();
     ctx.moveTo(this.x1, this.y1);
     ctx.lineTo(this.x2, this.y2);
+
+    const origStrokeStyle = ctx.strokeStyle;
+    if (isFiller(this.stroke)) {
+      ctx.strokeStyle = this.stroke.toLive(ctx)!;
+    } else {
+      ctx.strokeStyle = this.stroke?.toString() || '#000';
+    }
+
     ctx.stroke();
+    ctx.strokeStyle = origStrokeStyle;
     ctx.restore();
   }
 
@@ -416,9 +465,9 @@ export class Line<
     return new Point((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
   }
 
-  toObject< 
+  toObject<
     T extends Omit<Props & TClassProperties<this>, keyof SProps>,
-    K extends keyof T = never
+    K extends keyof T = never,
   >(propertiesToInclude: K[] = []): Pick<T, K> & SProps {
     if (this._useEndpointCoords) {
       return {
@@ -469,8 +518,21 @@ export class Line<
   _toSVG() {
     if (this._useEndpointCoords) {
       // Use absolute coordinates to bypass all Fabric.js transforms
+      // Handle gradients manually for proper SVG export
+      let strokeAttr = '';
+      if (this.stroke instanceof Gradient) {
+        // Let Fabric.js handle gradient definition, but we'll use the reference
+        strokeAttr = `stroke="url(#${this.stroke.id})"`;
+      } else {
+        strokeAttr = `stroke="${this.stroke || 'none'}"`;
+      }
+
       return [
-        `<line stroke="${this.stroke}" stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `,
+        `<line ${strokeAttr} stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `,
+        `stroke-dasharray="${this.strokeDashArray ? this.strokeDashArray.join(' ') : 'none'}" `,
+        `stroke-dashoffset="${this.strokeDashOffset}" stroke-linejoin="${this.strokeLineJoin}" `,
+        `stroke-miterlimit="${this.strokeMiterLimit}" fill="${this.fill || 'none'}" `,
+        `fill-rule="${this.fillRule}" opacity="${this.opacity}" `,
         `x1="${this.x1}" y1="${this.y1}" x2="${this.x2}" y2="${this.y2}" />\n`,
       ];
     } else {
@@ -486,9 +548,33 @@ export class Line<
 
   toSVG(reviver?: (markup: string) => string): string {
     if (this._useEndpointCoords) {
-      // Override toSVG to prevent Fabric.js from adding transform wrapper
-      const markup = this._toSVG().join('');
-      return reviver ? reviver(markup) : markup;
+      // For endpoint coords, we need to bypass transforms but still allow gradients
+      // Let's temporarily disable transforms during SVG generation
+      const originalLeft = this.left;
+      const originalTop = this.top;
+
+      // Set position to center of line for gradient calculation
+      this.left = (this.x1 + this.x2) / 2;
+      this.top = (this.y1 + this.y2) / 2;
+
+      // Get the SVG with standard system (for gradient handling)
+      const standardSVG = super.toSVG(reviver);
+
+      // Restore original position
+      this.left = originalLeft;
+      this.top = originalTop;
+
+      // Extract gradient definition and clean up the line element
+      // Remove the transform wrapper and update coordinates
+      const cleanSVG = standardSVG
+        .replace(/<g transform="[^"]*"[^>]*>/g, '')
+        .replace(/<\/g>/g, '')
+        .replace(/x1="[^"]*"/g, `x1="${this.x1}"`)
+        .replace(/y1="[^"]*"/g, `y1="${this.y1}"`)
+        .replace(/x2="[^"]*"/g, `x2="${this.x2}"`)
+        .replace(/y2="[^"]*"/g, `y2="${this.y2}"`);
+
+      return cleanSVG;
     }
     // Use default behavior for legacy mode
     return super.toSVG(reviver);
@@ -499,7 +585,7 @@ export class Line<
   static async fromElement(
     element: HTMLElement,
     options?: Abortable,
-    cssRules?: CSSRules
+    cssRules?: CSSRules,
   ) {
     const {
       x1 = 0,
@@ -511,7 +597,7 @@ export class Line<
     return new this([x1, y1, x2, y2], parsedAttributes);
   }
 
-  static fromObject<T extends TOptions<SerializedLineProps>>({ 
+  static fromObject<T extends TOptions<SerializedLineProps>>({
     x1,
     y1,
     x2,
@@ -520,7 +606,7 @@ export class Line<
   }: T) {
     return this._fromObject<Line>(
       { ...object, points: [x1, y1, x2, y2] },
-      { extraParam: 'points' }
+      { extraParam: 'points' },
     );
   }
 }
