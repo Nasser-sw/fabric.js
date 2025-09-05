@@ -17628,14 +17628,10 @@ class Line extends FabricObject {
     };
   }
   _p1PositionHandler() {
-    var _this$canvas;
-    const vpt = ((_this$canvas = this.canvas) === null || _this$canvas === void 0 ? void 0 : _this$canvas.viewportTransform) || [1, 0, 0, 1, 0, 0];
-    return new Point(this.x1, this.y1).transform(vpt);
+    return new Point(this.x1, this.y1).transform(this.getViewportTransform());
   }
   _p2PositionHandler() {
-    var _this$canvas2;
-    const vpt = ((_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 ? void 0 : _this$canvas2.viewportTransform) || [1, 0, 0, 1, 0, 0];
-    return new Point(this.x2, this.y2).transform(vpt);
+    return new Point(this.x2, this.y2).transform(this.getViewportTransform());
   }
   _renderEndpointControl(ctx, left, top) {
     const size = 12;
@@ -17658,9 +17654,9 @@ class Line extends FabricObject {
     return super.drawBorders(ctx, styleOverride, {});
   }
   _drawLineBorders(ctx) {
-    var _this$canvas3;
+    var _this$canvas;
     let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const vpt = ((_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 ? void 0 : _this$canvas3.viewportTransform) || [1, 0, 0, 1, 0, 0];
+    const vpt = ((_this$canvas = this.canvas) === null || _this$canvas === void 0 ? void 0 : _this$canvas.viewportTransform) || [1, 0, 0, 1, 0, 0];
     ctx.save();
     ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
     ctx.strokeStyle = styleOverride.borderColor || this.borderColor || 'rgba(100, 200, 200, 0.5)';
@@ -17736,8 +17732,8 @@ class Line extends FabricObject {
   }
   containsPoint(point) {
     if (this._useEndpointCoords) {
-      var _this$canvas4;
-      if (((_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 ? void 0 : _this$canvas4.getActiveObject()) === this) {
+      var _this$canvas2;
+      if (((_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 ? void 0 : _this$canvas2.getActiveObject()) === this) {
         return super.containsPoint(point);
       }
       const distance = this._distanceToLineSegment(point.x, point.y);
@@ -17771,7 +17767,7 @@ class Line extends FabricObject {
     return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
   }
   _endpointActionHandler(eventData, transformData, x, y) {
-    var _this$canvas6;
+    var _this$canvas4;
     const controlKey = transformData.corner;
     const pointer = new Point(x, y);
     let newX = pointer.x;
@@ -17785,7 +17781,7 @@ class Line extends FabricObject {
       newY = snapped.y;
     }
     if (this._useEndpointCoords) {
-      var _this$canvas5;
+      var _this$canvas3;
       if (controlKey === 'p1') {
         this.x1 = newX;
         this.y1 = newY;
@@ -17795,7 +17791,7 @@ class Line extends FabricObject {
       }
       this.dirty = true;
       this.setCoords();
-      (_this$canvas5 = this.canvas) === null || _this$canvas5 === void 0 || _this$canvas5.requestRenderAll();
+      (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
       return true;
     }
 
@@ -17811,7 +17807,7 @@ class Line extends FabricObject {
     this._setWidthHeight();
     this.dirty = true;
     this._updatingEndpoints = false;
-    (_this$canvas6 = this.canvas) === null || _this$canvas6 === void 0 || _this$canvas6.requestRenderAll();
+    (_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 || _this$canvas4.requestRenderAll();
     this.fire('modified', {
       transform: transformData,
       target: this,
@@ -17886,11 +17882,9 @@ class Line extends FabricObject {
     super.render(ctx);
   }
   _renderDirectly(ctx) {
-    var _this$canvas7, _this$stroke;
+    var _this$stroke;
     if (!this.visible) return;
     ctx.save();
-    const vpt = ((_this$canvas7 = this.canvas) === null || _this$canvas7 === void 0 ? void 0 : _this$canvas7.viewportTransform) || [1, 0, 0, 1, 0, 0];
-    ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
     ctx.globalAlpha = this.opacity;
     ctx.strokeStyle = ((_this$stroke = this.stroke) === null || _this$stroke === void 0 ? void 0 : _this$stroke.toString()) || '#000';
     ctx.lineWidth = this.strokeWidth;

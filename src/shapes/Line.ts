@@ -12,6 +12,7 @@ import { CENTER, LEFT, TOP } from '../constants';
 import type { CSSRules } from '../parser/typedefs';
 import { Control } from '../controls/Control';
 import type { TPointerEvent, Transform } from '../EventTypeDefs';
+import { multiplyTransformMatrices } from '../util/misc/matrix';
 
 const coordProps = ['x1', 'x2', 'y1', 'y2'] as const;
 
@@ -99,13 +100,11 @@ export class Line<
   }
 
   _p1PositionHandler() {
-    const vpt = this.canvas?.viewportTransform || [1, 0, 0, 1, 0, 0];
-    return new Point(this.x1, this.y1).transform(vpt);
+    return new Point(this.x1, this.y1).transform(this.getViewportTransform());
   }
 
   _p2PositionHandler() {
-    const vpt = this.canvas?.viewportTransform || [1, 0, 0, 1, 0, 0];
-    return new Point(this.x2, this.y2).transform(vpt);
+    return new Point(this.x2, this.y2).transform(this.getViewportTransform());
   }
 
   _renderEndpointControl(
@@ -385,8 +384,6 @@ export class Line<
   _renderDirectly(ctx: CanvasRenderingContext2D) {
     if (!this.visible) return;
     ctx.save();
-    const vpt = this.canvas?.viewportTransform || [1, 0, 0, 1, 0, 0];
-    ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
     ctx.globalAlpha = this.opacity;
     ctx.strokeStyle = this.stroke?.toString() || '#000';
     ctx.lineWidth = this.strokeWidth;
