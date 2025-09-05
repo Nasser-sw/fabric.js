@@ -3,6 +3,7 @@
 change-output.md
 /.nyc_output/
 /node_modules/
+fabric-test2.html
 /debug/
 ._*
 **/._*

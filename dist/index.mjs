@@ -17571,67 +17571,29 @@ class PatternBrush extends PencilBrush {
   }
 }
 
-// @TODO this code is terrible and Line should be a special case of polyline.
-
 const coordProps = ['x1', 'x2', 'y1', 'y2'];
-/**
- * A Class to draw a line
- * A bunch of methods will be added to Polyline to handle the line case
- * The line class is very strange to work with, is all special, it hardly aligns
- * to what a developer want everytime there is an angle
- * @deprecated
- */
 class Line extends FabricObject {
-  /**
-   * Constructor
-   * @param {Array} [points] Array of points
-   * @param {Object} [options] Options object
-   * @return {Line} thisArg
-   */
   constructor() {
     let [x1, y1, x2, y2] = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [0, 0, 100, 0];
     let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
     super();
-    /**
-     * x value or first line edge
-     * @type number
-     */
-    /**
-     * y value or first line edge
-     * @type number
-     */
-    /**
-     * x value or second line edge
-     * @type number
-     */
-    /**
-     * y value or second line edge
-     * @type number
-     */
-    /**
-     * Flag to prevent position feedback loop during endpoint dragging
-     * @private
-     */
+    _defineProperty(this, "hitStrokeWidth", 'auto');
     _defineProperty(this, "_updatingEndpoints", false);
+    _defineProperty(this, "_useEndpointCoords", true);
     this.setOptions(options);
     this.x1 = x1;
     this.x2 = x2;
     this.y1 = y1;
     this.y2 = y2;
-
-    // Set line-specific properties  
+    if (options.hitStrokeWidth !== undefined) {
+      this.hitStrokeWidth = options.hitStrokeWidth;
+    }
     this.hasBorders = false;
     this.hasControls = true;
     this.selectable = true;
     this.hoverCursor = 'move';
-    this.moveCursor = 'move';
-    this.lockMovementX = false;
-    this.lockMovementY = false;
-    this.lockRotation = true;
-    this.lockScalingX = true;
-    this.lockScalingY = true;
-    this.lockSkewingX = true;
-    this.lockSkewingY = true;
+    this.perPixelTargetFind = false;
+    this.strokeLineCap = 'butt';
     this._setWidthHeight();
     const {
       left,
@@ -17641,11 +17603,6 @@ class Line extends FabricObject {
     typeof top === 'number' && this.set(TOP, top);
     this._setupLineControls();
   }
-
-  /**
-   * Setup line-specific controls for endpoints
-   * @private
-   */
   _setupLineControls() {
     this.controls = {
       p1: new Control({
@@ -17670,34 +17627,17 @@ class Line extends FabricObject {
       })
     };
   }
-
-  /**
-   * Position handler for p1 control
-   * @private
-   */
-  _p1PositionHandler(dim, finalMatrix, fabricObject) {
+  _p1PositionHandler() {
     var _this$canvas;
-    // Transform absolute coordinates with viewport transform for zoom/pan
     const vpt = ((_this$canvas = this.canvas) === null || _this$canvas === void 0 ? void 0 : _this$canvas.viewportTransform) || [1, 0, 0, 1, 0, 0];
     return new Point(this.x1, this.y1).transform(vpt);
   }
-
-  /**
-   * Position handler for p2 control
-   * @private
-   */
-  _p2PositionHandler(dim, finalMatrix, fabricObject) {
+  _p2PositionHandler() {
     var _this$canvas2;
-    // Transform absolute coordinates with viewport transform for zoom/pan
     const vpt = ((_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 ? void 0 : _this$canvas2.viewportTransform) || [1, 0, 0, 1, 0, 0];
     return new Point(this.x2, this.y2).transform(vpt);
   }
-
-  /**
-   * Render control for line endpoints
-   * @private
-   */
-  _renderEndpointControl(ctx, left, top, styleOverride, fabricObject) {
+  _renderEndpointControl(ctx, left, top) {
     const size = 12;
     ctx.save();
     ctx.fillStyle = '#007bff';
@@ -17709,173 +17649,176 @@ class Line extends FabricObject {
     ctx.stroke();
     ctx.restore();
   }
-
-  /**
-   * Disable border drawing completely
-   * @private
-   */
   drawBorders(ctx) {
-    // Do nothing - no borders for lines
-    return this;
+    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    if (this._useEndpointCoords) {
+      this._drawLineBorders(ctx, styleOverride);
+      return this;
+    }
+    return super.drawBorders(ctx, styleOverride, {});
   }
-
-  /**
-   * Override to prevent clipping during control rendering
-   * @private
-   */
+  _drawLineBorders(ctx) {
+    var _this$canvas3;
+    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    const vpt = ((_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 ? void 0 : _this$canvas3.viewportTransform) || [1, 0, 0, 1, 0, 0];
+    ctx.save();
+    ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+    ctx.strokeStyle = styleOverride.borderColor || this.borderColor || 'rgba(100, 200, 200, 0.5)';
+    ctx.lineWidth = (this.strokeWidth || 1) + 5;
+    ctx.lineCap = this.strokeLineCap || 'butt';
+    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
+    ctx.beginPath();
+    ctx.moveTo(this.x1, this.y1);
+    ctx.lineTo(this.x2, this.y2);
+    ctx.stroke();
+    ctx.restore();
+  }
   _renderControls(ctx) {
     let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
     ctx.save();
-    // Don't apply object transform to prevent clipping
     ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
-
-    // DEBUG: Visualize bounding box
-    this._debugBoundingBox(ctx);
     this.drawControls(ctx, styleOverride);
     ctx.restore();
   }
-
-  /**
-   * Debug method to visualize bounding box
-   * @private
-   */
-  _debugBoundingBox(ctx) {
-    var _this$canvas3;
-    const bbox = this.getBoundingRect();
-
-    // Transform bounding box coordinates to screen space
-    const vpt = ((_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 ? void 0 : _this$canvas3.viewportTransform) || [1, 0, 0, 1, 0, 0];
-    const tl = new Point(bbox.left, bbox.top).transform(vpt);
-    const br = new Point(bbox.left + bbox.width, bbox.top + bbox.height).transform(vpt);
-    const screenBBox = {
-      left: tl.x,
-      top: tl.y,
-      width: br.x - tl.x,
-      height: br.y - tl.y
-    };
-
-    // Transform endpoints to screen space
-    const p1Screen = new Point(this.x1, this.y1).transform(vpt);
-    const p2Screen = new Point(this.x2, this.y2).transform(vpt);
-    ctx.save();
-    // Reset transform for screen space drawing
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.strokeStyle = this._updatingEndpoints ? 'red' : 'blue';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.globalAlpha = 0.7;
-
-    // Draw bounding box in screen space
-    ctx.strokeRect(screenBBox.left, screenBBox.top, screenBBox.width, screenBBox.height);
-
-    // Draw center point
-    ctx.fillStyle = this._updatingEndpoints ? 'red' : 'blue';
-    ctx.fillRect(screenBBox.left + screenBBox.width / 2 - 2, screenBBox.top + screenBBox.height / 2 - 2, 4, 4);
-
-    // Draw endpoints in screen space
-    ctx.fillStyle = 'green';
-    ctx.fillRect(p1Screen.x - 3, p1Screen.y - 3, 6, 6);
-    ctx.fillRect(p2Screen.x - 3, p2Screen.y - 3, 6, 6);
-
-    // Debug text
-    ctx.fillStyle = 'black';
-    ctx.font = '12px Arial';
-    ctx.fillText(`BB: ${bbox.left.toFixed(0)},${bbox.top.toFixed(0)} ${bbox.width.toFixed(0)}x${bbox.height.toFixed(0)}`, screenBBox.left, screenBBox.top - 10);
-    ctx.fillText(`P1: ${this.x1.toFixed(0)},${this.y1.toFixed(0)} P2: ${this.x2.toFixed(0)},${this.y2.toFixed(0)}`, screenBBox.left, screenBBox.top + screenBBox.height + 20);
-    ctx.restore();
-  }
-
-  /**
-   * Override getBoundingRect to use actual line endpoints instead of width/height
-   * This prevents clipping during drag preview
-   */
   getBoundingRect() {
-    const {
-      x1,
-      y1,
-      x2,
-      y2
-    } = this;
-    const strokeWidth = this.strokeWidth || 1;
-    const padding = strokeWidth / 2;
-    return {
-      left: Math.min(x1, x2) - padding,
-      top: Math.min(y1, y2) - padding,
-      width: Math.abs(x2 - x1) + strokeWidth,
-      height: Math.abs(y2 - y1) + strokeWidth
-    };
+    if (this._useEndpointCoords) {
+      const {
+        x1,
+        y1,
+        x2,
+        y2
+      } = this;
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
+      const padding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
+      return {
+        left: Math.min(x1, x2) - padding,
+        top: Math.min(y1, y2) - padding,
+        width: Math.abs(x2 - x1) + padding * 2 || padding * 2,
+        height: Math.abs(y2 - y1) + padding * 2 || padding * 2
+      };
+    }
+    return super.getBoundingRect();
   }
+  setCoords() {
+    if (this._useEndpointCoords) {
+      const minX = Math.min(this.x1, this.x2);
+      const maxX = Math.max(this.x1, this.x2);
+      const minY = Math.min(this.y1, this.y2);
+      const maxY = Math.max(this.y1, this.y2);
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
+      const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
+      this.left = minX - hitPadding + (maxX - minX + hitPadding * 2) / 2;
+      this.top = minY - hitPadding + (maxY - minY + hitPadding * 2) / 2;
+      this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
+      this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
+    }
+    super.setCoords();
+  }
+  getCoords() {
+    if (this._useEndpointCoords) {
+      const deltaX = this.x2 - this.x1;
+      const deltaY = this.y2 - this.y1;
+      const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      if (length === 0) {
+        return super.getCoords();
+      }
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
+      const halfWidth = Math.max(effectiveStrokeWidth / 2 + 2, 5);
 
-  /**
-   * Action handler for endpoint controls
-   * @private
-   */
+      // Unit vector perpendicular to line
+      const perpX = -deltaY / length;
+      const perpY = deltaX / length;
+
+      // Four corners of oriented rectangle
+      return [new Point(this.x1 + perpX * halfWidth, this.y1 + perpY * halfWidth), new Point(this.x2 + perpX * halfWidth, this.y2 + perpY * halfWidth), new Point(this.x2 - perpX * halfWidth, this.y2 - perpY * halfWidth), new Point(this.x1 - perpX * halfWidth, this.y1 - perpY * halfWidth)];
+    }
+    return super.getCoords();
+  }
+  containsPoint(point) {
+    if (this._useEndpointCoords) {
+      var _this$canvas4;
+      if (((_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 ? void 0 : _this$canvas4.getActiveObject()) === this) {
+        return super.containsPoint(point);
+      }
+      const distance = this._distanceToLineSegment(point.x, point.y);
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth || 1;
+      const tolerance = Math.max(effectiveStrokeWidth / 2 + 2, 5);
+      return distance <= tolerance;
+    }
+    return super.containsPoint(point);
+  }
+  _distanceToLineSegment(px, py) {
+    const x1 = this.x1,
+      y1 = this.y1,
+      x2 = this.x2,
+      y2 = this.y2;
+    const pd2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+    if (pd2 === 0) {
+      return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    }
+    const u = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / pd2;
+    let closestX, closestY;
+    if (u < 0) {
+      closestX = x1;
+      closestY = y1;
+    } else if (u > 1) {
+      closestX = x2;
+      closestY = y2;
+    } else {
+      closestX = x1 + u * (x2 - x1);
+      closestY = y1 + u * (y2 - y1);
+    }
+    return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
+  }
   _endpointActionHandler(eventData, transformData, x, y) {
-    var _this$canvas4;
+    var _this$canvas6;
     const controlKey = transformData.corner;
     const pointer = new Point(x, y);
-
-    // DEBUG: Log coordinate conversion
-    const vpt = ((_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 ? void 0 : _this$canvas4.viewportTransform) || [1, 0, 0, 1, 0, 0];
-    console.log('Action handler coordinates:', {
-      input: {
-        x,
-        y
-      },
-      pointer: pointer,
-      vpt: vpt,
-      currentEndpoints: {
-        x1: this.x1,
-        y1: this.y1,
-        x2: this.x2,
-        y2: this.y2
-      }
-    });
-
-    // The x,y parameters should already be in world coordinates since they come from the action handler
-    // Don't transform them again - that would cause double transformation
     let newX = pointer.x;
     let newY = pointer.y;
-
-    // Check if Shift is held for angle snapping
-    const shiftHeld = eventData.shiftKey;
-    if (shiftHeld) {
-      if (controlKey === 'p1') {
-        // Snap p1 relative to p2 (fixed point)
-        const snapped = this._snapToAngle(this.x2, this.y2, newX, newY);
-        newX = snapped.x;
-        newY = snapped.y;
-      } else if (controlKey === 'p2') {
-        // Snap p2 relative to p1 (fixed point)
-        const snapped = this._snapToAngle(this.x1, this.y1, newX, newY);
-        newX = snapped.x;
-        newY = snapped.y;
-      }
+    if (eventData.shiftKey) {
+      const otherControl = controlKey === 'p1' ? 'p2' : 'p1';
+      const otherX = this[otherControl === 'p1' ? 'x1' : 'x2'];
+      const otherY = this[otherControl === 'p1' ? 'y1' : 'y2'];
+      const snapped = this._snapToAngle(otherX, otherY, newX, newY);
+      newX = snapped.x;
+      newY = snapped.y;
     }
-    console.log('Setting new coordinates:', {
-      controlKey,
-      newX,
-      newY
-    });
+    if (this._useEndpointCoords) {
+      var _this$canvas5;
+      if (controlKey === 'p1') {
+        this.x1 = newX;
+        this.y1 = newY;
+      } else if (controlKey === 'p2') {
+        this.x2 = newX;
+        this.y2 = newY;
+      }
+      this.dirty = true;
+      this.setCoords();
+      (_this$canvas5 = this.canvas) === null || _this$canvas5 === void 0 || _this$canvas5.requestRenderAll();
+      return true;
+    }
 
-    // Set flag to prevent position feedback loop
+    // Fallback for old system
     this._updatingEndpoints = true;
     if (controlKey === 'p1') {
-      this.set('x1', newX);
-      this.set('y1', newY);
+      this.x1 = newX;
+      this.y1 = newY;
     } else if (controlKey === 'p2') {
-      this.set('x2', newX);
-      this.set('y2', newY);
+      this.x2 = newX;
+      this.y2 = newY;
     }
-    this._setWidthHeight(false); // Allow repositioning during drag to update center
+    this._setWidthHeight();
+    this.dirty = true;
     this._updatingEndpoints = false;
+    (_this$canvas6 = this.canvas) === null || _this$canvas6 === void 0 || _this$canvas6.requestRenderAll();
+    this.fire('modified', {
+      transform: transformData,
+      target: this,
+      e: eventData
+    });
     return true;
   }
-
-  /**
-   * Snap angle to nearest increment when shift is held
-   * @private
-   */
   _snapToAngle(fromX, fromY, toX, toY) {
     const deltaX = toX - fromX;
     const deltaY = toY - fromY;
@@ -17884,93 +17827,43 @@ class Line extends FabricObject {
       x: toX,
       y: toY
     };
-
-    // Calculate current angle in degrees
     let angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
-
-    // Snap to 15-degree increments (0°, 15°, 30°, 45°, 60°, 75°, 90°, etc.)
     const snapIncrement = 15;
     const snappedAngle = Math.round(angle / snapIncrement) * snapIncrement;
-
-    // Convert back to radians
     const snappedRadians = snappedAngle * (Math.PI / 180);
-
-    // Calculate new position maintaining the same distance
-    const newX = fromX + Math.cos(snappedRadians) * distance;
-    const newY = fromY + Math.sin(snappedRadians) * distance;
     return {
-      x: newX,
-      y: newY
+      x: fromX + Math.cos(snappedRadians) * distance,
+      y: fromY + Math.sin(snappedRadians) * distance
     };
   }
-
-  /**
-   * @private
-   * @param {Object} [options] Options
-   */
   _setWidthHeight() {
     let skipReposition = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
-    const {
-      x1,
-      y1,
-      x2,
-      y2
-    } = this;
-    this.width = Math.abs(x2 - x1) || 1;
-    this.height = Math.abs(y2 - y1) || 1;
-    if (!skipReposition) {
+    this.width = Math.abs(this.x2 - this.x1) || 1;
+    this.height = Math.abs(this.y2 - this.y1) || 1;
+    if (!skipReposition && !this._updatingEndpoints) {
       const {
         left,
         top,
         width,
         height
       } = makeBoundingBoxFromPoints([{
-        x: x1,
-        y: y1
+        x: this.x1,
+        y: this.y1
       }, {
-        x: x2,
-        y: y2
+        x: this.x2,
+        y: this.y2
       }]);
-      const position = new Point(left + width / 2, top + height / 2);
-      this.setPositionByOrigin(position, CENTER, CENTER);
+      this.setPositionByOrigin(new Point(left + width / 2, top + height / 2), CENTER, CENTER);
     }
   }
-
-  /**
-   * Update dimensions without repositioning - used during dragging
-   * @private
-   */
-  _updateDimensionsOnly() {
-    const {
-      x1,
-      y1,
-      x2,
-      y2
-    } = this;
-    this.width = Math.abs(x2 - x1) || 1;
-    this.height = Math.abs(y2 - y1) || 1;
-  }
-
-  /**
-   * @private
-   * @param {String} key
-   * @param {*} value
-   */
   _set(key, value) {
     const oldLeft = this.left;
     const oldTop = this.top;
     super._set(key, value);
     if (coordProps.includes(key)) {
-      // this doesn't make sense very much, since setting x1 when top or left
-      // are already set, is just going to show a strange result since the
-      // line will move way more than the developer expect.
-      // in fabric5 it worked only when the line didn't have extra transformations,
-      // in fabric6 too. With extra transform they behave bad in different ways.
-      // This needs probably a good rework or a tutorial if you have to create a dynamic line
       this._setWidthHeight();
+      this.dirty = true;
     }
-
-    // If position changed, update endpoint coordinates (but not during endpoint updates)
     if ((key === 'left' || key === 'top') && this.canvas && !this._updatingEndpoints) {
       const deltaX = this.left - oldLeft;
       const deltaY = this.top - oldTop;
@@ -17985,60 +17878,46 @@ class Line extends FabricObject {
     }
     return this;
   }
-
-  /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx Context to render on
-   */
-  _render(ctx) {
-    // During endpoint dragging, use proper coordinate system
-    if (this._updatingEndpoints) {
-      // Use relative coordinates from center, but update dimensions first
-      this._updateDimensionsOnly();
-
-      // Fall through to normal rendering with updated dimensions
-      // This ensures zoom/pan work correctly
+  render(ctx) {
+    if (this._useEndpointCoords) {
+      this._renderDirectly(ctx);
+      return;
     }
-
-    // Normal rendering path (used both normally and during drag)
+    super.render(ctx);
+  }
+  _renderDirectly(ctx) {
+    var _this$canvas7, _this$stroke;
+    if (!this.visible) return;
+    ctx.save();
+    const vpt = ((_this$canvas7 = this.canvas) === null || _this$canvas7 === void 0 ? void 0 : _this$canvas7.viewportTransform) || [1, 0, 0, 1, 0, 0];
+    ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+    ctx.globalAlpha = this.opacity;
+    ctx.strokeStyle = ((_this$stroke = this.stroke) === null || _this$stroke === void 0 ? void 0 : _this$stroke.toString()) || '#000';
+    ctx.lineWidth = this.strokeWidth;
+    ctx.lineCap = this.strokeLineCap || 'butt';
+    ctx.beginPath();
+    ctx.moveTo(this.x1, this.y1);
+    ctx.lineTo(this.x2, this.y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  _render(ctx) {
+    if (this._useEndpointCoords) return;
     ctx.beginPath();
     const p = this.calcLinePoints();
     ctx.moveTo(p.x1, p.y1);
     ctx.lineTo(p.x2, p.y2);
     ctx.lineWidth = this.strokeWidth;
-
-    // Line cap is handled by Fabric.js built-in strokeLineCap property
-    // This will be set automatically by the parent class _renderStroke method
-
-    // TODO: test this
-    // make sure setting "fill" changes color of a line
-    // (by copying fillStyle to strokeStyle, since line is stroked, not filled)
     const origStrokeStyle = ctx.strokeStyle;
     if (isFiller(this.stroke)) {
       ctx.strokeStyle = this.stroke.toLive(ctx);
-    } else {
-      var _this$stroke;
-      ctx.strokeStyle = (_this$stroke = this.stroke) !== null && _this$stroke !== void 0 ? _this$stroke : ctx.fillStyle;
     }
     this.stroke && this._renderStroke(ctx);
     ctx.strokeStyle = origStrokeStyle;
   }
-
-  /**
-   * This function is an helper for svg import. it returns the center of the object in the svg
-   * untransformed coordinates
-   * @private
-   * @return {Point} center point from element coordinates
-   */
   _findCenterFromElement() {
     return new Point((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
   }
-
-  /**
-   * Returns object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} object representation of an instance
-   */
   toObject() {
     let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
     return {
@@ -18046,37 +17925,18 @@ class Line extends FabricObject {
       ...this.calcLinePoints()
     };
   }
-
-  /*
-   * Calculate object dimensions from its properties
-   * @private
-   */
   _getNonTransformedDimensions() {
     const dim = super._getNonTransformedDimensions();
-    if (this.strokeLineCap === 'butt') {
-      if (this.width === 0) {
-        dim.y -= this.strokeWidth;
-      }
-      if (this.height === 0) {
-        dim.x -= this.strokeWidth;
-      }
+    if (this.strokeLineCap === 'round') {
+      dim.x += this.strokeWidth;
+      dim.y += this.strokeWidth;
     }
     return dim;
   }
-
-  /**
-   * Recalculates line points given width and height
-   * Those points are simply placed around the center,
-   * This is not useful outside internal render functions and svg output
-   * Is not meant to be for the developer.
-   * @private
-   */
   calcLinePoints() {
-    // During endpoint dragging, use object's current center position
     if (this._updatingEndpoints) {
-      // Use the object's left/top as center (which should be updated by _setWidthHeight)
-      const centerX = this.left;
-      const centerY = this.top;
+      const centerX = (this.x1 + this.x2) / 2;
+      const centerY = (this.y1 + this.y2) / 2;
       return {
         x1: this.x1 - centerX,
         y1: this.y1 - centerY,
@@ -18084,8 +17944,6 @@ class Line extends FabricObject {
         y2: this.y2 - centerY
       };
     }
-
-    // Normal calculation based on width/height
     const {
       x1: _x1,
       x2: _x2,
@@ -18094,27 +17952,15 @@ class Line extends FabricObject {
       width,
       height
     } = this;
-    const xMult = _x1 <= _x2 ? -1 : 1,
-      yMult = _y1 <= _y2 ? -1 : 1,
-      x1 = xMult * width / 2,
-      y1 = yMult * height / 2,
-      x2 = xMult * -width / 2,
-      y2 = yMult * -height / 2;
+    const xMult = _x1 <= _x2 ? -1 : 1;
+    const yMult = _y1 <= _y2 ? -1 : 1;
     return {
-      x1,
-      x2,
-      y1,
-      y2
+      x1: xMult * width / 2,
+      y1: yMult * height / 2,
+      x2: xMult * -width / 2,
+      y2: yMult * -height / 2
     };
   }
-
-  /* _FROM_SVG_START_ */
-
-  /**
-   * Returns svg representation of an instance
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
   _toSVG() {
     const {
       x1,
@@ -18124,18 +17970,6 @@ class Line extends FabricObject {
     } = this.calcLinePoints();
     return ['<line ', 'COMMON_PARTS', `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />\n`];
   }
-
-  /**
-   * List of attribute names to account for when parsing SVG element (used by {@link Line.fromElement})
-   * @see http://www.w3.org/TR/SVG/shapes.html#LineElement
-   */
-
-  /**
-   * Returns Line instance from an SVG element
-   * @param {HTMLElement} element Element to parse
-   * @param {Object} [options] Options object
-   * @param {Function} [callback] callback function invoked after parsing
-   */
   static async fromElement(element, options, cssRules) {
     const {
       x1 = 0,
@@ -18146,14 +17980,6 @@ class Line extends FabricObject {
     } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
     return new this([x1, y1, x2, y2], parsedAttributes);
   }
-
-  /* _FROM_SVG_END_ */
-
-  /**
-   * Returns Line instance from an object representation
-   * @param {Object} object Object to create an instance from
-   * @returns {Promise<Line>}
-   */
   static fromObject(_ref) {
     let {
       x1,
