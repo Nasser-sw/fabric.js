@@ -175,11 +175,6 @@ export class Line<
 
   setCoords() {
     if (this._useEndpointCoords) {
-      // Set the object's center to the geometric center of the line
-      const center = this._findCenterFromElement();
-      this.left = center.x;
-      this.top = center.y;
-      
       // Set width and height for hit detection and bounding box
       const effectiveStrokeWidth =
         this.hitStrokeWidth === 'auto'
@@ -188,6 +183,13 @@ export class Line<
       const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
       this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
       this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
+      
+      // Only update left/top if they haven't been explicitly set (e.g., during loading)
+      if (this.left === 0 && this.top === 0) {
+        const center = this._findCenterFromElement();
+        this.left = center.x;
+        this.top = center.y;
+      }
     }
     super.setCoords();
   }
@@ -418,6 +420,15 @@ export class Line<
     T extends Omit<Props & TClassProperties<this>, keyof SProps>,
     K extends keyof T = never
   >(propertiesToInclude: K[] = []): Pick<T, K> & SProps {
+    if (this._useEndpointCoords) {
+      return {
+        ...super.toObject(propertiesToInclude),
+        x1: this.x1,
+        y1: this.y1,
+        x2: this.x2,
+        y2: this.y2,
+      };
+    }
     return {
       ...super.toObject(propertiesToInclude),
       ...this.calcLinePoints(),

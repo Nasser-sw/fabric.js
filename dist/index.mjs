@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta5";
+var version = "7.0.1-beta6";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -17697,16 +17697,18 @@ class Line extends FabricObject {
   }
   setCoords() {
     if (this._useEndpointCoords) {
-      // Set the object's center to the geometric center of the line
-      const center = this._findCenterFromElement();
-      this.left = center.x;
-      this.top = center.y;
-
       // Set width and height for hit detection and bounding box
       const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
       const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
       this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
       this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
+
+      // Only update left/top if they haven't been explicitly set (e.g., during loading)
+      if (this.left === 0 && this.top === 0) {
+        const center = this._findCenterFromElement();
+        this.left = center.x;
+        this.top = center.y;
+      }
     }
     super.setCoords();
   }
@@ -17914,6 +17916,15 @@ class Line extends FabricObject {
   }
   toObject() {
     let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    if (this._useEndpointCoords) {
+      return {
+        ...super.toObject(propertiesToInclude),
+        x1: this.x1,
+        y1: this.y1,
+        x2: this.x2,
+        y2: this.y2
+      };
+    }
     return {
       ...super.toObject(propertiesToInclude),
       ...this.calcLinePoints()
