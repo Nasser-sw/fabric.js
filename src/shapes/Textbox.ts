@@ -8,6 +8,7 @@ import type { SerializedITextProps, ITextProps } from './IText/IText';
 import type { ITextEvents } from './IText/ITextBehavior';
 import type { TextLinesInfo } from './Text/Text';
 import type { Control } from '../controls/Control';
+import { fontLacksEnglishGlyphsCached } from '../text/measure';
 import { layoutText } from '../text/layout';
 
 // @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
@@ -128,8 +129,28 @@ export class Textbox<
    */
   initDimensions() {
     if (!this.initialized) {
+      this.initialized = true;
+    }
+    
+    // Prevent rapid recalculations during moves
+    if ((this as any)._usingBrowserWrapping) {
+      const now = Date.now();
+      const lastCall = (this as any)._lastInitDimensionsTime || 0;
+      const isRapidCall = now - lastCall < 100;
+      const isDuringLoading = (this as any)._jsonLoading || !(this as any)._browserWrapInitialized;
+      
+      if (isRapidCall && !isDuringLoading) {
+        return;
+      }
+      (this as any)._lastInitDimensionsTime = now;
+    }
+    
+    // Skip if nothing changed
+    const currentState = `${this.text}|${this.width}|${this.fontSize}|${this.fontFamily}|${this.textAlign}`;
+    if ((this as any)._lastDimensionState === currentState && this._textLines && this._textLines.length > 0) {
       return;
     }
+    (this as any)._lastDimensionState = currentState;
     
     // Use advanced layout if enabled
     if (this.enableAdvancedLayout) {
@@ -141,17 +162,142 @@ export class Textbox<
     // clear dynamicMinWidth as it will be different after we re-wrap line
     this.dynamicMinWidth = 0;
     // wrap lines
-    this._styleMap = this._generateStyleMap(this._splitText());
-    // if after wrapping, the width is smaller than dynamicMinWidth, change the width and re-wrap
-    if (this.dynamicMinWidth > this.width) {
+    const splitTextResult = this._splitText();
+    this._styleMap = this._generateStyleMap(splitTextResult);
+    
+    // For browser wrapping, ensure _textLines is set from browser results
+    if ((this as any)._usingBrowserWrapping && splitTextResult && splitTextResult.lines) {
+      this._textLines = splitTextResult.lines.map(line => line.split(''));
+      
+      // Store justify measurements and browser height
+      const justifyMeasurements = (splitTextResult as any).justifySpaceMeasurements;
+      if (justifyMeasurements) {
+        (this._styleMap as any).justifySpaceMeasurements = justifyMeasurements;
+      }
+      
+      const actualHeight = (splitTextResult as any).actualBrowserHeight;
+      if (actualHeight) {
+        (this as any)._actualBrowserHeight = actualHeight;
+      }
+    }
+    // Don't auto-resize width when using browser wrapping to prevent width increases during moves
+    if (!((this as any)._usingBrowserWrapping) && this.dynamicMinWidth > this.width) {
       this._set('width', this.dynamicMinWidth);
     }
-    if (this.textAlign.includes(JUSTIFY)) {
-      // once text is measured we need to make space fatter to make justified text.
-      this.enlargeSpaces();
+    
+    // For browser wrapping fonts (like STV), ensure minimum width for new textboxes
+    // since these fonts can't measure English characters properly
+    if ((this as any)._usingBrowserWrapping && this.width < 50) {
+      console.log(`🔤 BROWSER WRAP: Font ${this.fontFamily} has width ${this.width}px, setting to 300px for usability`);
+      this.width = 300;
     }
-    // clear cache and re-calculate height
-    this.height = this.calcTextHeight();
+    
+    // Mark browser wrapping as initialized when complete
+    if ((this as any)._usingBrowserWrapping) {
+      (this as any)._browserWrapInitialized = true;
+    }
+    
+    if (this.textAlign.includes(JUSTIFY)) {
+      // For browser wrapping fonts, apply browser-calculated justify spaces
+      if ((this as any)._usingBrowserWrapping) {
+        console.log('🔤 BROWSER WRAP: Applying browser-calculated justify spaces');
+        this._applyBrowserJustifySpaces();
+        return;
+      }
+      
+      // Don't apply justify alignment during drag operations to prevent snapping
+      const now = Date.now();
+      const lastDragTime = (this as any)._lastInitDimensionsTime || 0;
+      const isDuringDrag = now - lastDragTime < 200; // 200ms window for drag detection
+      
+      if (isDuringDrag) {
+        console.log('🔤 Skipping justify during drag operation to prevent snapping');
+        return;
+      }
+      
+      // For non-browser-wrapping fonts, use Fabric's justify system
+      // once text is measured we need to make space fatter to make justified text.
+      // Ensure __charBounds exists and fonts are ready before applying justify
+      if (this.__charBounds && this.__charBounds.length > 0) {
+        // Check if font is ready for accurate justify calculations
+        const fontReady = this._isFontReady ? this._isFontReady() : true;
+        if (fontReady) {
+          this.enlargeSpaces();
+        } else {
+          console.warn('⚠️ Textbox: Font not ready for justify, deferring enlargeSpaces');
+          // Defer justify calculation until font is ready
+          this._scheduleJustifyAfterFontLoad();
+        }
+      } else {
+        console.warn('⚠️ Textbox: __charBounds not ready for justify alignment, deferring enlargeSpaces');
+        // Defer the justify calculation until the next frame
+        setTimeout(() => {
+          if (this.__charBounds && this.__charBounds.length > 0 && this.enlargeSpaces) {
+            console.log('🔧 Applying deferred Textbox justify alignment');
+            this.enlargeSpaces();
+            this.canvas?.requestRenderAll();
+          }
+        }, 0);
+      }
+    }
+    // Calculate height - use Fabric's calculation for proper text rendering space
+    if ((this as any)._usingBrowserWrapping && this._textLines && this._textLines.length > 0) {
+      const actualBrowserHeight = (this as any)._actualBrowserHeight;
+      const oldHeight = this.height;
+      // Use Fabric's height calculation since it knows how much space text rendering needs
+      this.height = this.calcTextHeight();
+      
+      // Force canvas refresh and control update if height changed significantly
+      if (Math.abs(this.height - oldHeight) > 1) {
+        this.setCoords();
+        this.canvas?.requestRenderAll();
+        
+        // DEBUG: Log exact positioning details
+        console.log(`🎯 POSITIONING DEBUG:`);
+        console.log(`   Textbox height: ${this.height}px`);
+        console.log(`   Textbox top: ${this.top}px`);
+        console.log(`   Textbox left: ${this.left}px`);
+        console.log(`   Text lines: ${this._textLines?.length || 0}`);
+        console.log(`   Font size: ${this.fontSize}px`);
+        console.log(`   Line height: ${this.lineHeight || 1.16}`);
+        console.log(`   Calculated line height: ${this.fontSize * (this.lineHeight || 1.16)}px`);
+        console.log(`   _getTopOffset(): ${this._getTopOffset()}px`);
+        console.log(`   calcTextHeight(): ${this.calcTextHeight()}px`);
+        console.log(`   Browser height: ${actualBrowserHeight}px`);
+        console.log(`   Height difference: ${this.height - this.calcTextHeight()}px`);
+      }
+    } else {
+      this.height = this.calcTextHeight();
+    }
+  }
+
+  /**
+   * Schedule justify calculation after font loads (Textbox-specific)
+   * @private
+   */
+  _scheduleJustifyAfterFontLoad(): void {
+    if (typeof document === 'undefined' || !('fonts' in document)) {
+      return;
+    }
+    
+    // Only schedule if not already waiting
+    if ((this as any)._fontJustifyScheduled) {
+      return;
+    }
+    (this as any)._fontJustifyScheduled = true;
+    
+    const fontSpec = `${this.fontSize}px ${this.fontFamily}`;
+    document.fonts.load(fontSpec).then(() => {
+      (this as any)._fontJustifyScheduled = false;
+      console.log('🔧 Textbox: Font loaded, applying justify alignment');
+      
+      // Re-run initDimensions to ensure proper justify calculation
+      this.initDimensions();
+      this.canvas?.requestRenderAll();
+    }).catch(() => {
+      (this as any)._fontJustifyScheduled = false;
+      console.warn('⚠️ Textbox: Font loading failed, justify may be incorrect');
+    });
   }
 
   /**
@@ -546,20 +692,35 @@ export class Textbox<
       const { word, width: wordWidth } = data[i];
       offset += word.length;
 
-      lineWidth += infixWidth + wordWidth - additionalSpace;
-      if (lineWidth > maxWidth && !lineJustStarted) {
+      // Predictive wrapping: check if adding this word would exceed the width
+      const potentialLineWidth = lineWidth + infixWidth + wordWidth - additionalSpace;
+      // Use exact width to match overlay editor behavior
+      const conservativeMaxWidth = maxWidth; // No artificial buffer
+      
+      // Debug logging for wrapping decisions
+      const currentLineText = line.join('');
+      console.log(`🔧 FABRIC WRAP CHECK: "${data[i].word}" -> potential: ${potentialLineWidth.toFixed(1)}px vs limit: ${conservativeMaxWidth.toFixed(1)}px`);
+      
+      if (potentialLineWidth > conservativeMaxWidth && !lineJustStarted) {
+        // This word would exceed the width, wrap before adding it
+        console.log(`🔧 FABRIC WRAP! Line: "${currentLineText}" (${lineWidth.toFixed(1)}px)`);
         graphemeLines.push(line);
         line = [];
-        lineWidth = wordWidth;
+        lineWidth = wordWidth; // Start new line with just this word
         lineJustStarted = true;
       } else {
-        lineWidth += additionalSpace;
+        // Word fits, add it to current line
+        lineWidth = potentialLineWidth + additionalSpace;
       }
 
       if (!lineJustStarted && !splitByGrapheme) {
         line.push(infix);
       }
       line = line.concat(word);
+      
+      // Debug: show current line after adding word
+      console.log(`🔧 FABRIC AFTER ADD: Line now: "${line.join('')}" (${line.length} chars)`);
+      
 
       infixWidth = splitByGrapheme
         ? 0
@@ -573,9 +734,20 @@ export class Textbox<
     // TODO: this code is probably not necessary anymore.
     // it can be moved out of this function since largestWordWidth is now
     // known in advance
-    if (largestWordWidth + reservedSpace > this.dynamicMinWidth) {
+    // Don't modify dynamicMinWidth when using browser wrapping to prevent width increases
+    if (!((this as any)._usingBrowserWrapping) && largestWordWidth + reservedSpace > this.dynamicMinWidth) {
+      console.log(`🔧 FABRIC updating dynamicMinWidth: ${this.dynamicMinWidth} -> ${largestWordWidth - additionalSpace + reservedSpace}`);
       this.dynamicMinWidth = largestWordWidth - additionalSpace + reservedSpace;
+    } else if ((this as any)._usingBrowserWrapping) {
+      console.log(`🔤 BROWSER WRAP: Skipping dynamicMinWidth update to prevent width increase`);
     }
+    
+    // Debug: show final wrapped lines
+    console.log(`🔧 FABRIC FINAL LINES: ${graphemeLines.length} lines`);
+    graphemeLines.forEach((line, i) => {
+      console.log(`   Line ${i + 1}: "${line.join('')}" (${line.length} chars)`);
+    });
+    
     return graphemeLines;
   }
 
@@ -619,6 +791,284 @@ export class Textbox<
    * @override
    */
   _splitTextIntoLines(text: string) {
+    // Check if we need browser wrapping using smart font detection
+    const needsBrowserWrapping = this.fontFamily && fontLacksEnglishGlyphsCached(this.fontFamily);
+    
+    if (needsBrowserWrapping) {
+      // Cache key based on text content, width, font properties, AND text alignment
+      const textHash = text.length + text.slice(0, 50); // Include text content in cache key
+      const cacheKey = `${textHash}|${this.width}|${this.fontSize}|${this.fontFamily}|${this.textAlign}`;
+      
+      // Check if we have a cached result and nothing has changed
+      if ((this as any)._browserWrapCache && (this as any)._browserWrapCache.key === cacheKey) {
+        const cachedResult = (this as any)._browserWrapCache.result;
+        
+        // For justify alignment, ensure we have the measurements
+        if (this.textAlign.includes('justify') && !(cachedResult as any).justifySpaceMeasurements) {
+          // Fall through to recalculate
+        } else {
+          return cachedResult;
+        }
+      }
+      
+      const result = this._splitTextIntoLinesWithBrowser(text);
+      
+      // Cache the result
+      (this as any)._browserWrapCache = { key: cacheKey, result };
+      
+      // Mark that we used browser wrapping to prevent dynamicMinWidth modifications
+      (this as any)._usingBrowserWrapping = true;
+      
+      return result;
+    }
+    
+    // Clear the browser wrapping flag when using regular wrapping
+    (this as any)._usingBrowserWrapping = false;
+    
+    // Default Fabric wrapping for other fonts
+    const newText = super._splitTextIntoLines(text),
+      graphemeLines = this._wrapText(newText.lines, this.width),
+      lines = new Array(graphemeLines.length);
+    for (let i = 0; i < graphemeLines.length; i++) {
+      lines[i] = graphemeLines[i].join('');
+    }
+    newText.lines = lines;
+    newText.graphemeLines = graphemeLines;
+    return newText;
+  }
+
+  /**
+   * Use browser's native text wrapping for accurate handling of fonts without English glyphs
+   * @private
+   */
+  _splitTextIntoLinesWithBrowser(text: string) {
+    if (typeof document === 'undefined') {
+      // Fallback to regular wrapping in Node.js
+      return this._splitTextIntoLinesDefault(text);
+    }
+
+    // Create a hidden element that mimics the overlay editor
+    const testElement = document.createElement('div');
+    testElement.style.position = 'absolute';
+    testElement.style.left = '-9999px';
+    testElement.style.visibility = 'hidden';
+    testElement.style.fontSize = `${this.fontSize}px`;
+    testElement.style.fontFamily = `"${this.fontFamily}"`;
+    testElement.style.fontWeight = String(this.fontWeight || 'normal');
+    testElement.style.fontStyle = String(this.fontStyle || 'normal');
+    testElement.style.lineHeight = String(this.lineHeight || 1.16);
+    
+    testElement.style.width = `${this.width}px`;
+    
+    testElement.style.direction = this.direction || 'ltr';
+    testElement.style.whiteSpace = 'pre-wrap';
+    testElement.style.wordBreak = 'normal';
+    testElement.style.overflowWrap = 'break-word';
+    
+    // Set browser-native text alignment (including justify)
+    if (this.textAlign.includes('justify')) {
+      testElement.style.textAlign = 'justify';
+      testElement.style.textAlignLast = 'auto'; // Let browser decide last line alignment
+    } else {
+      testElement.style.textAlign = this.textAlign;
+    }
+    
+    testElement.textContent = text;
+
+    document.body.appendChild(testElement);
+
+    // Get the browser's natural line breaks
+    const range = document.createRange();
+    const lines: string[] = [];
+    const graphemeLines: string[][] = [];
+
+    try {
+      // Simple approach: split by measuring character positions
+      const textNode = testElement.firstChild;
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        let currentLineStart = 0;
+        const textLength = text.length;
+        let previousBottom = 0;
+        
+        for (let i = 0; i <= textLength; i++) {
+          range.setStart(textNode, currentLineStart);
+          range.setEnd(textNode, i);
+          const rect = range.getBoundingClientRect();
+          
+          if (i > currentLineStart && (rect.bottom > previousBottom + 5 || i === textLength)) {
+            // New line detected or end of text
+            const lineEnd = i === textLength ? i : i - 1;
+            const lineText = text.substring(currentLineStart, lineEnd).trim();
+            if (lineText) {
+              lines.push(lineText);
+              // Convert to graphemes for compatibility
+              const graphemeLine = lineText.split('');
+              graphemeLines.push(graphemeLine);
+                    }
+            currentLineStart = lineEnd;
+            previousBottom = rect.bottom;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Browser wrapping failed, using fallback:', error);
+      document.body.removeChild(testElement);
+      return this._splitTextIntoLinesDefault(text);
+    }
+
+    // Extract actual browser height BEFORE removing element
+    const actualBrowserHeight = testElement.scrollHeight;
+    const offsetHeight = testElement.offsetHeight;
+    const clientHeight = testElement.clientHeight;
+    const boundingRect = testElement.getBoundingClientRect();
+    
+    console.log(`🔤 Browser element measurements:`);
+    console.log(`   scrollHeight: ${actualBrowserHeight}px (content + padding + hidden overflow)`);
+    console.log(`   offsetHeight: ${offsetHeight}px (content + padding + border)`);
+    console.log(`   clientHeight: ${clientHeight}px (content + padding, no border/scrollbar)`);
+    console.log(`   boundingRect.height: ${boundingRect.height}px (actual rendered height)`);
+    console.log(`   Font size: ${this.fontSize}px, Line height: ${this.lineHeight || 1.16}, Lines: ${lines.length}`);
+
+    // For justify alignment, extract space measurements from browser BEFORE removing element
+    let justifySpaceMeasurements = null;
+    if (this.textAlign.includes('justify')) {
+      justifySpaceMeasurements = this._extractJustifySpaceMeasurements(testElement, lines);
+    }
+
+    document.body.removeChild(testElement);
+
+    console.log(`🔤 Browser wrapping result: ${lines.length} lines`);
+    
+    // Try different height measurements to find the most accurate
+    let bestHeight = actualBrowserHeight;
+    
+    // If scrollHeight and offsetHeight differ significantly, investigate
+    if (Math.abs(actualBrowserHeight - offsetHeight) > 2) {
+      console.log(`🔤 Height discrepancy detected: scrollHeight=${actualBrowserHeight}px vs offsetHeight=${offsetHeight}px`);
+    }
+    
+    // Consider using boundingRect height if it's larger (sometimes more accurate for visible content)
+    if (boundingRect.height > bestHeight) {
+      console.log(`🔤 Using boundingRect height (${boundingRect.height}px) instead of scrollHeight (${bestHeight}px)`);
+      bestHeight = boundingRect.height;
+    }
+    
+    // Font-specific height adjustments for accurate bounding box
+    let adjustedHeight = bestHeight;
+    
+    // Fonts without English glyphs need additional height buffer due to different font metrics
+    const lacksEnglishGlyphs = fontLacksEnglishGlyphsCached(this.fontFamily);
+    if (lacksEnglishGlyphs) {
+      const glyphBuffer = this.fontSize * 0.25; // 25% of font size for non-English fonts
+      adjustedHeight = bestHeight + glyphBuffer;
+      console.log(`🔤 Non-English font detected (${this.fontFamily}): Adding ${glyphBuffer}px buffer (${bestHeight}px + ${glyphBuffer}px = ${adjustedHeight}px)`);
+    } else {
+      console.log(`🔤 Standard font (${this.fontFamily}): Using browser height directly (${bestHeight}px)`);
+    }
+    
+    return {
+      _unwrappedLines: [text.split('')],
+      lines: lines,
+      graphemeText: text.split(''),
+      graphemeLines: graphemeLines,
+      justifySpaceMeasurements: justifySpaceMeasurements,
+      actualBrowserHeight: adjustedHeight,
+    };
+  }
+
+
+
+
+  /**
+   * Extract justify space measurements from browser
+   * @private
+   */
+  _extractJustifySpaceMeasurements(element: HTMLElement, lines: string[]) {
+    console.log(`🔤 Extracting browser justify space measurements for ${lines.length} lines`);
+    
+    // For now, we'll use a simplified approach:
+    // Apply uniform space expansion to match the line width
+    const spaceWidths: number[][] = [];
+    
+    lines.forEach((line, lineIndex) => {
+      const lineSpaces: number[] = [];
+      const spaceCount = (line.match(/\s/g) || []).length;
+      
+      if (spaceCount > 0 && lineIndex < lines.length - 1) { // Don't justify last line
+        // Calculate how much space expansion is needed
+        const normalSpaceWidth = 6.4; // Default space width for STV font
+        const lineWidth = this.width;
+        
+        // Estimate natural line width
+        const charCount = line.length - spaceCount;
+        const avgCharWidth = 12; // Approximate for STV font
+        const naturalWidth = charCount * avgCharWidth + spaceCount * normalSpaceWidth;
+        
+        // Calculate expanded space width
+        const remainingSpace = lineWidth - (charCount * avgCharWidth);
+        const expandedSpaceWidth = remainingSpace / spaceCount;
+        
+        console.log(`🔤 Line ${lineIndex}: ${spaceCount} spaces, natural: ${normalSpaceWidth}px -> justified: ${expandedSpaceWidth.toFixed(1)}px`);
+        
+        // Fill array with expanded space widths for this line
+        for (let i = 0; i < spaceCount; i++) {
+          lineSpaces.push(expandedSpaceWidth);
+        }
+      }
+      
+      spaceWidths.push(lineSpaces);
+    });
+    
+    return spaceWidths;
+  }
+
+  /**
+   * Apply browser-calculated justify space measurements
+   * @private
+   */
+  _applyBrowserJustifySpaces() {
+    if (!this._textLines || !this.__charBounds) {
+      console.warn('🔤 BROWSER JUSTIFY: _textLines or __charBounds not ready');
+      return;
+    }
+
+    // Get space measurements from browser wrapping result
+    const styleMap = this._styleMap as any;
+    if (!styleMap || !styleMap.justifySpaceMeasurements) {
+      console.warn('🔤 BROWSER JUSTIFY: No justify space measurements available');
+      return;
+    }
+
+    const spaceWidths = styleMap.justifySpaceMeasurements as number[][];
+    console.log('🔤 BROWSER JUSTIFY: Applying space measurements to __charBounds');
+
+    // Apply space widths to character bounds
+    this._textLines.forEach((line, lineIndex) => {
+      if (!this.__charBounds || !this.__charBounds[lineIndex] || !spaceWidths[lineIndex]) return;
+      
+      const lineBounds = this.__charBounds[lineIndex];
+      const lineSpaceWidths = spaceWidths[lineIndex];
+      let spaceIndex = 0;
+
+      for (let charIndex = 0; charIndex < line.length; charIndex++) {
+        if (/\s/.test(line[charIndex]) && spaceIndex < lineSpaceWidths.length) {
+          const expandedWidth = lineSpaceWidths[spaceIndex];
+          if (lineBounds[charIndex]) {
+            const oldWidth = lineBounds[charIndex].width;
+            lineBounds[charIndex].width = expandedWidth;
+            console.log(`🔤 Line ${lineIndex} space ${spaceIndex}: ${oldWidth.toFixed(1)}px -> ${expandedWidth.toFixed(1)}px`);
+          }
+          spaceIndex++;
+        }
+      }
+    });
+  }
+
+  /**
+   * Fallback to default Fabric wrapping
+   * @private
+   */
+  _splitTextIntoLinesDefault(text: string) {
     const newText = super._splitTextIntoLines(text),
       graphemeLines = this._wrapText(newText.lines, this.width),
       lines = new Array(graphemeLines.length);
@@ -765,6 +1215,66 @@ export class Textbox<
       }
       
       this.canvas?.requestRenderAll();
+    }
+  }
+
+  /**
+   * Force complete textbox re-initialization (useful after JSON loading)
+   * Overrides Text version with Textbox-specific logic
+   */
+  forceTextReinitialization(): void {
+    console.log('🔄 Force reinitializing Textbox object');
+    
+    // CRITICAL: Ensure textbox is marked as initialized
+    this.initialized = true;
+    
+    // Clear all caches and force dirty state
+    this._clearCache();
+    this.dirty = true;
+    this.dynamicMinWidth = 0;
+    
+    // Force isEditing false to ensure clean state
+    this.isEditing = false;
+    
+    console.log('   → Set initialized=true, dirty=true, cleared caches');
+    
+    // Re-initialize dimensions (this will handle justify properly)
+    this.initDimensions();
+    
+    // Double-check that justify was applied by checking space widths
+    if (this.textAlign.includes('justify') && this.__charBounds) {
+      setTimeout(() => {
+        // Verify justify was applied by checking if space widths vary
+        let hasVariableSpaces = false;
+        this.__charBounds.forEach((lineBounds, i) => {
+          if (lineBounds && this._textLines && this._textLines[i]) {
+            const spaces = lineBounds.filter((bound, j) => /\s/.test(this._textLines[i][j]));
+            if (spaces.length > 1) {
+              const firstSpaceWidth = spaces[0].width;
+              hasVariableSpaces = spaces.some(space => Math.abs(space.width - firstSpaceWidth) > 0.1);
+            }
+          }
+        });
+        
+        if (!hasVariableSpaces && this.__charBounds.length > 0) {
+          console.warn('   ⚠️ Justify spaces still uniform - forcing enlargeSpaces again');
+          if (this.enlargeSpaces) {
+            this.enlargeSpaces();
+          }
+        } else {
+          console.log('   ✅ Justify spaces properly expanded');
+        }
+        
+        // Ensure height is recalculated - use browser height if available
+        if ((this as any)._usingBrowserWrapping && (this as any)._actualBrowserHeight) {
+          this.height = (this as any)._actualBrowserHeight;
+          console.log(`🔤 JUSTIFY: Preserved browser height: ${this.height}px`);
+        } else {
+          this.height = this.calcTextHeight();
+          console.log(`🔧 JUSTIFY: Used calcTextHeight: ${this.height}px`);
+        }
+        this.canvas?.requestRenderAll();
+      }, 10);
     }
   }
 

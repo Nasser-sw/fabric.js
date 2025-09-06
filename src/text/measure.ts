@@ -1,6 +1,6 @@
 /**
  * Advanced Text Measurement System
- * 
+ *
  * Provides precise text measurement with caching, font metrics,
  * and DPI awareness for optimal performance and accuracy.
  */
@@ -62,7 +62,7 @@ function getMeasurementContext(): CanvasRenderingContext2D {
 export function measureGrapheme(
   grapheme: string,
   options: MeasurementOptions,
-  ctx?: CanvasRenderingContext2D
+  ctx?: CanvasRenderingContext2D,
 ): GraphemeMeasurement {
   // Check cache first
   const cached = measurementCache.get(grapheme, options);
@@ -72,14 +72,14 @@ export function measureGrapheme(
 
   // Use provided context or get global one
   const context = ctx || getMeasurementContext();
-  
+
   // Set font properties
   applyFontStyle(context, options);
-  
+
   // Measure the grapheme
   const metrics = context.measureText(grapheme);
   const fontMetrics = getFontMetrics(options);
-  
+
   // Calculate comprehensive measurements
   const measurement: GraphemeMeasurement = {
     width: metrics.width,
@@ -88,10 +88,10 @@ export function measureGrapheme(
     descent: fontMetrics.descent,
     baseline: fontMetrics.ascent,
   };
-  
+
   // Cache the result
   measurementCache.set(grapheme, options, measurement);
-  
+
   return measurement;
 }
 
@@ -102,11 +102,11 @@ export function measureGraphemeWithKerning(
   grapheme: string,
   previousGrapheme: string | undefined,
   options: MeasurementOptions,
-  ctx?: CanvasRenderingContext2D
+  ctx?: CanvasRenderingContext2D,
 ): KerningMeasurement {
   // Get individual measurement
   const individual = measureGrapheme(grapheme, options, ctx);
-  
+
   // If no previous character, kerning width equals regular width
   if (!previousGrapheme) {
     return {
@@ -114,7 +114,7 @@ export function measureGraphemeWithKerning(
       kernedWidth: individual.width,
     };
   }
-  
+
   // Check kerning cache
   const kerningPair = `${previousGrapheme}${grapheme}`;
   const cachedKerning = kerningCache.get(kerningPair, options);
@@ -124,23 +124,81 @@ export function measureGraphemeWithKerning(
       kernedWidth: cachedKerning,
     };
   }
-  
+
   // Use provided context or get global one
   const context = ctx || getMeasurementContext();
   applyFontStyle(context, options);
-  
+
   // Measure the pair
   const pairWidth = context.measureText(previousGrapheme + grapheme).width;
-  const previousWidth = measureGrapheme(previousGrapheme, options, context).width;
+  const previousWidth = measureGrapheme(
+    previousGrapheme,
+    options,
+    context,
+  ).width;
   const kernedWidth = pairWidth - previousWidth;
-  
+
   // Cache kerning result
   kerningCache.set(kerningPair, options, kernedWidth);
-  
+
   return {
     ...individual,
     kernedWidth,
   };
+}
+
+/**
+ * Get a representative character for font metrics measurement
+ * Uses canvas to test which scripts the font actually supports
+ */
+function getRepresentativeCharacter(fontFamily: string): string {
+  const context = getMeasurementContext();
+  
+  // Wait for font to be ready if possible
+  if (typeof document !== 'undefined' && 'fonts' in document) {
+    try {
+      // Check if font is ready, if not, use fallback immediately
+      if (!document.fonts.check(`16px ${fontFamily}`)) {
+        return 'M'; // Use safe fallback while font loads
+      }
+    } catch (e) {
+      // Font check failed, use fallback
+      return 'M';
+    }
+  }
+  
+  // Test characters for different scripts
+  const testChars = [
+    { char: 'م', script: 'Arabic' },     // Arabic
+    { char: 'א', script: 'Hebrew' },     // Hebrew  
+    { char: 'अ', script: 'Devanagari' }, // Hindi/Sanskrit
+    { char: 'ا', script: 'Urdu' },       // Urdu
+    { char: 'ک', script: 'Persian' },    // Persian
+    { char: 'த', script: 'Tamil' },      // Tamil
+    { char: 'ก', script: 'Thai' },       // Thai
+    { char: 'М', script: 'Cyrillic' },   // Cyrillic
+    { char: 'Ω', script: 'Greek' },      // Greek
+    { char: 'M', script: 'Latin' }       // Latin (fallback)
+  ];
+  
+  // Set the font
+  context.font = `16px ${fontFamily}`;
+  
+  // Test each character to see which ones render properly
+  // Use a more robust width check to avoid false positives
+  const fallbackWidth = context.measureText('M').width;
+  
+  for (const test of testChars) {
+    const metrics = context.measureText(test.char);
+    
+    // Character is valid if it has width and isn't just a fallback glyph
+    if (metrics.width > 0 && Math.abs(metrics.width - fallbackWidth) > 0.1) {
+      return test.char;
+    }
+  }
+  
+  // Fallback to Latin 'M'
+  return 'M';
 }
 
 /**
@@ -152,20 +210,24 @@ export function getFontMetrics(options: MeasurementOptions): FontMetrics {
   if (cached) {
     return cached;
   }
-  
+
   const context = getMeasurementContext();
   applyFontStyle(context, options);
-  
-  // Use 'M' as sample character for metrics
-  const metrics = context.measureText('M');
+
+  // Use representative character based on font's primary script
+  const sample = getRepresentativeCharacter(options.fontFamily);
+  const metrics = context.measureText(sample);
   const fontSize = options.fontSize;
-  
+
   // Calculate metrics with fallbacks
-  const fontBoundingBoxAscent = metrics.fontBoundingBoxAscent ?? fontSize * 0.91;
-  const fontBoundingBoxDescent = metrics.fontBoundingBoxDescent ?? fontSize * 0.21;
-  const actualBoundingBoxAscent = metrics.actualBoundingBoxAscent ?? fontSize * 0.716;
+  const fontBoundingBoxAscent =
+    metrics.fontBoundingBoxAscent ?? fontSize * 0.91;
+  const fontBoundingBoxDescent =
+    metrics.fontBoundingBoxDescent ?? fontSize * 0.21;
+  const actualBoundingBoxAscent =
+    metrics.actualBoundingBoxAscent ?? fontSize * 0.716;
   const actualBoundingBoxDescent = metrics.actualBoundingBoxDescent ?? 0;
-  
+
   const result: FontMetrics = {
     ascent: fontBoundingBoxAscent,
     descent: fontBoundingBoxDescent,
@@ -176,7 +238,7 @@ export function getFontMetrics(options: MeasurementOptions): FontMetrics {
     actualBoundingBoxAscent,
     actualBoundingBoxDescent,
   };
-  
+
   fontMetricsCache.set(cacheKey, result);
   return result;
 }
@@ -184,21 +246,24 @@ export function getFontMetrics(options: MeasurementOptions): FontMetrics {
 /**
  * Apply font styling to canvas context
  */
-function applyFontStyle(ctx: CanvasRenderingContext2D, options: MeasurementOptions): void {
+function applyFontStyle(
+  ctx: CanvasRenderingContext2D,
+  options: MeasurementOptions,
+): void {
   const fontDeclaration = getFontDeclaration(options);
   ctx.font = fontDeclaration;
-  
+
   if (options.letterSpacing) {
     // Modern browsers support letterSpacing
     if ('letterSpacing' in ctx) {
       (ctx as any).letterSpacing = `${options.letterSpacing}px`;
     }
   }
-  
+
   if (options.direction) {
     ctx.direction = options.direction;
   }
-  
+
   ctx.textBaseline = 'alphabetic';
 }
 
@@ -207,14 +272,18 @@ function applyFontStyle(ctx: CanvasRenderingContext2D, options: MeasurementOptio
  */
 function getFontDeclaration(options: MeasurementOptions): string {
   const { fontStyle, fontWeight, fontSize, fontFamily } = options;
-  
+
   // Normalize font family (add quotes if needed)
-  const normalizedFamily = fontFamily.includes(' ') && 
-    !fontFamily.includes('"') && 
+  let normalizedFamily =
+    fontFamily.includes(' ') &&
+    !fontFamily.includes('"') &&
     !fontFamily.includes("'")
-    ? `"${fontFamily}"`
-    : fontFamily;
-  
+      ? `"${fontFamily}"`
+      : fontFamily;
+
+  // Note: Font fallbacks are handled in the rendering phase only
+  // to avoid affecting measurement calculations for text wrapping
+
   return `${fontStyle} ${fontWeight} ${fontSize}px ${normalizedFamily}`;
 }
 
@@ -301,12 +370,19 @@ export class MeasurementCache {
     return `${fontDecl}|${grapheme}|${letterSpacing}`;
   }
 
-  get(grapheme: string, options: MeasurementOptions): GraphemeMeasurement | undefined {
+  get(
+    grapheme: string,
+    options: MeasurementOptions,
+  ): GraphemeMeasurement | undefined {
     const key = this.getCacheKey(grapheme, options);
     return this.cache.get(key);
   }
 
-  set(grapheme: string, options: MeasurementOptions, measurement: GraphemeMeasurement): void {
+  set(
+    grapheme: string,
+    options: MeasurementOptions,
+    measurement: GraphemeMeasurement,
+  ): void {
     const key = this.getCacheKey(grapheme, options);
     this.cache.set(key, measurement);
   }
@@ -380,6 +456,14 @@ export const measurementCache = new MeasurementCache();
 export const kerningCache = new KerningCache();
 export const fontMetricsCache = new FontMetricsCache();
 
+// Set up font loading listener to clear caches when fonts change
+if (typeof document !== 'undefined' && 'fonts' in document) {
+  document.fonts.addEventListener('loadingdone', () => {
+    // Clear all caches when fonts finish loading
+    clearAllCaches();
+  });
+}
+
 /**
  * Clear all measurement caches
  */
@@ -406,15 +490,15 @@ export function getCacheStats() {
 export function batchMeasureGraphemes(
   graphemes: string[],
   options: MeasurementOptions,
-  ctx?: CanvasRenderingContext2D
+  ctx?: CanvasRenderingContext2D,
 ): GraphemeMeasurement[] {
   const context = ctx || getMeasurementContext();
   applyFontStyle(context, options);
-  
+
   // Separate cached and uncached measurements
   const results: GraphemeMeasurement[] = new Array(graphemes.length);
   const uncachedIndices: number[] = [];
-  
+
   // Check cache for all graphemes
   graphemes.forEach((grapheme, index) => {
     const cached = measurementCache.get(grapheme, options);
@@ -424,13 +508,13 @@ export function batchMeasureGraphemes(
       uncachedIndices.push(index);
     }
   });
-  
+
   // Measure uncached graphemes
   const fontMetrics = getFontMetrics(options);
-  uncachedIndices.forEach(index => {
+  uncachedIndices.forEach((index) => {
     const grapheme = graphemes[index];
     const metrics = context.measureText(grapheme);
-    
+
     const measurement: GraphemeMeasurement = {
       width: metrics.width,
       height: fontMetrics.lineHeight,
@@ -438,11 +522,11 @@ export function batchMeasureGraphemes(
       descent: fontMetrics.descent,
       baseline: fontMetrics.ascent,
     };
-    
+
     measurementCache.set(grapheme, options, measurement);
     results[index] = measurement;
   });
-  
+
   return results;
 }
 
@@ -451,13 +535,13 @@ export function batchMeasureGraphemes(
  */
 export function estimateTextWidth(
   text: string,
-  options: MeasurementOptions
+  options: MeasurementOptions,
 ): number {
   // Use average character width for estimation
   const avgChar = 'n'; // Representative character
   const avgMeasurement = measureGrapheme(avgChar, options);
   const letterSpacing = options.letterSpacing || 0;
-  
+
   return text.length * (avgMeasurement.width + letterSpacing);
 }
 
@@ -466,11 +550,77 @@ export function estimateTextWidth(
  */
 export function isFontReady(fontFamily: string): boolean {
   if (typeof document === 'undefined') return true;
-  
+
   if ('fonts' in document) {
     return document.fonts.check(`16px ${fontFamily}`);
   }
-  
+
   // Fallback - assume font is ready
   return true;
+}
+
+/**
+ * Detect if a font lacks English glyph support
+ * These fonts should use browser-native measurement instead of Fabric's character-by-character measurement
+ */
+export function fontLacksEnglishGlyphs(fontFamily: string): boolean {
+  if (typeof document === 'undefined') return false;
+  
+  // Known fonts that lack English glyphs
+  const knownNonEnglishFonts = [
+    'stv', 'arabic', 'naskh', 'thuluth', 'kufi', 'diwani',
+    'nastaliq', 'kufic', 'hijazi', 'madinah', 'makkah'
+  ];
+  
+  const lowerFontFamily = fontFamily.toLowerCase();
+  
+  // Check known list first
+  if (knownNonEnglishFonts.some(font => lowerFontFamily.includes(font))) {
+    return true;
+  }
+  
+  // Dynamic glyph support detection
+  const context = getMeasurementContext();
+  context.font = `16px ${fontFamily}`;
+  
+  // Test English characters
+  const englishChars = ['A', 'B', 'C', 'a', 'b', 'c', 'M', 'W'];
+  const fallbackFont = 'Arial, sans-serif';
+  
+  // Measure with target font
+  const targetWidths = englishChars.map(char => context.measureText(char).width);
+  
+  // Measure with fallback font
+  context.font = `16px ${fallbackFont}`;
+  const fallbackWidths = englishChars.map(char => context.measureText(char).width);
+  
+  // If most measurements are identical, the font likely doesn't have English glyphs
+  let identicalCount = 0;
+  for (let i = 0; i < englishChars.length; i++) {
+    if (Math.abs(targetWidths[i] - fallbackWidths[i]) < 0.5) {
+      identicalCount++;
+    }
+  }
+  
+  const lacksSupportThreshold = englishChars.length * 0.7; // 70% identical = lacks support
+  const lacksSupport = identicalCount >= lacksSupportThreshold;
+  
+  
+  return lacksSupport;
+}
+
+// Cache for font glyph detection results
+const fontGlyphCache = new Map<string, boolean>();
+
+/**
+ * Cached version of font glyph detection
+ */
+export function fontLacksEnglishGlyphsCached(fontFamily: string): boolean {
+  if (fontGlyphCache.has(fontFamily)) {
+    return fontGlyphCache.get(fontFamily)!;
+  }
+  
+  const result = fontLacksEnglishGlyphs(fontFamily);
+  fontGlyphCache.set(fontFamily, result);
+  return result;
 }

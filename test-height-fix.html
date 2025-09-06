@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Height Fix</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #canvas { border: 1px solid #ccc; }
+        .controls { margin: 10px 0; }
+        button { margin: 5px; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Test Height Fix</h1>
+    
+    <div class="controls">
+        <button onclick="addText()">Add Text (STV Font)</button>
+        <button onclick="addMoreLines()">Add More Lines</button>
+        <button onclick="toggleAlign()">Toggle Align (Right/Justify-Right)</button>
+        <button onclick="exportToPNG()">Export as PNG</button>
+    </div>
+    
+    <canvas id="canvas" width="800" height="600"></canvas>
+    
+    <script src="dist/index.min.js"></script>
+    <script>
+        const canvas = new fabric.Canvas('canvas');
+        let currentText = null;
+        let currentAlign = 'right';
+        
+        function addText() {
+            const text = 'هذا نص تجريبي باللغة العربية للاختبار. سوف نقوم بإضافة المزيد من النص لرؤية كيفية التعامل مع الارتفاع.';
+            
+            currentText = new fabric.Textbox(text, {
+                left: 50,
+                top: 50,
+                width: 300,
+                fontSize: 20,
+                fontFamily: 'STV',
+                fontWeight: 'bold',
+                textAlign: currentAlign,
+                direction: 'rtl'
+            });
+            
+            canvas.add(currentText);
+            canvas.setActiveObject(currentText);
+            
+            console.log(`Added text with height: ${currentText.height}px`);
+        }
+        
+        function addMoreLines() {
+            if (!currentText) {
+                alert('Add text first!');
+                return;
+            }
+            
+            const currentContent = currentText.text;
+            const newLine = '\nسطر جديد من النص العربي لاختبار الارتفاع';
+            
+            currentText.text = currentContent + newLine;
+            
+            // Force recalculation
+            currentText._forceClearCache = true;
+            currentText.initDimensions();
+            canvas.requestRenderAll();
+            
+            console.log(`Updated text with height: ${currentText.height}px`);
+        }
+        
+        function toggleAlign() {
+            if (!currentText) {
+                alert('Add text first!');
+                return;
+            }
+            
+            currentAlign = currentAlign === 'right' ? 'justify-right' : 'right';
+            currentText.set('textAlign', currentAlign);
+            
+            // Force recalculation
+            currentText._forceClearCache = true;
+            currentText.initDimensions();
+            canvas.requestRenderAll();
+            
+            console.log(`Changed align to: ${currentAlign}, height: ${currentText.height}px`);
+        }
+        
+        // Export canvas as PNG
+        function exportToPNG() {
+            if (!canvas) {
+                alert('Canvas not initialized!');
+                return;
+            }
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.download = `fabric-text-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
+            
+            // Get canvas data URL
+            const dataURL = canvas.toDataURL('image/png');
+            link.href = dataURL;
+            
+            // Trigger download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            console.log('Canvas exported as PNG');
+        }
+        
+        // Debug function to compare with browser element
+        window.debugHeight = function() {
+            if (!currentText) {
+                alert('Add text first!');
+                return;
+            }
+            
+            const testDiv = document.createElement('div');
+            testDiv.style.position = 'absolute';
+            testDiv.style.left = '-9999px';
+            testDiv.style.fontSize = '20px';
+            testDiv.style.fontFamily = 'STV';
+            testDiv.style.fontWeight = 'bold';
+            testDiv.style.width = '300px';
+            testDiv.style.direction = 'rtl';
+            testDiv.style.whiteSpace = 'pre-wrap';
+            testDiv.style.textAlign = currentAlign.includes('justify') ? 'justify' : currentAlign;
+            testDiv.textContent = currentText.text;
+            
+            document.body.appendChild(testDiv);
+            const browserHeight = testDiv.scrollHeight;
+            document.body.removeChild(testDiv);
+            
+            console.log(`Fabric height: ${currentText.height}px`);
+            console.log(`Browser height: ${browserHeight}px`);
+            console.log(`Difference: ${Math.abs(currentText.height - browserHeight)}px`);
+        }
+    </script>
+</body>
+</html>

@@ -337,6 +337,13 @@ export class OverlayEditor {
 
     // Apply all other font and text styles to match Fabric
     const letterSpacingPx = ((target.charSpacing || 0) / 1000) * finalFontSize;
+    
+    // Special handling for text objects loaded from JSON - ensure they're properly initialized
+    if (target.dirty !== false && target.initDimensions) {
+      console.log('🔧 Ensuring text object is properly initialized before overlay editing');
+      // Force re-initialization if the text object seems to be in a dirty state
+      target.initDimensions();
+    }
 
     this.textarea.style.fontSize = `${finalFontSize}px`;
     this.textarea.style.lineHeight = String(fabricLineHeight);

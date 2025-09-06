@@ -5,6 +5,7 @@ change-output.md
 /node_modules/
 fabric-test2.html
 /debug/
+/fonts/
 ._*
 **/._*
 fabric-test-editor.html

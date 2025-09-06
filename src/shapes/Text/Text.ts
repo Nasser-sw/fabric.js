@@ -560,6 +560,15 @@ export class FabricText<
    * Does not return dimensions.
    */
   initDimensions(): void {
+    // Check if font is ready for accurate measurements
+    // Only block initialization if it's a critical font loading situation
+    const fontReady = this._isFontReady();
+    if (!fontReady && !this.initialized) {
+      // Only schedule font loading on first initialization
+      this._scheduleInitAfterFontLoad();
+      // Continue with fallback measurements for now
+    }
+    
     // Use advanced layout if enabled
     if (this.enableAdvancedLayout && !this.path) {
       return this.initDimensionsAdvanced();
@@ -578,7 +587,20 @@ export class FabricText<
     }
     if (this.textAlign.includes(JUSTIFY)) {
       // once text is measured we need to make space fatter to make justified text.
-      this.enlargeSpaces();
+      // Ensure __charBounds exists before calling enlargeSpaces
+      if (this.__charBounds && this.__charBounds.length > 0) {
+        this.enlargeSpaces();
+      } else {
+        console.warn('⚠️ __charBounds not ready for justify alignment, deferring enlargeSpaces');
+        // Defer the justify calculation until the next frame
+        setTimeout(() => {
+          if (this.__charBounds && this.__charBounds.length > 0 && this.enlargeSpaces) {
+            console.log('🔧 Applying deferred justify alignment');
+            this.enlargeSpaces();
+            this.canvas?.requestRenderAll();
+          }
+        }, 0);
+      }
     }
   }
 
@@ -597,7 +619,7 @@ export class FabricText<
     
     for (let i = 0, len = this._textLines.length; i < len; i++) {
       if (
-        this.textAlign !== JUSTIFY &&
+        !this.textAlign.includes('justify') &&
         (i === len - 1 || this.isEndOfWrapping(i))
       ) {
         continue;
@@ -611,6 +633,10 @@ export class FabricText<
       ) {
         numberOfSpaces = spaces.length;
         diffSpace = (this.width - currentLineWidth) / numberOfSpaces;
+        
+        console.log(`🔧 EnlargeSpaces Line ${i}:`);
+        console.log(`   Current width: ${currentLineWidth}, Target: ${this.width}`);
+        console.log(`   Spaces: ${numberOfSpaces}, diffSpace: ${diffSpace.toFixed(2)}`);
         
         if (isRtl) {
           // For RTL text, we need to redistribute spaces while maintaining correct visual order
@@ -739,6 +765,17 @@ export class FabricText<
     
     // Convert layout to legacy format for compatibility
     this._convertLayoutToLegacyFormat(layout);
+    
+    // Ensure justify alignment is properly applied for compatibility with legacy rendering
+    if (this.textAlign.includes(JUSTIFY)) {
+      // Force enlarge spaces after advanced layout calculation
+      setTimeout(() => {
+        if (this.enlargeSpaces) {
+          this.enlargeSpaces();
+          this.canvas?.renderAll();
+        }
+      }, 0);
+    }
     
     this.dirty = true;
   }
@@ -1958,13 +1995,27 @@ export class FabricText<
     > = {},
     forMeasuring?: boolean,
   ): string {
-    const parsedFontFamily =
+    let parsedFontFamily =
       fontFamily.includes("'") ||
       fontFamily.includes('"') ||
       fontFamily.includes(',') ||
       FabricText.genericFonts.includes(fontFamily.toLowerCase())
         ? fontFamily
         : `"${fontFamily}"`;
+    
+    // For fonts like STV that don't support English/Latin characters,
+    // add fallback fonts for consistent rendering of unsupported characters
+    // Only add fallbacks during actual rendering, not for measurements
+    if (!forMeasuring && // Only during rendering, not measuring
+        !fontFamily.includes(',') && // Don't add fallbacks if already has them
+        (fontFamily.toLowerCase().includes('stv') || 
+         fontFamily.toLowerCase().includes('arabic') ||
+         fontFamily.toLowerCase().includes('naskh') ||
+         fontFamily.toLowerCase().includes('kufi'))) {
+      // Add fallback fonts for unsupported characters (spaces, punctuation, etc.)
+      parsedFontFamily = `${parsedFontFamily}, "Arial Unicode MS", Arial, sans-serif`;
+    }
+    
     return [
       fontStyle,
       fontWeight,
@@ -2018,7 +2069,13 @@ export class FabricText<
       newLine = ['\n'];
     let newText: string[] = [];
     for (let i = 0; i < lines.length; i++) {
-      newLines[i] = this.graphemeSplit(lines[i]);
+      // Use BiDi-aware grapheme splitting for RTL text
+      if (this.direction === 'rtl' || this._containsArabicText(lines[i])) {
+        newLines[i] = segmentGraphemes(lines[i]);
+        console.log(`🔤 BiDi-aware split line ${i}: "${lines[i]}" -> [${newLines[i].join(', ')}]`);
+      } else {
+        newLines[i] = this.graphemeSplit(lines[i]);
+      }
       newText = newText.concat(newLines[i], newLine);
     }
     newText.pop();
@@ -2028,6 +2085,14 @@ export class FabricText<
       graphemeText: newText,
       graphemeLines: newLines,
     };
+  }
+  
+  /**
+   * Check if text contains Arabic characters
+   * @private
+   */
+  _containsArabicText(text: string): boolean {
+    return /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
   }
 
   /**
@@ -2201,6 +2266,87 @@ export class FabricText<
   /* _FROM_SVG_END_ */
 
   /**
+   * Check if the font is ready for accurate measurements
+   * @private
+   */
+  _isFontReady(): boolean {
+    if (typeof document === 'undefined' || !('fonts' in document)) {
+      return true; // Assume ready in non-browser environments
+    }
+    
+    try {
+      return document.fonts.check(`${this.fontSize}px ${this.fontFamily}`);
+    } catch (e) {
+      return true; // Fallback to assuming ready if check fails
+    }
+  }
+
+  /**
+   * Schedule re-initialization after font loads
+   * @private
+   */
+  _scheduleInitAfterFontLoad(): void {
+    if (typeof document === 'undefined' || !('fonts' in document)) {
+      return;
+    }
+    
+    // Only schedule if not already waiting
+    if ((this as any)._fontLoadScheduled) {
+      return;
+    }
+    (this as any)._fontLoadScheduled = true;
+    
+    const fontSpec = `${this.fontSize}px ${this.fontFamily}`;
+    document.fonts.load(fontSpec).then(() => {
+      (this as any)._fontLoadScheduled = false;
+      // Re-initialize dimensions with proper font metrics
+      this.initDimensions();
+      
+      // Extra step for justify alignment after font loading
+      if (this.textAlign && this.textAlign.includes(JUSTIFY)) {
+        setTimeout(() => {
+          if (this.enlargeSpaces) {
+            this.enlargeSpaces();
+          }
+          this.canvas?.requestRenderAll();
+        }, 10);
+      } else {
+        this.canvas?.requestRenderAll();
+      }
+    }).catch(() => {
+      (this as any)._fontLoadScheduled = false;
+    });
+  }
+
+  /**
+   * Force complete text re-initialization (useful after JSON loading)
+   */
+  forceTextReinitialization(): void {
+    console.log('🔄 Force reinitializing text object');
+    
+    // Clear all caches
+    this._clearCache();
+    this.dirty = true;
+    
+    // Force text splitting to rebuild internal structures
+    this._splitText();
+    
+    // Re-initialize dimensions
+    this.initDimensions();
+    
+    // Special handling for justify alignment
+    if (this.textAlign && this.textAlign.includes(JUSTIFY)) {
+      // Ensure justify is applied after dimensions are set
+      setTimeout(() => {
+        if (this.__charBounds && this.__charBounds.length > 0 && this.enlargeSpaces) {
+          this.enlargeSpaces();
+          this.canvas?.requestRenderAll();
+        }
+      }, 10);
+    }
+  }
+
+  /**
    * Returns FabricText instance from an object representation
    * @param {Object} object plain js Object to create an instance from
    * @returns {Promise<FabricText>}
@@ -2217,7 +2363,94 @@ export class FabricText<
       {
         extraParam: 'text',
       },
-    );
+    ).then((textObject: S) => {
+      // Ensure text object is properly initialized after JSON deserialization
+      // This is critical for justify alignment and other text layout features
+      textObject.initialized = true;
+      
+      // Force reinitialization to ensure proper layout
+      if (textObject._clearCache) {
+        textObject._clearCache();
+      }
+      textObject.dirty = true;
+      
+      // Check if we need to wait for font loading (especially for custom fonts like STV)
+      const fontSpec = `${textObject.fontSize}px ${textObject.fontFamily}`;
+      
+      // For custom fonts, ensure they're loaded before initializing dimensions
+      if (typeof document !== 'undefined' && 'fonts' in document && textObject.fontFamily !== 'Arial' && textObject.fontFamily !== 'Times New Roman') {
+        return document.fonts.load(fontSpec).then(() => {
+          console.log(`🔤 Font loaded for JSON object: ${fontSpec}`);
+          // Ensure initialized flag is set again (in case constructor reset it)
+          textObject.initialized = true;
+          
+          // Special handling for STV fonts which have measurement issues
+          const isStvFont = textObject.fontFamily?.toLowerCase().includes('stv');
+          if (isStvFont) {
+            console.log(`🔤 STV font detected, using enhanced reinitialization`);
+            
+            // Clear all cached state that might interfere with browser wrapping
+            (textObject as any)._browserWrapCache = null;
+            (textObject as any)._lastDimensionState = null;
+            (textObject as any)._browserWrapInitialized = false;
+            console.log(`🔤 STV font: Cleared all cached states for fresh initialization`);
+            
+            // Force browser wrapping flag for STV fonts
+            (textObject as any)._usingBrowserWrapping = true;
+            console.log(`🔤 STV font: Forcing browser wrapping flag during JSON load`);
+            
+            // Multiple initialization attempts for STV fonts
+            const reinitWithDelay = (attempt: number) => {
+              if ((textObject as any).forceTextReinitialization) {
+                (textObject as any).forceTextReinitialization();
+              } else {
+                textObject.initDimensions();
+              }
+              
+              // Check if width is still problematic after initialization
+              if (textObject.width < 50 && attempt < 3) {
+                console.log(`🔤 STV font width still ${textObject.width}px, retrying in ${100 * attempt}ms (attempt ${attempt + 1}/3)`);
+                setTimeout(() => reinitWithDelay(attempt + 1), 100 * attempt);
+              }
+            };
+            reinitWithDelay(0);
+          } else {
+            // Use specialized reinitialization for Textbox objects
+            if ((textObject as any).forceTextReinitialization) {
+              console.log(`🔤 Using Textbox specialized reinitialization`);
+              (textObject as any).forceTextReinitialization();
+            } else {
+              // Reinitialize dimensions with proper font metrics
+              textObject.initDimensions();
+            }
+          }
+          return textObject;
+        }).catch(() => {
+          console.warn(`⚠️ Font loading failed for ${fontSpec}, proceeding with fallback`);
+          // Ensure initialized flag is set again
+          textObject.initialized = true;
+          
+          // Still initialize dimensions even if font loading fails
+          if ((textObject as any).forceTextReinitialization) {
+            (textObject as any).forceTextReinitialization();
+          } else {
+            textObject.initDimensions();
+          }
+          return textObject;
+        });
+      } else {
+        // Standard fonts - ensure initialized and use appropriate method
+        textObject.initialized = true;
+        
+        if ((textObject as any).forceTextReinitialization) {
+          console.log(`🔤 Using Textbox specialized reinitialization for standard font`);
+          (textObject as any).forceTextReinitialization();
+        } else {
+          textObject.initDimensions();
+        }
+        return textObject;
+      }
+    });
   }
 }
 
