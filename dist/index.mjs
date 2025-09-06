@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta8";
+var version = "7.0.1-beta9";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -23415,6 +23415,11 @@ class OverlayEditor {
     this.canvas.requestRenderAll();
     this.target.setCoords();
     this.applyOverlayStyle();
+
+    // Fix character mapping issues after JSON loading for browser-wrapped fonts
+    if (this.target._fixCharacterMappingAfterJsonLoad) {
+      this.target._fixCharacterMappingAfterJsonLoad();
+    }
     this.textarea.focus();
     this.textarea.setSelectionRange(this.textarea.value.length, this.textarea.value.length);
 
@@ -27591,6 +27596,28 @@ class Textbox extends IText {
         }, 0);
       }
       (_this$canvas5 = this.canvas) === null || _this$canvas5 === void 0 || _this$canvas5.requestRenderAll();
+    }
+  }
+
+  /**
+   * Fix character selection mismatch after JSON loading for browser-wrapped fonts
+   * @private
+   */
+  _fixCharacterMappingAfterJsonLoad() {
+    if (this._usingBrowserWrapping) {
+      // Clear all cached states to force fresh text layout calculation
+      this._browserWrapCache = null;
+      this._lastDimensionState = null;
+
+      // Force complete re-initialization
+      this.initDimensions();
+      this._forceClearCache = true;
+
+      // Ensure canvas refresh
+      this.setCoords();
+      if (this.canvas) {
+        this.canvas.requestRenderAll();
+      }
     }
   }
 

@@ -1219,6 +1219,28 @@ export class Textbox<
   }
 
   /**
+   * Fix character selection mismatch after JSON loading for browser-wrapped fonts
+   * @private
+   */
+  _fixCharacterMappingAfterJsonLoad(): void {
+    if ((this as any)._usingBrowserWrapping) {
+      // Clear all cached states to force fresh text layout calculation
+      (this as any)._browserWrapCache = null;
+      (this as any)._lastDimensionState = null;
+      
+      // Force complete re-initialization
+      this.initDimensions();
+      this._forceClearCache = true;
+      
+      // Ensure canvas refresh
+      this.setCoords();
+      if (this.canvas) {
+        this.canvas.requestRenderAll();
+      }
+    }
+  }
+
+  /**
    * Force complete textbox re-initialization (useful after JSON loading)
    * Overrides Text version with Textbox-specific logic
    */

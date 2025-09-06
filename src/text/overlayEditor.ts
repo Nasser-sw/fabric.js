@@ -742,6 +742,11 @@ export class OverlayEditor {
     this.target.setCoords();
     this.applyOverlayStyle();
 
+    // Fix character mapping issues after JSON loading for browser-wrapped fonts
+    if ((this.target as any)._fixCharacterMappingAfterJsonLoad) {
+      (this.target as any)._fixCharacterMappingAfterJsonLoad();
+    }
+
     this.textarea.focus();
 
     this.textarea.setSelectionRange(
