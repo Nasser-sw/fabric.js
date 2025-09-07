@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta9";
+var version = "7.0.1-beta10";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -24151,9 +24151,19 @@ class ITextBehavior extends FabricText {
    * @private
    */
   _updateTextarea() {
+    console.log('🔤 _updateTextarea called with fabric text:', this.text);
     this.cursorOffsetCache = {};
     if (!this.hiddenTextarea) {
       return;
+    }
+
+    // Sync textarea content with fabric text to prevent double-keypress issues
+    const currentFabricText = this.text;
+    if (this.hiddenTextarea.value !== currentFabricText) {
+      console.log('🔤 _updateTextarea: syncing textarea to fabric text');
+      console.log('🔤 _updateTextarea: textarea was:', this.hiddenTextarea.value);
+      console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
+      this.hiddenTextarea.value = currentFabricText;
     }
     if (!this.inCompositionMode) {
       const newSelection = this.fromGraphemeToStringSelection(this.selectionStart, this.selectionEnd, this._text);
@@ -24799,6 +24809,52 @@ class ITextKeyBehavior extends ITextBehavior {
     this.fromPaste = false;
     e && e.stopPropagation();
     if (!this.isEditing) {
+      return;
+    }
+
+    // Debug log to track the double keypress issue
+    console.log('🔤 onInput debug:', {
+      fabricText: this.text,
+      textareaValue: value,
+      fabricSelection: {
+        start: this.selectionStart,
+        end: this.selectionEnd
+      },
+      textareaSelection: {
+        start: selectionStart,
+        end: selectionEnd
+      },
+      fromPaste,
+      inComposition: this.inCompositionMode
+    });
+
+    // Immediate sync for simple character replacement - fix for double keypress issue
+    if (this.text !== value && !this.inCompositionMode) {
+      console.log('🔤 Immediate sync: fabric text differs from textarea, syncing immediately');
+      console.log('🔤 Before sync - fabric text:', this.text);
+      console.log('🔤 Before sync - textarea value:', value);
+      console.log('🔤 fromPaste:', fromPaste);
+
+      // Clear all relevant caches that might prevent visual updates
+      this.cursorOffsetCache = {};
+      this._browserWrapCache = null;
+      this._lastDimensionState = null;
+      this._forceClearCache = true;
+      console.log('🔤 Cleared all caches');
+
+      // Use the same logic as updateAndFire but immediately
+      this.updateFromTextArea();
+      this.fire(CHANGED);
+      if (this.canvas) {
+        this.canvas.fire('text:changed', {
+          target: this
+        });
+        // ONLY use synchronous rendering to avoid race conditions
+        // Remove requestRenderAll() which queues for next animation frame
+        this.canvas.renderAll();
+      }
+      console.log('🔤 After updateFromTextArea - fabric text:', this.text);
+      console.log('🔤 Sync complete, caches cleared, synchronous render only');
       return;
     }
     const updateAndFire = () => {

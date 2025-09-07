@@ -594,10 +594,21 @@ export abstract class ITextBehavior<
    * @private
    */
   _updateTextarea() {
+    console.log('🔤 _updateTextarea called with fabric text:', this.text);
     this.cursorOffsetCache = {};
     if (!this.hiddenTextarea) {
       return;
     }
+    
+    // Sync textarea content with fabric text to prevent double-keypress issues
+    const currentFabricText = this.text;
+    if (this.hiddenTextarea.value !== currentFabricText) {
+      console.log('🔤 _updateTextarea: syncing textarea to fabric text');
+      console.log('🔤 _updateTextarea: textarea was:', this.hiddenTextarea.value);
+      console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
+      this.hiddenTextarea.value = currentFabricText;
+    }
+    
     if (!this.inCompositionMode) {
       const newSelection = this.fromGraphemeToStringSelection(
         this.selectionStart,

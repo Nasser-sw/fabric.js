@@ -17,7 +17,11 @@
         <button onclick="addMoreLines()">Add More Lines</button>
         <button onclick="toggleAlign()">Toggle Align (Right/Justify-Right)</button>
         <button onclick="exportToPNG()">Export as PNG</button>
+        <button onclick="exportJSON()">Export JSON</button>
+        <button onclick="loadJSON()">Load JSON</button>
     </div>
+    
+    <input type="file" id="jsonFileInput" accept=".json" style="display: none;" onchange="handleFileSelect(event)">
     
     <canvas id="canvas" width="800" height="600"></canvas>
     
@@ -104,6 +108,79 @@
             document.body.removeChild(link);
             
             console.log('Canvas exported as PNG');
+        }
+        
+        // Export canvas as JSON
+        function exportJSON() {
+            if (!canvas) {
+                alert('Canvas not initialized!');
+                return;
+            }
+            
+            const jsonData = JSON.stringify(canvas.toJSON(), null, 2);
+            
+            // Create download link
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.download = `fabric-canvas-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+            link.href = URL.createObjectURL(blob);
+            
+            // Trigger download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            console.log('Canvas exported as JSON');
+        }
+        
+        // Load JSON file
+        function loadJSON() {
+            const fileInput = document.getElementById('jsonFileInput');
+            fileInput.click();
+        }
+        
+        // Handle file selection
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            if (file.type !== 'application/json') {
+                alert('Please select a JSON file!');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonData = JSON.parse(e.target.result);
+                    
+                    // Clear current canvas
+                    canvas.clear();
+                    
+                    // Load JSON data
+                    canvas.loadFromJSON(jsonData, function() {
+                        canvas.requestRenderAll();
+                        
+                        // Update currentText reference if there's a Textbox object
+                        const textboxes = canvas.getObjects('textbox');
+                        if (textboxes.length > 0) {
+                            currentText = textboxes[textboxes.length - 1]; // Get the last textbox
+                            canvas.setActiveObject(currentText);
+                        }
+                        
+                        console.log('Canvas loaded from JSON successfully');
+                    });
+                    
+                } catch (error) {
+                    alert('Error parsing JSON file: ' + error.message);
+                    console.error('JSON parsing error:', error);
+                }
+            };
+            
+            reader.readAsText(file);
+            
+            // Reset file input
+            event.target.value = '';
         }
         
         // Debug function to compare with browser element

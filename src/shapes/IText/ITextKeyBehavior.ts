@@ -178,6 +178,47 @@ export abstract class ITextKeyBehavior<
     if (!this.isEditing) {
       return;
     }
+    
+    // Debug log to track the double keypress issue
+    console.log('🔤 onInput debug:', {
+      fabricText: this.text,
+      textareaValue: value,
+      fabricSelection: { start: this.selectionStart, end: this.selectionEnd },
+      textareaSelection: { start: selectionStart, end: selectionEnd },
+      fromPaste,
+      inComposition: this.inCompositionMode
+    });
+    
+    // Immediate sync for simple character replacement - fix for double keypress issue
+    if (this.text !== value && !this.inCompositionMode) {
+      console.log('🔤 Immediate sync: fabric text differs from textarea, syncing immediately');
+      console.log('🔤 Before sync - fabric text:', this.text);
+      console.log('🔤 Before sync - textarea value:', value);
+      console.log('🔤 fromPaste:', fromPaste);
+      
+      // Clear all relevant caches that might prevent visual updates
+      this.cursorOffsetCache = {};
+      (this as any)._browserWrapCache = null;
+      (this as any)._lastDimensionState = null;
+      this._forceClearCache = true;
+      
+      console.log('🔤 Cleared all caches');
+      
+      // Use the same logic as updateAndFire but immediately
+      this.updateFromTextArea();
+      this.fire(CHANGED);
+      if (this.canvas) {
+        this.canvas.fire('text:changed', { target: this as unknown as IText });
+        // ONLY use synchronous rendering to avoid race conditions
+        // Remove requestRenderAll() which queues for next animation frame
+        this.canvas.renderAll();
+      }
+      
+      console.log('🔤 After updateFromTextArea - fabric text:', this.text);
+      console.log('🔤 Sync complete, caches cleared, synchronous render only');
+      return;
+    }
+    
     const updateAndFire = () => {
       this.updateFromTextArea();
       this.fire(CHANGED);
