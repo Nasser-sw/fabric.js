@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RTL Text Debug - Visual Bounding Box and Text Position</title>
+    <style>
+        @font-face {
+            font-family: 'STV';
+            src: url('./fonts/STV Regular.ttf') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
+        }
+        
+        @font-face {
+            font-family: 'STV';
+            src: url('./fonts/STV Bold.ttf') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+            font-display: swap;
+        }
+        
+        @font-face {
+            font-family: 'STV';
+            src: url('./fonts/STV Light.ttf') format('truetype');
+            font-weight: 300;
+            font-style: normal;
+            font-display: swap;
+        }
+        
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        canvas { 
+            border: 1px solid #ccc; 
+            margin: 10px;
+            background: white;
+        }
+        .canvas-container {
+            position: relative;
+        }
+        .canvas-container .upper-canvas {
+            pointer-events: auto;
+        }
+        .lower-canvas {
+            z-index: 1;
+        }
+        .upper-canvas {
+            z-index: 2;
+        }
+        .debug-info {
+            font-family: monospace;
+            background: #333;
+            color: #0f0;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 8px 16px;
+            margin: 5px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        .text-sample {
+            margin: 5px 0;
+            padding: 5px;
+            background: #f8f9fa;
+            border-left: 3px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>RTL Text Debug - Visual Bounding Box and Text Position</h1>
+    
+    <div class="controls">
+        <h3>Test Cases:</h3>
+        <div class="text-sample">Arabic: مرحبا بك في العالم</div>
+        <div class="text-sample">Hebrew: שלום עולם</div>
+        <div class="text-sample">Mixed: Hello مرحبا World</div>
+        <div class="text-sample">English LTR: Hello World</div>
+        
+        <br>
+        <button onclick="showRTLText()">Show RTL Arabic Text</button>
+        <button onclick="showLTRText()">Show LTR English Text</button>
+        <button onclick="showMixedText()">Show Mixed Text</button>
+        <button onclick="showSimpleTest()">Simple Test</button>
+        <button onclick="showSTVFont()">Show STV Regular</button>
+        <button onclick="showSTVBold()">Show STV Bold</button>
+        <button onclick="showSTVLight()">Show STV Light</button>
+        <button onclick="clearCanvas()">Clear Canvas</button>
+        <button onclick="toggleDebugMode()">Toggle Debug Mode</button>
+        <button onclick="exportJSON()">Export JSON</button>
+        <input type="file" id="jsonFile" accept=".json" style="display: none;" onchange="loadJSONFile(event)">
+        <button onclick="document.getElementById('jsonFile').click()">Import JSON</button>
+    </div>
+
+    <canvas id="canvas" width="1080" height="1080"></canvas>
+    
+    <div id="debug-info" class="debug-info">Debug information will appear here...</div>
+    <div id="click-info" class="debug-info">Click on text to see selection coordinates...</div>
+
+    <script src="./dist/index.js"></script>
+    <script>
+        // Check if fabric.js loaded
+        console.log('fabric object:', typeof fabric);
+        console.log('fabric.Canvas:', typeof fabric.Canvas);
+        console.log('fabric.Text:', typeof fabric.Text);
+        console.log('fabric.IText:', typeof fabric.IText);
+        
+        if (typeof fabric === 'undefined') {
+            document.getElementById('debug-info').textContent = 'ERROR: fabric.js not loaded! Check the script path.';
+        }
+        
+        const canvas = new fabric.Canvas('canvas', {
+            backgroundColor: 'white',
+            selection: true,
+            preserveObjectStacking: true
+        });
+        
+        // Ensure upper canvas is transparent
+        canvas.upperCanvasEl.style.backgroundColor = 'transparent';
+        let debugMode = true;
+        let currentText = null;
+        let debugInfo = document.getElementById('debug-info');
+        let clickInfo = document.getElementById('click-info');
+        
+        // Test canvas rendering immediately
+        console.log('Canvas created:', canvas);
+        console.log('Canvas element:', canvas.getElement());
+        
+        // Add immediate visual test
+        const testCircle = new fabric.Circle({
+            left: 10,
+            top: 10,
+            radius: 10,
+            fill: 'orange'
+        });
+        canvas.add(testCircle);
+        canvas.renderAll();
+        console.log('Test circle added, canvas should show orange dot in top-left');
+
+        function updateDebugInfo(text, label) {
+            if (!text || !debugMode) {
+                debugInfo.textContent = 'Debug mode disabled or no text object';
+                return;
+            }
+
+            const bbox = text.getBoundingRect();
+            const info = `
+${label} Debug Information:
+═══════════════════════════════════════════════
+
+Text Properties:
+├─ Text: "${text.text}"
+├─ Direction: ${text.direction}
+├─ TextAlign: ${text.textAlign}
+├─ Width: ${text.width.toFixed(2)}
+├─ Height: ${text.height.toFixed(2)}
+├─ Left: ${text.left.toFixed(2)}
+├─ Top: ${text.top.toFixed(2)}
+├─ OriginX: ${text.originX}
+├─ OriginY: ${text.originY}
+
+Bounding Box (Visual Rectangle):
+├─ Left: ${bbox.left.toFixed(2)}
+├─ Top: ${bbox.top.toFixed(2)} 
+├─ Width: ${bbox.width.toFixed(2)}
+├─ Height: ${bbox.height.toFixed(2)}
+├─ Right: ${(bbox.left + bbox.width).toFixed(2)}
+├─ Bottom: ${(bbox.top + bbox.height).toFixed(2)}
+
+Internal Layout:
+├─ _getLeftOffset(): ${text._getLeftOffset().toFixed(2)}
+├─ _getTopOffset(): ${text._getTopOffset().toFixed(2)}
+├─ Lines: ${text._textLines.length}
+${text._textLines.map((line, i) => `│  └─ Line ${i}: "${line}" (length: ${line.length})`).join('\n')}
+
+Line Left Offsets:
+${text._textLines.map((line, i) => `├─ Line ${i}: ${text._getLineLeftOffset(i).toFixed(2)}`).join('\n')}
+
+Character Bounds (first line):
+${text.__charBounds && text.__charBounds[0] ? 
+    text.__charBounds[0].map((char, i) => 
+        `├─ Char ${i}: left=${char.left.toFixed(2)}, width=${char.width.toFixed(2)}, kernedWidth=${char.kernedWidth.toFixed(2)}`
+    ).join('\n') 
+    : '├─ No character bounds available'}
+`;
+            debugInfo.textContent = info;
+        }
+
+        function drawBoundingBoxOverlay(text) {
+            if (!debugMode || !text) return;
+
+            const bbox = text.getBoundingRect();
+            
+            // Draw bounding box rectangle
+            const bboxRect = new fabric.Rect({
+                left: bbox.left,
+                top: bbox.top,
+                width: bbox.width,
+                height: bbox.height,
+                fill: 'rgba(255, 0, 0, 0.1)',
+                stroke: 'red',
+                strokeWidth: 2,
+                strokeDashArray: [5, 5],
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+
+            // Draw text center point
+            const centerPoint = new fabric.Circle({
+                left: text.left,
+                top: text.top,
+                radius: 4,
+                fill: 'blue',
+                originX: 'center',
+                originY: 'center',
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+
+            // Draw text width visualization
+            const textWidthLine = new fabric.Line([
+                text.left - text.width/2,
+                text.top,
+                text.left + text.width/2,
+                text.top
+            ], {
+                stroke: 'green',
+                strokeWidth: 3,
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+
+            // Add coordinate labels
+            const bboxLabel = new fabric.Text(`BBox: (${bbox.left.toFixed(0)},${bbox.top.toFixed(0)})`, {
+                left: bbox.left,
+                top: bbox.top - 20,
+                fontSize: 12,
+                fill: 'red',
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+
+            const centerLabel = new fabric.Text(`Center: (${text.left.toFixed(0)},${text.top.toFixed(0)})`, {
+                left: text.left + 10,
+                top: text.top - 10,
+                fontSize: 12,
+                fill: 'blue',
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+
+            canvas.add(bboxRect, centerPoint, textWidthLine, bboxLabel, centerLabel);
+        }
+
+        function clearDebugOverlays() {
+            const objects = canvas.getObjects();
+            objects.forEach(obj => {
+                if (obj.excludeFromExport) {
+                    canvas.remove(obj);
+                }
+            });
+        }
+
+        function showRTLText() {
+            clearCanvas();
+            currentText = new fabric.Textbox('تجــــربه مرحبا بك في العالم الرقمي', {
+                left: 400,
+                top: 150,
+                width: 300,
+                fontFamily: 'Arial',
+                fontSize: 24,
+                direction: 'rtl',
+                textAlign: 'right',
+                fill: '#333',
+                editable: true,
+                selectable: true
+            });
+            
+            canvas.add(currentText);
+            canvas.renderAll();
+            
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, 'RTL Arabic Text');
+            }, 100);
+        }
+
+        function showLTRText() {
+            clearCanvas();
+            currentText = new fabric.Textbox('Hello Digital World', {
+                left: 400,
+                top: 150,
+                width: 300,
+                fontFamily: 'Arial',
+                fontSize: 24,
+                direction: 'ltr',
+                textAlign: 'left',
+                fill: '#333',
+                editable: true,
+                selectable: true
+            });
+            
+            canvas.add(currentText);
+            canvas.renderAll();
+            
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, 'LTR English Text');
+            }, 100);
+        }
+
+        function showMixedText() {
+            clearCanvas();
+            currentText = new fabric.Textbox('Hello مرحبا World عالم', {
+                left: 400,
+                top: 150,
+                width: 300,
+                fontFamily: 'Arial',
+                fontSize: 24,
+                direction: 'rtl',
+                textAlign: 'center',
+                fill: '#333',
+                editable: true,
+                selectable: true
+            });
+            
+            canvas.add(currentText);
+            canvas.renderAll();
+            
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, 'Mixed RTL/LTR Text');
+            }, 100);
+        }
+
+        function showSimpleTest() {
+            clearCanvas();
+            
+            // Add a simple visible rectangle first to test canvas
+            const rect = new fabric.Rect({
+                left: 100,
+                top: 100,
+                width: 50,
+                height: 50,
+                fill: 'red'
+            });
+            canvas.add(rect);
+            
+            // Test different text approaches
+            console.log('Creating basic fabric.Text...');
+            const basicText = new fabric.Text('BASIC TEXT', {
+                left: 50,
+                top: 50,
+                fontSize: 30,
+                fill: 'red',
+                fontFamily: 'Arial'
+            });
+            canvas.add(basicText);
+            console.log('Basic text added:', basicText.getBoundingRect());
+            
+            console.log('Creating fabric.IText...');
+            currentText = new fabric.IText('ITEXT HERE', {
+                left: 50,
+                top: 120,
+                fontSize: 30,
+                fill: 'blue',
+                fontFamily: 'Arial',
+                editable: true
+            });
+            canvas.add(currentText);
+            console.log('IText added:', currentText.getBoundingRect());
+            
+            console.log('Creating RTL text...');
+            const rtlText = new fabric.IText('مرحبا', {
+                left: 50,
+                top: 200,
+                fontSize: 30,
+                fill: 'green',
+                fontFamily: 'Arial',
+                direction: 'rtl',
+                editable: true
+            });
+            canvas.add(rtlText);
+            console.log('RTL text added:', rtlText.getBoundingRect());
+            
+            // Force canvas to render and log all objects
+            canvas.renderAll();
+            console.log('Canvas objects:', canvas.getObjects().length);
+            console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
+            
+            // Try to zoom out to see if text is outside viewport
+            canvas.setZoom(0.5);
+            canvas.renderAll();
+            
+            updateDebugInfo(currentText, 'Simple Test - Check Console');
+        }
+
+        function clearCanvas() {
+            canvas.clear();
+            currentText = null;
+            debugInfo.textContent = 'Canvas cleared';
+            clickInfo.textContent = 'Click on text to see selection coordinates...';
+        }
+
+        function toggleDebugMode() {
+            debugMode = !debugMode;
+            if (debugMode) {
+                if (currentText) {
+                    drawBoundingBoxOverlay(currentText);
+                    updateDebugInfo(currentText, 'Current Text');
+                }
+            } else {
+                clearDebugOverlays();
+                debugInfo.textContent = 'Debug mode disabled';
+            }
+        }
+
+        // Handle canvas clicks to show selection information
+        canvas.on('mouse:down', function(options) {
+            if (!options.target || !options.target.type || !options.target.type.includes('text')) return;
+            
+            const text = options.target;
+            const pointer = canvas.getScenePoint(options.e);
+            const selection = text.getSelectionStartFromPointer(options.e);
+            const cursorBounds = text._getCursorBoundaries(selection);
+            
+            const clickDebugInfo = `
+Click Debug Information:
+════════════════════════════════════════════════
+
+Mouse Click:
+├─ Canvas X: ${pointer.x.toFixed(2)}
+├─ Canvas Y: ${pointer.y.toFixed(2)}
+
+Selection Calculation:
+├─ Selection Index: ${selection}
+├─ Character at index: "${text.text[selection] || 'END'}"
+
+Cursor Boundaries:
+├─ Left: ${cursorBounds.left.toFixed(2)}
+├─ Top: ${cursorBounds.top.toFixed(2)}
+├─ LeftOffset: ${cursorBounds.leftOffset.toFixed(2)}
+├─ TopOffset: ${cursorBounds.topOffset.toFixed(2)}
+├─ Absolute X: ${(cursorBounds.left + cursorBounds.leftOffset).toFixed(2)}
+├─ Absolute Y: ${(cursorBounds.top + cursorBounds.topOffset).toFixed(2)}
+
+Text Direction: ${text.direction}
+Text Align: ${text.textAlign}
+`;
+            clickInfo.textContent = clickDebugInfo;
+            
+            // Draw cursor position and character bounds
+            clearDebugOverlays();
+            drawBoundingBoxOverlay(text);
+            drawCharacterBounds(text);
+            
+            const cursorX = cursorBounds.left + cursorBounds.leftOffset;
+            const cursorY = cursorBounds.top + cursorBounds.topOffset;
+            
+            const cursorLine = new fabric.Line([cursorX, cursorY - 10, cursorX, cursorY + 20], {
+                stroke: 'orange',
+                strokeWidth: 3,
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+            
+            const cursorLabel = new fabric.Text(`Cursor: (${cursorX.toFixed(0)},${cursorY.toFixed(0)})`, {
+                left: cursorX + 5,
+                top: cursorY - 25,
+                fontSize: 12,
+                fill: 'orange',
+                selectable: false,
+                evented: false,
+                excludeFromExport: true
+            });
+            
+            canvas.add(cursorLine, cursorLabel);
+        });
+        
+        function drawCharacterBounds(text) {
+            if (!debugMode || !text || !text.__charBounds || !text.__charBounds[0]) return;
+            
+            console.log('=== Drawing character bounds ===');
+            console.log('Text object:', text);
+            console.log('Text position:', text.left, text.top);
+            console.log('Text width/height:', text.width, text.height);
+            console.log('Text direction:', text.direction);
+            console.log('Text align:', text.textAlign);
+            console.log('Font family:', text.fontFamily);
+            
+            const bbox = text.getBoundingRect();
+            console.log('Bounding rect:', bbox);
+            
+            const textLeft = text._getLeftOffset() + text.left;
+            const textTop = text._getTopOffset() + text.top;
+            const lineLeftOffset = text._getLineLeftOffset(0);
+            
+            console.log('Calculated offsets:');
+            console.log('  _getLeftOffset():', text._getLeftOffset());
+            console.log('  _getTopOffset():', text._getTopOffset());
+            console.log('  _getLineLeftOffset(0):', lineLeftOffset);
+            console.log('  Final textLeft:', textLeft);
+            console.log('  Final textTop:', textTop);
+            
+            const isSTVFont = text.fontFamily && text.fontFamily.includes('STV');
+            console.log('STV font detected:', isSTVFont, '- BiDi processing should be disabled');
+            
+            // Draw each character's bounds as they should appear
+            text.__charBounds[0].forEach((charBound, i) => {
+                const char = text.text[i] || '';
+                
+                // Use bounding box as the base position since that's where text actually renders
+                const baseX = bbox.left;
+                const baseY = bbox.top;
+                
+                let charX, charWidth;
+                
+                if (text.direction === 'rtl') {
+                    // For RTL, start from the right edge of the bounding box
+                    // and work backwards (right to left)
+                    charX = baseX + bbox.width - charBound.left - Math.abs(charBound.kernedWidth);
+                    charWidth = Math.abs(charBound.kernedWidth);
+                } else {
+                    // For LTR, start from left edge and add character offset
+                    charX = baseX + charBound.left;
+                    charWidth = charBound.kernedWidth;
+                }
+                
+                // Use different colors for STV vs standard fonts
+                const fillColor = isSTVFont ? 
+                    'rgba(255, 165, 0, 0.3)' : // Orange for STV (no BiDi)
+                    (i % 2 === 0 ? 'rgba(255, 0, 255, 0.2)' : 'rgba(0, 255, 255, 0.2)'); // Magenta/Cyan for others
+                const strokeColor = isSTVFont ? 'orange' : (i % 2 === 0 ? 'magenta' : 'cyan');
+                
+                // Draw character boundary rectangle
+                const charRect = new fabric.Rect({
+                    left: charX,
+                    top: baseY,
+                    width: charWidth,
+                    height: text.fontSize,
+                    fill: fillColor,
+                    stroke: strokeColor,
+                    strokeWidth: isSTVFont ? 2 : 1,
+                    selectable: false,
+                    evented: false,
+                    excludeFromExport: true
+                });
+                
+                // Add character label
+                const charLabel = new fabric.Text(`${isSTVFont ? 'STV-' : ''}${i}:"${char}"`, {
+                    left: charX,
+                    top: baseY - 15,
+                    fontSize: 10,
+                    fill: isSTVFont ? 'darkorange' : 'purple',
+                    fontFamily: 'Arial', // Use Arial for labels to ensure readability
+                    selectable: false,
+                    evented: false,
+                    excludeFromExport: true
+                });
+                
+                canvas.add(charRect, charLabel);
+                
+                console.log(`${isSTVFont ? 'STV ' : ''}Char ${i} "${char}":`, {
+                    boundLeft: charBound.left,
+                    kernedWidth: charBound.kernedWidth,
+                    calculatedX: charX,
+                    width: charWidth
+                });
+            });
+        }
+
+        // Update debug info when text properties change
+        canvas.on('object:modified', function(options) {
+            if (options.target && options.target.type.includes('text')) {
+                clearDebugOverlays();
+                drawBoundingBoxOverlay(options.target);
+                updateDebugInfo(options.target, 'Modified Text');
+            }
+        });
+
+        // Add STV font test functions
+        function showSTVFont() {
+            clearCanvas();
+            currentText = new fabric.Textbox('هذا نص تجريبي بخط STV العادي للاختبار', {
+                left: 400,
+                top: 150,
+                width: 400,
+                fontFamily: 'STV',
+                fontSize: 28,
+                fontWeight: 'normal',
+                direction: 'rtl',
+                textAlign: 'right',
+                fill: '#333',
+                editable: true,
+                selectable: true
+            });
+            
+            canvas.add(currentText);
+            canvas.renderAll();
+            
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, 'STV Regular Font Arabic Text');
+            }, 300);
+        }
+        
+        function showSTVBold() {
+            clearCanvas();
+            currentText = new fabric.Textbox('هذا نص تجريبي بخط STV الغامق للاختبار', {
+                left: 400,
+                top: 150,
+                width: 400,
+                fontFamily: 'STV',
+                fontSize: 28,
+                fontWeight: 'bold',
+                direction: 'rtl',
+                textAlign: 'right',
+                fill: '#333',
+                editable: true,
+                selectable: true
+            });
+            
+            canvas.add(currentText);
+            canvas.renderAll();
+            
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, 'STV Bold Font Arabic Text');
+            }, 300);
+        }
+        
+        function showSTVLight() {
+            clearCanvas();
+            currentText = new fabric.Textbox('هذا نص تجريبي بخط STV الخفيف للاختبار', {
+                left: 400,
+                top: 150,
+                width: 400,
+                fontFamily: 'STV',
+                fontSize: 28,
+                fontWeight: 300,
+                direction: 'rtl',
+                textAlign: 'right',
+                fill: '#333',
+                editable: true,
+                selectable: true
+            });
+            
+            canvas.add(currentText);
+            canvas.renderAll();
+            
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, 'STV Light Font Arabic Text');
+            }, 300);
+        }
+
+        // Export JSON functionality
+        function exportJSON() {
+            const json = JSON.stringify(canvas.toJSON(['fontFamily', 'direction', 'textAlign']));
+            console.log('Canvas JSON:', json);
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.download = `rtl-debug-canvas-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            link.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(json);
+            
+            // Trigger download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            debugInfo.textContent = 'Canvas exported as JSON file';
+            return json;
+        }
+
+        // Import JSON functionality
+        function loadJSONFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                importJSON(e.target.result);
+            };
+            reader.readAsText(file);
+        }
+
+        function importJSON(jsonString) {
+            try {
+                console.log('Loading JSON into canvas...');
+                const parsed = JSON.parse(jsonString);
+                
+                canvas.loadFromJSON(parsed, function() {
+                    canvas.requestRenderAll();
+                    console.log('JSON loaded successfully');
+                    
+                    // Find the first text object
+                    const objects = canvas.getObjects();
+                    currentText = objects.find(obj => obj.type === 'textbox' || obj.type === 'text' || obj.type === 'i-text');
+                    
+                    if (currentText) {
+                        console.log('Found text object:', currentText);
+                        setTimeout(() => {
+                            if (debugMode) {
+                                drawBoundingBoxOverlay(currentText);
+                            }
+                            updateDebugInfo(currentText, 'Loaded from JSON');
+                        }, 300); // Extra time for font loading
+                    }
+                    
+                    debugInfo.textContent = `JSON loaded successfully. Found ${objects.length} objects.`;
+                });
+            } catch (error) {
+                console.error('Error loading JSON:', error);
+                debugInfo.textContent = 'Error loading JSON: ' + error.message;
+            }
+        }
+
+        // Initialize with RTL text
+        showRTLText();
+    </script>
+</body>
+</html>

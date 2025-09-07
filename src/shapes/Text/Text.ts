@@ -2399,6 +2399,10 @@ export class FabricText<
             (textObject as any)._usingBrowserWrapping = true;
             console.log(`🔤 STV font: Forcing browser wrapping flag during JSON load`);
             
+            // Enable overlay editing for STV fonts to use native browser text handling
+            (textObject as any).useOverlayEditing = true;
+            console.log(`🔤 STV font: Enabling overlay editing during JSON load`);
+            
             // Multiple initialization attempts for STV fonts
             const reinitWithDelay = (attempt: number) => {
               if ((textObject as any).forceTextReinitialization) {

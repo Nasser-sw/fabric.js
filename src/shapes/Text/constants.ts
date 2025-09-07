@@ -41,6 +41,7 @@ export const additionalProps = [
   'textBackgroundColor',
   'direction',
   TEXT_DECORATION_THICKNESS,
+  'useOverlayEditing',
 ] as const;
 
 export type StylePropertiesType =

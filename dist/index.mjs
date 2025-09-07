@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta10";
+var version = "7.0.1-beta11";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -4801,7 +4801,7 @@ const TEXT_DECORATION_THICKNESS = 'textDecorationThickness';
 const fontProperties = ['fontSize', 'fontWeight', 'fontFamily', 'fontStyle'];
 const textDecorationProperties = ['underline', 'overline', 'linethrough'];
 const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign'];
-const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS];
+const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS, 'useOverlayEditing'];
 const styleProperties = [...fontProperties, ...textDecorationProperties, STROKE, 'strokeWidth', FILL, 'deltaY', 'textBackgroundColor', TEXT_DECORATION_THICKNESS];
 
 // @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
@@ -22378,6 +22378,10 @@ class FabricText extends StyledText {
             // Force browser wrapping flag for STV fonts
             textObject._usingBrowserWrapping = true;
             console.log(`🔤 STV font: Forcing browser wrapping flag during JSON load`);
+
+            // Enable overlay editing for STV fonts to use native browser text handling
+            textObject.useOverlayEditing = true;
+            console.log(`🔤 STV font: Enabling overlay editing during JSON load`);
 
             // Multiple initialization attempts for STV fonts
             const reinitWithDelay = attempt => {
