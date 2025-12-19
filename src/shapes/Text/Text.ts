@@ -767,15 +767,7 @@ export class FabricText<
     this._convertLayoutToLegacyFormat(layout);
     
     // Ensure justify alignment is properly applied for compatibility with legacy rendering
-    if (this.textAlign.includes(JUSTIFY)) {
-      // Force enlarge spaces after advanced layout calculation
-      setTimeout(() => {
-        if (this.enlargeSpaces) {
-          this.enlargeSpaces();
-          this.canvas?.renderAll();
-        }
-      }, 0);
-    }
+    // Skip legacy enlargeSpaces when using advanced layout; Konva layout already distributes spaces.
     
     this.dirty = true;
   }
