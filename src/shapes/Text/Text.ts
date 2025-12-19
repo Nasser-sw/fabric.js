@@ -1760,14 +1760,20 @@ export class FabricText<
       (textAlign === JUSTIFY_CENTER && !isEndOfWrapping) ||
       (textAlign === JUSTIFY_RIGHT && !isEndOfWrapping) ||
       (textAlign === JUSTIFY_LEFT && !isEndOfWrapping);
-    
+    const isLegacyJustify = textAlign === JUSTIFY;
+
     if (isJustifyLine) {
       // Justify lines should start at the left edge for LTR and right edge for RTL
       // The space distribution is handled by enlargeSpaces()
       if (direction === 'rtl') {
-        // For RTL justify, we need to account for the line being right-aligned
-        return 0;
+        // For RTL justify we align the line to the right edge; leftOffset is width - lineWidth
+        // Except classic "justify" where legacy behavior expects left start
+        if (isLegacyJustify) {
+          return 0;
+        }
+        return lineDiff;
       } else {
+        // LTR justify starts at the left edge
         return 0;
       }
     }
@@ -1798,6 +1804,16 @@ export class FabricText<
         leftOffset = -lineDiff;
       } else if (textAlign === CENTER || textAlign === JUSTIFY_CENTER) {
         leftOffset = -lineDiff / 2;
+      }
+      // Prevent positive offsets that push RTL text away from the left edge
+      // when the line is wider than the textbox (lineDiff < 0).
+      if (leftOffset > 0) {
+        leftOffset = 0;
+      }
+      // When RTL text overflows the textbox width (lineDiff <= 0), anchor to 0
+      // to avoid nudging the content away from the left edge as width changes.
+      if (lineDiff <= 0) {
+        leftOffset = 0;
       }
     }
     return leftOffset;
