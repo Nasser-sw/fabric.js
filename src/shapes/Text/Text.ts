@@ -587,25 +587,14 @@ export class FabricText<
     }
     if (this.textAlign.includes(JUSTIFY)) {
       // once text is measured we need to make space fatter to make justified text.
-      // Ensure __charBounds exists before calling enlargeSpaces
       if (this.__charBounds && this.__charBounds.length > 0) {
         this.enlargeSpaces();
-      } else {
-        console.warn('⚠️ __charBounds not ready for justify alignment, deferring enlargeSpaces');
-        // Defer the justify calculation until the next frame
-        setTimeout(() => {
-          if (this.__charBounds && this.__charBounds.length > 0 && this.enlargeSpaces) {
-            console.log('🔧 Applying deferred justify alignment');
-            this.enlargeSpaces();
-            this.canvas?.requestRenderAll();
-          }
-        }, 0);
       }
     }
   }
 
   /**
-   * Enlarge space boxes and shift the others
+   * Enlarge space boxes and shift the others for justify alignment
    */
   enlargeSpaces() {
     let diffSpace,
@@ -615,77 +604,49 @@ export class FabricText<
       line,
       charBound,
       spaces;
-    const isRtl = this.direction === 'rtl';
-    
+
     for (let i = 0, len = this._textLines.length; i < len; i++) {
-      if (
-        !this.textAlign.includes('justify') &&
-        (i === len - 1 || this.isEndOfWrapping(i))
-      ) {
+      // Check if this line should be justified
+      const hasTextAfter = this._textLines
+        .slice(i + 1)
+        .some((line) => {
+          const lineText = Array.isArray(line) ? line.join('') : line;
+          return /\S/.test(lineText);
+        });
+      const isVisualLastLine = !hasTextAfter;
+      const isLastLine =
+        i === len - 1 || this.isEndOfWrapping(i) || isVisualLastLine;
+      const shouldJustifyLine =
+        this.textAlign.includes('justify') && !isLastLine;
+
+      if (!shouldJustifyLine) {
         continue;
       }
+
       accumulatedSpace = 0;
       line = this._textLines[i];
       currentLineWidth = this.getLineWidth(i);
+
       if (
         currentLineWidth < this.width &&
         (spaces = this.textLines[i].match(this._reSpacesAndTabs))
       ) {
         numberOfSpaces = spaces.length;
         diffSpace = (this.width - currentLineWidth) / numberOfSpaces;
-        
-        console.log(`🔧 EnlargeSpaces Line ${i}:`);
-        console.log(`   Current width: ${currentLineWidth}, Target: ${this.width}`);
-        console.log(`   Spaces: ${numberOfSpaces}, diffSpace: ${diffSpace.toFixed(2)}`);
-        
-        if (isRtl) {
-          // For RTL text, we need to redistribute spaces while maintaining correct visual order
-          // The key insight is that RTL text is stored in logical order but displayed in visual order
-          // We need to adjust bounds to account for the visual positioning
-          
-          // First, collect all space positions
-          const spaceIndices = [];
-          for (let j = 0; j < line.length; j++) {
+
+        // Same logic for both LTR and RTL:
+        // Expand space widths and shift subsequent characters
+        // The rendering handles direction via ctx.direction
+        for (let j = 0; j <= line.length; j++) {
+          charBound = this.__charBounds[i][j];
+          if (charBound) {
             if (this._reSpaceAndTab.test(line[j])) {
-              spaceIndices.push(j);
-            }
-          }
-          
-          // Calculate total expansion
-          const totalExpansion = diffSpace * numberOfSpaces;
-          
-          // For RTL, we need to work backwards through the visual positions
-          // but still update logical positions correctly
-          let spaceCount = 0;
-          for (let j = 0; j <= line.length; j++) {
-            charBound = this.__charBounds[i][j];
-            if (charBound) {
-              if (this._reSpaceAndTab.test(line[j])) {
-                charBound.width += diffSpace;
-                charBound.kernedWidth += diffSpace;
-                spaceCount++;
-              }
-              
-              // For RTL, shift all characters to the right by the total expansion
-              // minus the expansion that comes after this character
-              const remainingSpaces = numberOfSpaces - spaceCount;
-              const shiftAmount = remainingSpaces * diffSpace;
-              charBound.left += shiftAmount;
-            }
-          }
-        } else {
-          // LTR processing (original logic)
-          for (let j = 0; j <= line.length; j++) {
-            charBound = this.__charBounds[i][j];
-            if (charBound) {
-              if (this._reSpaceAndTab.test(line[j])) {
-                charBound.width += diffSpace;
-                charBound.kernedWidth += diffSpace;
-                charBound.left += accumulatedSpace;
-                accumulatedSpace += diffSpace;
-              } else {
-                charBound.left += accumulatedSpace;
-              }
+              charBound.width += diffSpace;
+              charBound.kernedWidth += diffSpace;
+              charBound.left += accumulatedSpace;
+              accumulatedSpace += diffSpace;
+            } else {
+              charBound.left += accumulatedSpace;
             }
           }
         }
@@ -1164,6 +1125,12 @@ export class FabricText<
    * @return {Object} object.numOfSpaces length of chars that match this._reSpacesAndTabs
    */
   _measureLine(lineIndex: number) {
+    // Debug: detect if measureLine is called after justify was applied
+    if ((this as any)._justifyApplied) {
+      console.warn(`WARNING: _measureLine called for line ${lineIndex} AFTER justify was applied! This will overwrite justified charBounds.`);
+      console.trace('Stack trace:');
+    }
+
     let width = 0,
       prevGrapheme: string | undefined,
       graphemeInfo: GraphemeBBox | undefined;
@@ -1355,10 +1322,27 @@ export class FabricText<
     let lineHeights = 0;
     const left = this._getLeftOffset(),
       top = this._getTopOffset();
+
+    // Debug: log once per render
+    if (method === 'fillText' && this.textAlign?.includes('justify')) {
+      console.log('=== RENDER DEBUG ===');
+      console.log('direction:', this.direction);
+      console.log('textAlign:', this.textAlign);
+      console.log('width:', this.width);
+      console.log('_getLeftOffset:', left);
+    }
+
     for (let i = 0, len = this._textLines.length; i < len; i++) {
       const heightOfLine = this.getHeightOfLine(i),
         maxHeight = heightOfLine / this.lineHeight,
         leftOffset = this._getLineLeftOffset(i);
+
+      // Debug: log line offsets for justify
+      if (method === 'fillText' && this.textAlign?.includes('justify')) {
+        const lineWidth = this.getLineWidth(i);
+        console.log(`Line ${i}: leftOffset=${leftOffset.toFixed(2)}, lineWidth=${lineWidth.toFixed(2)}, renderAt=${(left + leftOffset).toFixed(2)}`);
+      }
+
       this._renderTextLine(
         method,
         ctx,
@@ -1449,14 +1433,10 @@ export class FabricText<
       ctx.canvas.setAttribute('dir', isLtr ? 'ltr' : 'rtl');
       ctx.direction = isLtr ? 'ltr' : 'rtl';
       
-      // For justify alignments, we need to set the correct canvas text alignment
-      // This is crucial for RTL text to render in the correct order
-      if (isJustify) {
-        // Justify uses LEFT alignment as a base, letting the character positioning handle justification
-        ctx.textAlign = LEFT;
-      } else {
-        ctx.textAlign = isLtr ? LEFT : RIGHT;
-      }
+      // Set text alignment based on direction
+      // For RTL, use RIGHT alignment so x-coordinate specifies the right edge (where RTL text starts)
+      // For LTR, use LEFT alignment so x-coordinate specifies the left edge (where LTR text starts)
+      ctx.textAlign = isLtr ? LEFT : RIGHT;
     }
     top -= (lineHeight * this._fontSizeFraction) / this.lineHeight;
     if (shortCut) {
@@ -1466,13 +1446,36 @@ export class FabricText<
       ctx.restore();
       return;
     }
+    // Debug: Log charBounds being used for first line only during justify
+    if (isJustify && lineIndex === 0 && method === 'fillText') {
+      console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
+      console.log('Initial left:', left.toFixed(2), 'sign:', sign);
+      console.log('_justifyApplied flag:', (this as any)._justifyApplied);
+      const lineBounds = this.__charBounds[lineIndex];
+      const totalKW = lineBounds?.reduce((s, b) => s + (b?.kernedWidth || 0), 0) || 0;
+      console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
+      // Log first few space widths to verify expansion
+      const spaceIndices = [3, 9, 15, 23, 31];
+      spaceIndices.forEach(idx => {
+        const b = lineBounds?.[idx];
+        if (b) console.log(`  Space at idx ${idx}: kernedWidth=${b.kernedWidth?.toFixed(2)}`);
+      });
+    }
+
     for (let i = 0, len = line.length - 1; i <= len; i++) {
       timeToRender = i === len || this.charSpacing || path;
       charsToRender += line[i];
       charBox = this.__charBounds[lineIndex][i] as Required<GraphemeBBox>;
       if (boxWidth === 0) {
-        left += sign * (charBox.kernedWidth - charBox.width);
-        boxWidth += charBox.width;
+        if (isLtr) {
+          // For LTR, adjust for kerning difference of first character
+          left += sign * (charBox.kernedWidth - charBox.width);
+          boxWidth += charBox.width;
+        } else {
+          // For RTL with drawingLeft = left - boxWidth positioning,
+          // use kernedWidth consistently to ensure the right edge is exactly at 'left'
+          boxWidth += charBox.kernedWidth;
+        }
       } else {
         boxWidth += charBox.kernedWidth;
       }
@@ -1504,7 +1507,14 @@ export class FabricText<
           );
           ctx.restore();
         } else {
+          // For LTR with textAlign='left': x is the left edge, so drawingLeft = left
+          // For RTL with textAlign='right': x is the right edge, so drawingLeft = left
+          // Both cases: drawingLeft = left (the text alignment handles the edge correctly)
           drawingLeft = left;
+          // Debug: log first chunk positioning for justify
+          if (isJustify && lineIndex === 0 && method === 'fillText' && i < 5) {
+            console.log(`  Chunk ending at char ${i}: left=${left.toFixed(2)}, boxWidth=${boxWidth.toFixed(2)}, drawingLeft=${drawingLeft.toFixed(2)}, textAlign=${isLtr ? 'left' : 'right'}`);
+          }
           this._renderChar(
             method,
             ctx,
@@ -1520,6 +1530,11 @@ export class FabricText<
         left += sign * boxWidth;
         boxWidth = 0;
       }
+    }
+    // Debug: log final position for justify
+    if (isJustify && lineIndex === 0 && method === 'fillText') {
+      console.log('Final left position after rendering:', left.toFixed(2));
+      console.log('Expected final position:', (sign > 0 ? this.width / 2 : -this.width / 2).toFixed(2));
     }
     ctx.restore();
   }
@@ -1744,70 +1759,51 @@ export class FabricText<
       textAlign = this.textAlign,
       direction = this.direction,
       isEndOfWrapping = this.isEndOfWrapping(lineIndex);
+    const hasTextAfter = this._textLines
+      .slice(lineIndex + 1)
+      .some((line) => {
+        const lineText = Array.isArray(line) ? line.join('') : line;
+        return /\S/.test(lineText);
+      });
+    const isVisualLastLine = !hasTextAfter;
     let leftOffset = 0;
-    
-    // Handle justify alignments (excluding last lines and wrapped line ends)
-    const isJustifyLine = 
+
+    // Determine if this line should be justified (not last line)
+    const isJustifyLine =
       textAlign === JUSTIFY ||
-      (textAlign === JUSTIFY_CENTER && !isEndOfWrapping) ||
-      (textAlign === JUSTIFY_RIGHT && !isEndOfWrapping) ||
-      (textAlign === JUSTIFY_LEFT && !isEndOfWrapping);
-    const isLegacyJustify = textAlign === JUSTIFY;
+      (textAlign === JUSTIFY_CENTER && !isEndOfWrapping && !isVisualLastLine) ||
+      (textAlign === JUSTIFY_RIGHT && !isEndOfWrapping && !isVisualLastLine) ||
+      (textAlign === JUSTIFY_LEFT && !isEndOfWrapping && !isVisualLastLine);
 
     if (isJustifyLine) {
-      // Justify lines should start at the left edge for LTR and right edge for RTL
-      // The space distribution is handled by enlargeSpaces()
-      if (direction === 'rtl') {
-        // For RTL justify we align the line to the right edge; leftOffset is width - lineWidth
-        // Except classic "justify" where legacy behavior expects left start
-        if (isLegacyJustify) {
-          return 0;
-        }
-        return lineDiff;
-      } else {
-        // LTR justify starts at the left edge
-        return 0;
-      }
+      // Justified lines start at the left edge (offset 0) for both LTR and RTL
+      // The space expansion from enlargeSpaces() fills the line to the full width
+      return 0;
     }
-    
-    // Handle non-justify alignments
-    if (textAlign === CENTER) {
+
+    // Handle last line alignment (or non-justify alignments)
+    if (textAlign === CENTER || textAlign === JUSTIFY_CENTER) {
       leftOffset = lineDiff / 2;
-    }
-    if (textAlign === RIGHT) {
+    } else if (textAlign === RIGHT || textAlign === JUSTIFY_RIGHT) {
       leftOffset = lineDiff;
     }
-    if (textAlign === JUSTIFY_CENTER) {
-      leftOffset = lineDiff / 2;
-    }
-    if (textAlign === JUSTIFY_RIGHT) {
-      leftOffset = lineDiff;
-    }
-    
-    // Apply RTL adjustments for non-justify alignments
+    // LEFT and JUSTIFY_LEFT have leftOffset = 0, which is the default
+
+    // Apply RTL adjustments for non-justified lines
     if (direction === 'rtl') {
-      if (
-        textAlign === RIGHT ||
-        textAlign === JUSTIFY ||
-        textAlign === JUSTIFY_RIGHT
-      ) {
+      if (textAlign === RIGHT || textAlign === JUSTIFY || textAlign === JUSTIFY_RIGHT) {
         leftOffset = 0;
       } else if (textAlign === LEFT || textAlign === JUSTIFY_LEFT) {
         leftOffset = -lineDiff;
       } else if (textAlign === CENTER || textAlign === JUSTIFY_CENTER) {
         leftOffset = -lineDiff / 2;
       }
-      // Prevent positive offsets that push RTL text away from the left edge
-      // when the line is wider than the textbox (lineDiff < 0).
-      if (leftOffset > 0) {
-        leftOffset = 0;
-      }
-      // When RTL text overflows the textbox width (lineDiff <= 0), anchor to 0
-      // to avoid nudging the content away from the left edge as width changes.
+      // Clamp to 0 for overflow cases
       if (lineDiff <= 0) {
         leftOffset = 0;
       }
     }
+
     return leftOffset;
   }
 
@@ -1819,6 +1815,8 @@ export class FabricText<
     this.__lineWidths = [];
     this.__lineHeights = [];
     this.__charBounds = [];
+    // Reset justify applied flag
+    (this as any)._justifyApplied = false;
   }
 
   /**
@@ -2080,7 +2078,6 @@ export class FabricText<
       // Use BiDi-aware grapheme splitting for RTL text
       if (this.direction === 'rtl' || this._containsArabicText(lines[i])) {
         newLines[i] = segmentGraphemes(lines[i]);
-        console.log(`🔤 BiDi-aware split line ${i}: "${lines[i]}" -> [${newLines[i].join(', ')}]`);
       } else {
         newLines[i] = this.graphemeSplit(lines[i]);
       }
@@ -2330,21 +2327,18 @@ export class FabricText<
    * Force complete text re-initialization (useful after JSON loading)
    */
   forceTextReinitialization(): void {
-    console.log('🔄 Force reinitializing text object');
-    
     // Clear all caches
     this._clearCache();
     this.dirty = true;
-    
+
     // Force text splitting to rebuild internal structures
     this._splitText();
-    
+
     // Re-initialize dimensions
     this.initDimensions();
-    
+
     // Special handling for justify alignment
     if (this.textAlign && this.textAlign.includes(JUSTIFY)) {
-      // Ensure justify is applied after dimensions are set
       setTimeout(() => {
         if (this.__charBounds && this.__charBounds.length > 0 && this.enlargeSpaces) {
           this.enlargeSpaces();
@@ -2373,89 +2367,71 @@ export class FabricText<
       },
     ).then((textObject: S) => {
       // Ensure text object is properly initialized after JSON deserialization
-      // This is critical for justify alignment and other text layout features
       textObject.initialized = true;
-      
+
       // Force reinitialization to ensure proper layout
       if (textObject._clearCache) {
         textObject._clearCache();
       }
       textObject.dirty = true;
-      
-      // Check if we need to wait for font loading (especially for custom fonts like STV)
+
       const fontSpec = `${textObject.fontSize}px ${textObject.fontFamily}`;
-      
+
       // For custom fonts, ensure they're loaded before initializing dimensions
-      if (typeof document !== 'undefined' && 'fonts' in document && textObject.fontFamily !== 'Arial' && textObject.fontFamily !== 'Times New Roman') {
-        return document.fonts.load(fontSpec).then(() => {
-          console.log(`🔤 Font loaded for JSON object: ${fontSpec}`);
-          // Ensure initialized flag is set again (in case constructor reset it)
-          textObject.initialized = true;
-          
-          // Special handling for STV fonts which have measurement issues
-          const isStvFont = textObject.fontFamily?.toLowerCase().includes('stv');
-          if (isStvFont) {
-            console.log(`🔤 STV font detected, using enhanced reinitialization`);
-            
-            // Clear all cached state that might interfere with browser wrapping
-            (textObject as any)._browserWrapCache = null;
-            (textObject as any)._lastDimensionState = null;
-            (textObject as any)._browserWrapInitialized = false;
-            console.log(`🔤 STV font: Cleared all cached states for fresh initialization`);
-            
-            // Force browser wrapping flag for STV fonts
-            (textObject as any)._usingBrowserWrapping = true;
-            console.log(`🔤 STV font: Forcing browser wrapping flag during JSON load`);
-            
-            // Enable overlay editing for STV fonts to use native browser text handling
-            (textObject as any).useOverlayEditing = true;
-            console.log(`🔤 STV font: Enabling overlay editing during JSON load`);
-            
-            // Multiple initialization attempts for STV fonts
-            const reinitWithDelay = (attempt: number) => {
+      if (
+        typeof document !== 'undefined' &&
+        'fonts' in document &&
+        textObject.fontFamily !== 'Arial' &&
+        textObject.fontFamily !== 'Times New Roman'
+      ) {
+        return document.fonts
+          .load(fontSpec)
+          .then(() => {
+            textObject.initialized = true;
+
+            // Special handling for STV fonts which have measurement issues
+            const isStvFont = textObject.fontFamily
+              ?.toLowerCase()
+              .includes('stv');
+            if (isStvFont) {
+              (textObject as any)._browserWrapCache = null;
+              (textObject as any)._lastDimensionState = null;
+              (textObject as any)._browserWrapInitialized = false;
+              (textObject as any)._usingBrowserWrapping = true;
+              (textObject as any).useOverlayEditing = true;
+
+              const reinitWithDelay = (attempt: number) => {
+                if ((textObject as any).forceTextReinitialization) {
+                  (textObject as any).forceTextReinitialization();
+                } else {
+                  textObject.initDimensions();
+                }
+                if (textObject.width < 50 && attempt < 3) {
+                  setTimeout(() => reinitWithDelay(attempt + 1), 100 * attempt);
+                }
+              };
+              reinitWithDelay(0);
+            } else {
               if ((textObject as any).forceTextReinitialization) {
                 (textObject as any).forceTextReinitialization();
               } else {
                 textObject.initDimensions();
               }
-              
-              // Check if width is still problematic after initialization
-              if (textObject.width < 50 && attempt < 3) {
-                console.log(`🔤 STV font width still ${textObject.width}px, retrying in ${100 * attempt}ms (attempt ${attempt + 1}/3)`);
-                setTimeout(() => reinitWithDelay(attempt + 1), 100 * attempt);
-              }
-            };
-            reinitWithDelay(0);
-          } else {
-            // Use specialized reinitialization for Textbox objects
+            }
+            return textObject;
+          })
+          .catch(() => {
+            textObject.initialized = true;
             if ((textObject as any).forceTextReinitialization) {
-              console.log(`🔤 Using Textbox specialized reinitialization`);
               (textObject as any).forceTextReinitialization();
             } else {
-              // Reinitialize dimensions with proper font metrics
               textObject.initDimensions();
             }
-          }
-          return textObject;
-        }).catch(() => {
-          console.warn(`⚠️ Font loading failed for ${fontSpec}, proceeding with fallback`);
-          // Ensure initialized flag is set again
-          textObject.initialized = true;
-          
-          // Still initialize dimensions even if font loading fails
-          if ((textObject as any).forceTextReinitialization) {
-            (textObject as any).forceTextReinitialization();
-          } else {
-            textObject.initDimensions();
-          }
-          return textObject;
-        });
+            return textObject;
+          });
       } else {
-        // Standard fonts - ensure initialized and use appropriate method
         textObject.initialized = true;
-        
         if ((textObject as any).forceTextReinitialization) {
-          console.log(`🔤 Using Textbox specialized reinitialization for standard font`);
           (textObject as any).forceTextReinitialization();
         } else {
           textObject.initDimensions();

@@ -1312,4 +1312,50 @@ describe('FabricText', () => {
     ).toBe(0);
     expect(text._getLineLeftOffset(1), 'like align right with rtl').toBe(0);
   });
+
+  it('does not justify the last line spaces', () => {
+    const textbox = new Textbox('ab cd\nef gh', {
+      width: 300,
+      fontSize: 20,
+      textAlign: 'justify',
+    });
+
+    const getSpaceWidth = (lineIndex: number) => {
+      const line = (textbox as any)._textLines[lineIndex];
+      const spaceIndex = line.indexOf(' ');
+      return (textbox as any).__charBounds[lineIndex][spaceIndex].width;
+    };
+
+    const firstLineSpace = getSpaceWidth(0);
+    const lastLineSpace = getSpaceWidth(1);
+
+    expect(firstLineSpace).toBeGreaterThan(lastLineSpace * 3);
+    expect(lastLineSpace).toBeLessThan(50);
+  });
+
+  it('keeps trailing paragraph lines un-justified', () => {
+    const justified = new Textbox('ab cd\n', {
+      width: 240,
+      fontSize: 20,
+      textAlign: 'justify',
+      splitByGrapheme: true,
+    });
+    const baseline = new Textbox('ab cd\n', {
+      width: 240,
+      fontSize: 20,
+      textAlign: 'left',
+      splitByGrapheme: true,
+    });
+
+    const getSpaceWidth = (tb: Textbox) => {
+      const line = (tb as any)._textLines[0];
+      const spaceIndex = line.indexOf(' ');
+      return (tb as any).__charBounds[0][spaceIndex].width;
+    };
+
+    const justifiedSpace = getSpaceWidth(justified);
+    const baselineSpace = getSpaceWidth(baseline);
+
+    expect(justifiedSpace).toBeCloseTo(baselineSpace);
+  });
 });
