@@ -800,8 +800,11 @@ export class OverlayEditor {
       // Auto-detect text direction and update fabric object if needed
       const detectedDirection = this.firstStrongDir(finalText);
       const currentDirection = (this.target as any).direction || 'ltr';
+      const hasExplicitDirection =
+        currentDirection && currentDirection !== 'inherit';
       
-      if (detectedDirection && detectedDirection !== currentDirection) {
+      // Only update direction when not explicitly set on the object
+      if (!hasExplicitDirection && detectedDirection && detectedDirection !== currentDirection) {
         console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
         console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
         

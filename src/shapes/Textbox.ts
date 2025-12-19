@@ -74,6 +74,10 @@ export class Textbox<
    * @type Number
    */
   declare dynamicMinWidth: number;
+  /**
+   * When true, prevent dynamicMinWidth updates during layout (used to keep width stable on commit).
+   */
+  declare lockDynamicMinWidth?: boolean;
 
   /**
    * Use this boolean property in order to split strings that have no white space concept.
@@ -311,7 +315,18 @@ export class Textbox<
     
     this.isEditing && this.initDelayedCursor();
     this._clearCache();
-    this.dynamicMinWidth = 0;
+    // Don't reset dynamicMinWidth if we're explicitly locking layout width
+    if (!this.lockDynamicMinWidth) {
+      this.dynamicMinWidth = 0;
+    }
+    console.log('[Textbox.initDimensionsAdvanced] start', {
+      lockDynamicMinWidth: this.lockDynamicMinWidth,
+      dynamicMinWidth: this.dynamicMinWidth,
+      width: this.width,
+      dir: this.direction,
+      align: this.textAlign,
+      textLength: this.text?.length,
+    });
     
     // Use new layout engine
     const layout = layoutText({
@@ -332,26 +347,38 @@ export class Textbox<
       verticalAlign: this.verticalAlign || 'top',
     });
     
-    // Update dynamic minimum width based on layout
-    if (layout.lines.length > 0) {
-      const maxLineWidth = Math.max(...layout.lines.map(line => line.width));
-      this.dynamicMinWidth = Math.max(this.minWidth, maxLineWidth);
-    }
-    
-    // Adjust width if needed (preserving Textbox behavior)
-    if (this.dynamicMinWidth > this.width) {
-      this._set('width', this.dynamicMinWidth);
-      // Re-layout with new width
-      const newLayout = layoutText({
-        ...(this as any)._getAdvancedLayoutOptions(),
-        width: this.width,
-      });
-      this.height = newLayout.totalHeight;
-      (this as any)._convertLayoutToLegacyFormat(newLayout);
+    // Update dynamic minimum width based on layout (unless explicitly locked)
+    if (!this.lockDynamicMinWidth) {
+      if (layout.lines.length > 0) {
+        const maxLineWidth = Math.max(...layout.lines.map(line => line.width));
+        this.dynamicMinWidth = Math.max(this.minWidth, maxLineWidth);
+      }
+      
+      // Adjust width if needed (preserving Textbox behavior)
+      if (this.dynamicMinWidth > this.width) {
+        this._set('width', this.dynamicMinWidth);
+        // Re-layout with new width
+        const newLayout = layoutText({
+          ...(this as any)._getAdvancedLayoutOptions(),
+          width: this.width,
+        });
+        this.height = newLayout.totalHeight;
+        (this as any)._convertLayoutToLegacyFormat(newLayout);
+      } else {
+        this.height = layout.totalHeight;
+        (this as any)._convertLayoutToLegacyFormat(layout);
+      }
     } else {
+      // When locked, keep current width and minWidth, but still update height/layout data
       this.height = layout.totalHeight;
       (this as any)._convertLayoutToLegacyFormat(layout);
     }
+    console.log('[Textbox.initDimensionsAdvanced] end', {
+      lockDynamicMinWidth: this.lockDynamicMinWidth,
+      dynamicMinWidth: this.dynamicMinWidth,
+      width: this.width,
+      height: this.height,
+    });
     
     // Generate style map for compatibility
     this._styleMap = this._generateStyleMapFromLayout(layout);
@@ -1152,7 +1179,21 @@ export class Textbox<
     if (!this._textLines || this.type.toLowerCase() !== 'textbox' || this._textLines.length === 0) {
       return;
     }
-    
+    // Only run snap logic for explicit resize operations; skip on normal text edits
+    if (resizeOrigin === null || resizeOrigin === undefined) {
+      return;
+    }
+    const widthBeforeSnap = this.width;
+    console.log('[SafetySnap] start', {
+      resizeOrigin,
+      width: this.width,
+      dynMinWidth: this.dynamicMinWidth,
+      lockDynamicMinWidth: this.lockDynamicMinWidth,
+      lineCount: this._textLines.length,
+      dir: this.direction,
+      align: this.textAlign,
+      textLength: this.text?.length,
+    });
     const lineCount = this._textLines.length;
     if (lineCount === 0) return;
 
@@ -1182,28 +1223,22 @@ export class Textbox<
     if (maxRequiredWidth > this.width - safetyThreshold) {
       // Set width to exactly what's needed + minimal safety margin
       const newWidth = maxRequiredWidth + 1; // Add just 1px safety margin
-      
-      // Store original position before width change
       const originalLeft = this.left;
       const originalTop = this.top;
       const widthIncrease = newWidth - this.width;
-      
-      // Change width 
+      const hadLock = this.lockDynamicMinWidth;
+
+      // Temporarily lock minWidth to prevent reflow after we widen
+      this.lockDynamicMinWidth = true;
       this.set('width', newWidth);
-      
-      // Force text layout recalculation
       this.initDimensions();
-      
-      // Only compensate position when resizing from left handle
-      // Right handle resize doesn't shift the text position
-      if (resizeOrigin === 'left') {
-        // When resizing from left, the expansion pushes text right
-        // Compensate by moving the textbox left by the width increase
-        this.set({
-          'left': originalLeft - widthIncrease,
-          'top': originalTop
-        });
-      }
+      this.lockDynamicMinWidth = hadLock;
+
+      // If we widened, move left edge back so the text stays anchored
+      this.set({
+        left: originalLeft - widthIncrease,
+        top: originalTop
+      });
       
       this.setCoords();
       
@@ -1216,6 +1251,13 @@ export class Textbox<
       
       this.canvas?.requestRenderAll();
     }
+    console.log('[SafetySnap] end', {
+      widthBeforeSnap,
+      widthAfterSnap: this.width,
+      dynMinWidth: this.dynamicMinWidth,
+      maxActualLineWidth,
+      maxRequiredWidth,
+    });
   }
 
   /**

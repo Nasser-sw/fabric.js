@@ -460,6 +460,26 @@ export abstract class ITextBehavior<
    */
   private commitOverlayEdit(text: string) {
     
+    // Preserve geometry to avoid nudge when layout recalculates
+    const prevLeft = this.left;
+    const prevTop = this.top;
+    const prevWidth = this.get('width');
+    const prevMinWidth = (this as any).dynamicMinWidth;
+    const prevUsingBrowserWrap = (this as any)._usingBrowserWrapping;
+    const hadLock = (this as any).lockDynamicMinWidth;
+    (this as any).lockDynamicMinWidth = true;
+    const countKashida = (val?: string) => (val ? (val.match(/\u0640/g) || []).length : 0);
+    console.log('[OverlayCommit] pre-layout', {
+      textLength: text?.length,
+      kashidas: countKashida(text),
+      prevWidth,
+      prevMinWidth,
+      prevUsingBrowserWrap,
+      hadLock,
+      dir: (this as any).direction,
+      align: (this as any).textAlign,
+    });
+
     const overlayEditor = (this as any).__overlayEditor;
     
     if (overlayEditor) {
@@ -474,10 +494,42 @@ export abstract class ITextBehavior<
 
     // Update text content and trigger layout recalculation
     this.text = text;
+    // Freeze dynamic min width during this layout pass so width doesn't shrink/expand on commit
+    if (prevMinWidth !== undefined) {
+      (this as any).dynamicMinWidth = Math.max(prevMinWidth || 0, prevWidth || 0);
+    }
+    // Keep browser wrapping flag stable
+    if (prevUsingBrowserWrap !== undefined) {
+      (this as any)._usingBrowserWrapping = prevUsingBrowserWrap;
+    }
+
     this.dirty = true;
     this.initDimensions();
+    console.log('[OverlayCommit] post-layout', {
+      width: this.get('width'),
+      dynMinWidth: (this as any).dynamicMinWidth,
+      usingBrowserWrap: (this as any)._usingBrowserWrapping,
+      lockDynamicMinWidth: (this as any).lockDynamicMinWidth,
+      kashidas: countKashida(this.text),
+      left: this.left,
+      top: this.top,
+    });
+    // Restore geometry after layout so the object doesn't drift
+    this.set({
+      left: prevLeft,
+      top: prevTop,
+      width: prevWidth,
+    });
     this.setCoords();
     this.exitEditing();
+    (this as any).lockDynamicMinWidth = hadLock;
+    console.log('[OverlayCommit] final', {
+      width: this.get('width'),
+      dynMinWidth: (this as any).dynamicMinWidth,
+      lockRestored: hadLock,
+      left: this.left,
+      top: this.top,
+    });
     this.fire('changed');
     this.canvas && this.canvas.requestRenderAll();
   }

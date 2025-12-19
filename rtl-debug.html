@@ -106,6 +106,15 @@
         <button onclick="exportJSON()">Export JSON</button>
         <input type="file" id="jsonFile" accept=".json" style="display: none;" onchange="loadJSONFile(event)">
         <button onclick="document.getElementById('jsonFile').click()">Import JSON</button>
+        <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+            <button onclick="setAlign('left')">Align Left</button>
+            <button onclick="setAlign('center')">Align Center</button>
+            <button onclick="setAlign('right')">Align Right</button>
+            <button onclick="setAlign('justify')">Justify</button>
+            <button onclick="setAlign('justify-left')">Justify-Left</button>
+            <button onclick="setAlign('justify-center')">Justify-Center</button>
+            <button onclick="setAlign('justify-right')">Justify-Right</button>
+        </div>
     </div>
 
     <canvas id="canvas" width="1080" height="1080"></canvas>
@@ -498,6 +507,19 @@ Text Align: ${text.textAlign}
             
             canvas.add(cursorLine, cursorLabel);
         });
+
+        // Alignment helper
+        function setAlign(align) {
+            if (!currentText) {
+                alert('Add a text object first.');
+                return;
+            }
+            currentText.set({ textAlign: align });
+            canvas.requestRenderAll();
+            clearDebugOverlays();
+            drawBoundingBoxOverlay(currentText);
+            updateDebugInfo(currentText, `Align: ${align}`);
+        }
         
         function drawCharacterBounds(text) {
             if (!debugMode || !text || !text.__charBounds || !text.__charBounds[0]) return;
