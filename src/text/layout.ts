@@ -311,7 +311,9 @@ function layoutSingleLine(text: string, options: TextLayoutOptions, textOffset: 
   }
 
   // Apply line height
-  const finalHeight = lineHeight * options.lineHeight;
+  // Note: Fabric.js uses _fontSizeMult = 1.13 for line height calculation
+  const fontSizeMult = 1.13;
+  const finalHeight = lineHeight * options.lineHeight * fontSizeMult;
 
   return {
     text,
@@ -653,8 +655,10 @@ function handleHeightOverflow(
  * Create empty line for empty paragraphs
  */
 function createEmptyLine(options: TextLayoutOptions): LayoutLine {
-  const height = options.fontSize * options.lineHeight;
-  
+  // Fabric.js uses _fontSizeMult = 1.13 for line height calculation
+  const fontSizeMult = 1.13;
+  const height = options.fontSize * options.lineHeight * fontSizeMult;
+
   return {
     text: '',
     graphemes: [],

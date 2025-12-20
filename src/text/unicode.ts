@@ -537,6 +537,18 @@ export function isArabicLetter(char: string): boolean {
  * - After a letter that connects to the next (not in ARABIC_NON_CONNECTING)
  * - Not at word boundaries (no whitespace before/after)
  */
+// Alef variants that form ligatures with lam
+const ARABIC_ALEF_VARIANTS = new Set([
+  '\u0627', // ا ALEF
+  '\u0623', // أ ALEF WITH HAMZA ABOVE
+  '\u0625', // إ ALEF WITH HAMZA BELOW
+  '\u0622', // آ ALEF WITH MADDA ABOVE
+  '\u0671', // ٱ ALEF WASLA
+]);
+
+// Lam character
+const ARABIC_LAM = '\u0644'; // ل
+
 export function canInsertKashida(prevChar: string, nextChar: string): boolean {
   if (!prevChar || !nextChar) return false;
 
@@ -548,6 +560,9 @@ export function canInsertKashida(prevChar: string, nextChar: string): boolean {
 
   // Previous char must connect to the next (not be non-connecting)
   if (ARABIC_NON_CONNECTING.has(prevChar)) return false;
+
+  // NEVER insert kashida between lam and alef - they form a ligature (لا)
+  if (prevChar === ARABIC_LAM && ARABIC_ALEF_VARIANTS.has(nextChar)) return false;
 
   return true;
 }

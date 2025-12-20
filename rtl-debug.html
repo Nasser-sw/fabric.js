@@ -155,7 +155,7 @@
     <div id="debug-info" class="debug-info">Debug information will appear here...</div>
     <div id="click-info" class="debug-info">Click on text to see selection coordinates...</div>
 
-    <script src="./dist/index.js?v=10"></script>
+    <script src="./dist/index.js?v=34"></script>
     <script>
         console.log("DEBUG: Updated rtl-debug.html loaded");
         // alert("DEBUG: Updated RTL Page Loaded - Please check console for 'Hit Testing Debug' when clicking");
@@ -340,7 +340,7 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
             currentText = new fabric.Textbox('تجــــربه مرحبا بك في العالم الرقمي', {
                 left: 400,
                 top: 150,
-                width: 300,
+                width: 600,
                 fontFamily: 'Arial',
                 fontSize: 24,
                 direction: 'rtl',
@@ -348,7 +348,8 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
                 fill: '#333',
                 editable: true,
                 selectable: true,
-                enableAdvancedLayout: true
+                enableAdvancedLayout: true,
+                splitByGrapheme: true
             });
 
             canvas.add(currentText);

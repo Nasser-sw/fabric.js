@@ -27,7 +27,11 @@ import { extractLinesFromDOM, storeBrowserLines } from '../../text/browserLines'
  *  - `\-`     Matches a "-" character (char code 45).
  */
 // eslint-disable-next-line no-useless-escape
-const reNonWord = /[ \n\.,;!\?\-]/;
+// Word boundary characters for Latin, Arabic, and Hebrew
+// Latin: space, newline, punctuation
+// Arabic: ، (comma U+060C), ؛ (semicolon U+061B), ؟ (question U+061F), ۔ (full stop U+06D4), ـ (tatweel U+0640)
+// Hebrew: ׃ (sof pasuq U+05C3), ״ (gershayim U+05F4)
+const reNonWord = /[ \n\.,;!\?\-\u060C\u061B\u061F\u06D4\u0640\u05C3\u05F4\u2000-\u206F]/;
 
 export type ITextEvents = ObjectEvents & {
   'selection:changed': never;
@@ -325,12 +329,102 @@ export abstract class ITextBehavior<
 
   /**
    * Finds index corresponding to beginning or end of a word
+   * Uses Intl.Segmenter for proper Unicode word segmentation when available,
+   * falls back to regex-based detection for older browsers.
    * @param {Number} selectionStart Index of a character
    * @param {Number} direction 1 or -1
    * @return {Number} Index of the beginning or end of a word
    */
   searchWordBoundary(selectionStart: number, direction: 1 | -1): number {
-    const text = this._text;
+    // Try to use Intl.Segmenter for proper Unicode word segmentation
+    if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+      return this._searchWordBoundaryWithSegmenter(selectionStart, direction);
+    }
+    // Fallback to regex-based detection
+    return this._searchWordBoundaryWithRegex(selectionStart, direction);
+  }
+
+  /**
+   * Word boundary search using Intl.Segmenter (proper Unicode support)
+   * Works on original text (this.text) since selectionStart is in original text space
+   */
+  private _searchWordBoundaryWithSegmenter(selectionStart: number, direction: 1 | -1): number {
+    // Use original text (without kashida) since indices are in original text space
+    const originalText = this.text;
+    const SegmenterClass = (Intl as any).Segmenter;
+    const segmenter = new SegmenterClass(undefined, { granularity: 'word' });
+    const segments = Array.from(segmenter.segment(originalText)) as Array<{
+      segment: string;
+      index: number;
+      isWordLike: boolean;
+    }>;
+
+    if (segments.length === 0) {
+      return direction === -1 ? 0 : originalText.length;
+    }
+
+    // Find the segment containing the cursor position
+    let currentSegmentIdx = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (selectionStart >= seg.index && selectionStart < seg.index + seg.segment.length) {
+        currentSegmentIdx = i;
+        break;
+      }
+      if (selectionStart >= seg.index + seg.segment.length) {
+        currentSegmentIdx = i;
+      }
+    }
+
+    // Find word boundaries
+    if (direction === -1) {
+      // Search backwards for word start
+      let targetIdx = currentSegmentIdx;
+
+      // If cursor is at the start of a segment, look at previous segment
+      if (selectionStart === segments[targetIdx].index && targetIdx > 0) {
+        targetIdx--;
+      }
+
+      // Skip non-word segments
+      while (targetIdx > 0 && !segments[targetIdx].isWordLike) {
+        targetIdx--;
+      }
+
+      // Return the start of the word segment
+      if (segments[targetIdx].isWordLike) {
+        return segments[targetIdx].index;
+      }
+      return 0;
+    } else {
+      // Search forwards for word end
+      let targetIdx = currentSegmentIdx;
+
+      // If we're in a word, find its end
+      if (segments[targetIdx].isWordLike) {
+        return segments[targetIdx].index + segments[targetIdx].segment.length;
+      }
+
+      // Skip non-word segments to find next word
+      while (targetIdx < segments.length && !segments[targetIdx].isWordLike) {
+        targetIdx++;
+      }
+
+      // Return the end of the next word segment
+      if (targetIdx < segments.length && segments[targetIdx].isWordLike) {
+        return segments[targetIdx].index + segments[targetIdx].segment.length;
+      }
+      return originalText.length;
+    }
+  }
+
+  /**
+   * Word boundary search using regex (fallback for older browsers)
+   * Works on original text (this.text) since selectionStart is in original text space
+   */
+  private _searchWordBoundaryWithRegex(selectionStart: number, direction: 1 | -1): number {
+    // Use original text as an array of characters
+    const text = Array.from(this.text);
     // if we land on a space we move the cursor backwards
     // if we are searching boundary end we move the cursor backwards ONLY if we don't land on a line break
     let index =

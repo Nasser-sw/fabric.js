@@ -800,7 +800,9 @@ export class FabricText<
     return {
       text: this.text,
       width: this.width,
-      height: this.height,
+      // Don't pass height constraint to allow vertical auto-expansion
+      // Only pass height if ellipsis is enabled (need to truncate)
+      height: this.ellipsis ? this.height : undefined,
       wrap: this.wrap || 'word',
       align: this._mapTextAlignToAlign(this.textAlign),
       ellipsis: this.ellipsis || false,
@@ -1232,8 +1234,12 @@ export class FabricText<
     const fontCache = cache.getFontCache(charStyle),
       fontDeclaration = this._getFontDeclaration(charStyle),
       couple = previousChar + _char,
+      // Skip kerning for tatweel (kashida) characters - they extend connections
+      // and kerning would make the following character appear too narrow
+      isTatweel = previousChar === '\u0640',
       stylesAreEqual =
         previousChar &&
+        !isTatweel &&
         fontDeclaration === this._getFontDeclaration(prevCharStyle),
       fontMultiplier = charStyle.fontSize / this.CACHE_FONT_SIZE;
     let width: number | undefined,
@@ -1241,7 +1247,7 @@ export class FabricText<
       previousWidth: number | undefined,
       kernedWidth: number | undefined;
 
-    if (previousChar && fontCache[previousChar] !== undefined) {
+    if (previousChar && !isTatweel && fontCache[previousChar] !== undefined) {
       previousWidth = fontCache[previousChar];
     }
     if (fontCache[_char] !== undefined) {
@@ -1263,11 +1269,11 @@ export class FabricText<
         kernedWidth = width = ctx.measureText(_char).width;
         fontCache[_char] = width;
       }
-      if (previousWidth === undefined && stylesAreEqual && previousChar) {
+      if (previousWidth === undefined && stylesAreEqual && previousChar && !isTatweel) {
         previousWidth = ctx.measureText(previousChar).width;
         fontCache[previousChar] = previousWidth;
       }
-      if (stylesAreEqual && coupleWidth === undefined) {
+      if (stylesAreEqual && coupleWidth === undefined && !isTatweel) {
         // we can measure the kerning couple and subtract the width of the previous character
         coupleWidth = ctx.measureText(couple).width;
         fontCache[couple] = coupleWidth;

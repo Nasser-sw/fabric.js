@@ -265,7 +265,9 @@ export class Textbox<
     const layout = layoutText({
       text: this.text,
       width: this.width,
-      height: this.height,
+      // Don't pass height constraint to allow vertical auto-expansion
+      // Only pass height if explicitly set to constrain (e.g., for ellipsis)
+      height: this.ellipsis ? this.height : undefined,
       wrap: this.wrap || 'word',
       align: effectiveAlign,
       ellipsis: this.ellipsis || false,
@@ -323,6 +325,12 @@ export class Textbox<
   _applyKashidaToLayout() {
     if (!this._textLines || !this.__charBounds) {
       return;
+    }
+
+    // Clear visual positions cache - it becomes stale when kashida is applied
+    // Check if cache exists (it's initialized in IText constructor which runs after this during construction)
+    if ((this as any)._visualPositionsCache) {
+      this._clearVisualPositionsCache();
     }
 
     const kashidaRatios: Record<string, number> = {
@@ -447,13 +455,13 @@ export class Textbox<
       this._measureLine(lineIndex);
 
       // Now expand spaces to fill any remaining gap
-      const newLineBounds = this.__charBounds[lineIndex];
+      let newLineBounds = this.__charBounds[lineIndex];
       if (newLineBounds && newLineBounds.length > 0) {
-        const newLastBound = newLineBounds[newLineBounds.length - 1];
-        const newLineWidth = newLastBound ? (newLastBound.left + newLastBound.kernedWidth) : 0;
-        const remainingGap = this.width - newLineWidth;
+        let newLastBound = newLineBounds[newLineBounds.length - 1];
+        let newLineWidth = newLastBound ? (newLastBound.left + newLastBound.kernedWidth) : 0;
+        let remainingGap = this.width - newLineWidth;
 
-        if (remainingGap > 1) {
+        if (remainingGap > 0.5) {
           // Count spaces in the new line
           let spaceCount = 0;
           for (let i = 0; i < newLine.length; i++) {
@@ -464,20 +472,73 @@ export class Textbox<
 
           if (spaceCount > 0) {
             const extraPerSpace = remainingGap / spaceCount;
+            let accumulatedExtra = 0;
 
-            // Just expand space widths - the rendering uses kernedWidth for spacing
-            // Don't modify left positions as this breaks selection for RTL
+            // Expand space widths AND update left positions for subsequent chars
             for (let i = 0; i < newLineBounds.length; i++) {
               const bound = newLineBounds[i];
               if (!bound) continue;
+
+              // Update left position to account for previous space expansions
+              bound.left += accumulatedExtra;
 
               // If this is a space, expand it
               if (/\s/.test(newLine[i])) {
                 bound.width += extraPerSpace;
                 bound.kernedWidth += extraPerSpace;
+                accumulatedExtra += extraPerSpace;
               }
             }
-            // console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
+            // Update the extra entry at the end (cursor position)
+            if (newLineBounds[newLine.length]) {
+              newLineBounds[newLine.length].left += accumulatedExtra;
+            }
+
+            // Recalculate remaining gap after space expansion
+            newLastBound = newLineBounds[newLineBounds.length - 1];
+            newLineWidth = newLastBound ? (newLastBound.left + newLastBound.kernedWidth) : 0;
+            remainingGap = this.width - newLineWidth;
+          }
+        }
+
+        // If there's still a gap after space expansion, distribute it across all kashida points
+        if (remainingGap > 0.5 && this.__kashidaInfo[lineIndex].length > 0) {
+          const kashidaPointCount = this.__kashidaInfo[lineIndex].length;
+          const extraPerKashida = remainingGap / kashidaPointCount;
+
+          // Find kashida positions in newLine and expand their widths
+          let kashidaIndex = 0;
+          let accumulatedExtra = 0;
+
+          for (let i = 0; i < newLineBounds.length; i++) {
+            const bound = newLineBounds[i];
+            if (!bound) continue;
+
+            // Update left position for accumulated expansion
+            bound.left += accumulatedExtra;
+
+            // Check if this is a tatweel character
+            if (newLine[i] === ARABIC_TATWEEL) {
+              // Distribute extra width among tatweels
+              const extraForThis = extraPerKashida / (this.__kashidaInfo[lineIndex][kashidaIndex]?.tatweelCount || 1);
+              bound.width += extraForThis;
+              bound.kernedWidth += extraForThis;
+              accumulatedExtra += extraForThis;
+
+              // Move to next kashida info when we've passed this group
+              const currentKashidaInfo = this.__kashidaInfo[lineIndex][kashidaIndex];
+              if (currentKashidaInfo && i > 0) {
+                // Check if next char is not tatweel - means we're done with this group
+                if (i + 1 >= newLine.length || newLine[i + 1] !== ARABIC_TATWEEL) {
+                  kashidaIndex++;
+                }
+              }
+            }
+          }
+
+          // Update the extra entry at the end
+          if (newLineBounds[newLine.length]) {
+            newLineBounds[newLine.length].left += accumulatedExtra;
           }
         }
       }
@@ -488,7 +549,8 @@ export class Textbox<
       // console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
     }
 
-    // Cache line widths for all lines to prevent remeasurement during render
+    // For justified lines with kashida, line width should equal textbox width
+    // Only set undefined widths (non-justified lines without kashida)
     for (let i = 0; i < this._textLines.length; i++) {
       if (this.__lineWidths[i] === undefined && this.__charBounds[i]) {
         const bounds = this.__charBounds[i];

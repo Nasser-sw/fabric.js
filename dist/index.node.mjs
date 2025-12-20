@@ -19957,6 +19957,21 @@ function isArabicLetter(char) {
  * - After a letter that connects to the next (not in ARABIC_NON_CONNECTING)
  * - Not at word boundaries (no whitespace before/after)
  */
+// Alef variants that form ligatures with lam
+const ARABIC_ALEF_VARIANTS = new Set(['\u0627',
+// ا ALEF
+'\u0623',
+// أ ALEF WITH HAMZA ABOVE
+'\u0625',
+// إ ALEF WITH HAMZA BELOW
+'\u0622',
+// آ ALEF WITH MADDA ABOVE
+'\u0671' // ٱ ALEF WASLA
+]);
+
+// Lam character
+const ARABIC_LAM = '\u0644'; // ل
+
 function canInsertKashida(prevChar, nextChar) {
   if (!prevChar || !nextChar) return false;
 
@@ -19968,6 +19983,9 @@ function canInsertKashida(prevChar, nextChar) {
 
   // Previous char must connect to the next (not be non-connecting)
   if (ARABIC_NON_CONNECTING.has(prevChar)) return false;
+
+  // NEVER insert kashida between lam and alef - they form a ligature (لا)
+  if (prevChar === ARABIC_LAM && ARABIC_ALEF_VARIANTS.has(nextChar)) return false;
   return true;
 }
 
@@ -20432,7 +20450,9 @@ function layoutSingleLine(text, options) {
   }
 
   // Apply line height
-  const finalHeight = lineHeight * options.lineHeight;
+  // Note: Fabric.js uses _fontSizeMult = 1.13 for line height calculation
+  const fontSizeMult = 1.13;
+  const finalHeight = lineHeight * options.lineHeight * fontSizeMult;
   return {
     text,
     graphemes,
@@ -20718,7 +20738,9 @@ function handleHeightOverflow(existingLines, overflowLine, remainingHeight, opti
  * Create empty line for empty paragraphs
  */
 function createEmptyLine(options) {
-  const height = options.fontSize * options.lineHeight;
+  // Fabric.js uses _fontSizeMult = 1.13 for line height calculation
+  const fontSizeMult = 1.13;
+  const height = options.fontSize * options.lineHeight * fontSizeMult;
   return {
     text: '',
     graphemes: [],
@@ -21496,7 +21518,9 @@ class FabricText extends StyledText {
     return {
       text: this.text,
       width: this.width,
-      height: this.height,
+      // Don't pass height constraint to allow vertical auto-expansion
+      // Only pass height if ellipsis is enabled (need to truncate)
+      height: this.ellipsis ? this.height : undefined,
       wrap: this.wrap || 'word',
       align: this._mapTextAlignToAlign(this.textAlign),
       ellipsis: this.ellipsis || false,
@@ -21879,10 +21903,13 @@ class FabricText extends StyledText {
     const fontCache = cache.getFontCache(charStyle),
       fontDeclaration = this._getFontDeclaration(charStyle),
       couple = previousChar + _char,
-      stylesAreEqual = previousChar && fontDeclaration === this._getFontDeclaration(prevCharStyle),
+      // Skip kerning for tatweel (kashida) characters - they extend connections
+      // and kerning would make the following character appear too narrow
+      isTatweel = previousChar === '\u0640',
+      stylesAreEqual = previousChar && !isTatweel && fontDeclaration === this._getFontDeclaration(prevCharStyle),
       fontMultiplier = charStyle.fontSize / this.CACHE_FONT_SIZE;
     let width, coupleWidth, previousWidth, kernedWidth;
-    if (previousChar && fontCache[previousChar] !== undefined) {
+    if (previousChar && !isTatweel && fontCache[previousChar] !== undefined) {
       previousWidth = fontCache[previousChar];
     }
     if (fontCache[_char] !== undefined) {
@@ -21900,11 +21927,11 @@ class FabricText extends StyledText {
         kernedWidth = width = ctx.measureText(_char).width;
         fontCache[_char] = width;
       }
-      if (previousWidth === undefined && stylesAreEqual && previousChar) {
+      if (previousWidth === undefined && stylesAreEqual && previousChar && !isTatweel) {
         previousWidth = ctx.measureText(previousChar).width;
         fontCache[previousChar] = previousWidth;
       }
-      if (stylesAreEqual && coupleWidth === undefined) {
+      if (stylesAreEqual && coupleWidth === undefined && !isTatweel) {
         // we can measure the kerning couple and subtract the width of the previous character
         coupleWidth = ctx.measureText(couple).width;
         fontCache[couple] = coupleWidth;
@@ -24422,7 +24449,11 @@ function enterTextOverlayEdit(canvas, target, options) {
  *  - `\-`     Matches a "-" character (char code 45).
  */
 // eslint-disable-next-line no-useless-escape
-const reNonWord = /[ \n\.,;!\?\-]/;
+// Word boundary characters for Latin, Arabic, and Hebrew
+// Latin: space, newline, punctuation
+// Arabic: ، (comma U+060C), ؛ (semicolon U+061B), ؟ (question U+061F), ۔ (full stop U+06D4), ـ (tatweel U+0640)
+// Hebrew: ׃ (sof pasuq U+05C3), ״ (gershayim U+05F4)
+const reNonWord = /[ \n\.,;!\?\-\u060C\u061B\u061F\u06D4\u0640\u05C3\u05F4\u2000-\u206F]/;
 class ITextBehavior extends FabricText {
   constructor() {
     super(...arguments);
@@ -24643,12 +24674,99 @@ class ITextBehavior extends FabricText {
 
   /**
    * Finds index corresponding to beginning or end of a word
+   * Uses Intl.Segmenter for proper Unicode word segmentation when available,
+   * falls back to regex-based detection for older browsers.
    * @param {Number} selectionStart Index of a character
    * @param {Number} direction 1 or -1
    * @return {Number} Index of the beginning or end of a word
    */
   searchWordBoundary(selectionStart, direction) {
-    const text = this._text;
+    // Try to use Intl.Segmenter for proper Unicode word segmentation
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      return this._searchWordBoundaryWithSegmenter(selectionStart, direction);
+    }
+    // Fallback to regex-based detection
+    return this._searchWordBoundaryWithRegex(selectionStart, direction);
+  }
+
+  /**
+   * Word boundary search using Intl.Segmenter (proper Unicode support)
+   * Works on original text (this.text) since selectionStart is in original text space
+   */
+  _searchWordBoundaryWithSegmenter(selectionStart, direction) {
+    // Use original text (without kashida) since indices are in original text space
+    const originalText = this.text;
+    const SegmenterClass = Intl.Segmenter;
+    const segmenter = new SegmenterClass(undefined, {
+      granularity: 'word'
+    });
+    const segments = Array.from(segmenter.segment(originalText));
+    if (segments.length === 0) {
+      return direction === -1 ? 0 : originalText.length;
+    }
+
+    // Find the segment containing the cursor position
+    let currentSegmentIdx = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (selectionStart >= seg.index && selectionStart < seg.index + seg.segment.length) {
+        currentSegmentIdx = i;
+        break;
+      }
+      if (selectionStart >= seg.index + seg.segment.length) {
+        currentSegmentIdx = i;
+      }
+    }
+
+    // Find word boundaries
+    if (direction === -1) {
+      // Search backwards for word start
+      let targetIdx = currentSegmentIdx;
+
+      // If cursor is at the start of a segment, look at previous segment
+      if (selectionStart === segments[targetIdx].index && targetIdx > 0) {
+        targetIdx--;
+      }
+
+      // Skip non-word segments
+      while (targetIdx > 0 && !segments[targetIdx].isWordLike) {
+        targetIdx--;
+      }
+
+      // Return the start of the word segment
+      if (segments[targetIdx].isWordLike) {
+        return segments[targetIdx].index;
+      }
+      return 0;
+    } else {
+      // Search forwards for word end
+      let targetIdx = currentSegmentIdx;
+
+      // If we're in a word, find its end
+      if (segments[targetIdx].isWordLike) {
+        return segments[targetIdx].index + segments[targetIdx].segment.length;
+      }
+
+      // Skip non-word segments to find next word
+      while (targetIdx < segments.length && !segments[targetIdx].isWordLike) {
+        targetIdx++;
+      }
+
+      // Return the end of the next word segment
+      if (targetIdx < segments.length && segments[targetIdx].isWordLike) {
+        return segments[targetIdx].index + segments[targetIdx].segment.length;
+      }
+      return originalText.length;
+    }
+  }
+
+  /**
+   * Word boundary search using regex (fallback for older browsers)
+   * Works on original text (this.text) since selectionStart is in original text space
+   */
+  _searchWordBoundaryWithRegex(selectionStart, direction) {
+    // Use original text as an array of characters
+    const text = Array.from(this.text);
     // if we land on a space we move the cursor backwards
     // if we are searching boundary end we move the cursor backwards ONLY if we don't land on a line break
     let index = selectionStart > 0 && this._reSpace.test(text[selectionStart]) && (direction === -1 || !reNewline.test(text[selectionStart - 1])) ? selectionStart - 1 : selectionStart,
@@ -26290,9 +26408,24 @@ class ITextClickBehavior extends ITextKeyBehavior {
       }
       charIndex = lineStartIndex + charLength;
     }
-    const lineCharIndex = charIndex - lineStartIndex;
-    const result = this.flipX ? lineStartIndex + (charLength - lineCharIndex) : charIndex;
-    return Math.min(result, this._text.length);
+    let lineCharIndex = charIndex - lineStartIndex;
+
+    // Handle flipX
+    if (this.flipX) {
+      lineCharIndex = charLength - lineCharIndex;
+    }
+
+    // Convert display index to original index (handles kashida)
+    const originalLineCharIndex = this._displayToOriginalIndex(lineIndex, lineCharIndex);
+
+    // Calculate original line start (sum of original line lengths before this line)
+    let originalLineStart = 0;
+    for (let i = 0; i < lineIndex; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      originalLineStart += originalLineLength + this.missingNewlineOffset(i);
+    }
+    const originalIndex = originalLineStart + originalLineCharIndex;
+    return Math.min(originalIndex, this.text.length);
   }
 }
 
@@ -26882,11 +27015,10 @@ class IText extends ITextClickBehavior {
     for (let i = 0; i < lineIndex; i++) {
       const origLen = this._getOriginalLineLength(i);
       const newlineOffset = this.missingNewlineOffset(i);
-      // console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
+      console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
       lineStartIndex += origLen + newlineOffset;
     }
-    // console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
-
+    console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
     const line = this._textLines[lineIndex];
     const lineText = line.join('');
     const displayCharLength = line.length;
@@ -26945,9 +27077,7 @@ class IText extends ITextClickBehavior {
 
         // Check if this is a tatweel - if so, treat click as clicking on the extended character
         const isTatweel = this._isTatweelAtDisplayIndex(lineIndex, pos.logicalIndex);
-
-        // console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
-
+        console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
         const charMiddle = pos.visualX + pos.width / 2;
         const clickedLeftHalf = clickX <= charMiddle;
 
@@ -26956,7 +27086,7 @@ class IText extends ITextClickBehavior {
           // Tatweel extends the character before it, so cursor goes after that character
           // originalCharIndex from _displayToOriginalIndex already maps tatweel to char+1
           const result = lineStartIndex + originalCharIndex;
-          // console.log(`📍 Tatweel click result: ${result}`);
+          console.log(`📍 Tatweel click result: ${result}`);
           return result;
         }
 
@@ -26965,12 +27095,12 @@ class IText extends ITextClickBehavior {
         if (pos.isRtl) {
           // RTL character
           const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex + 1 : originalCharIndex);
-          // console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
           return result;
         } else {
           // LTR character
           const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex : originalCharIndex + 1);
-          // console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
           return result;
         }
       }
@@ -27695,7 +27825,9 @@ class Textbox extends IText {
     const layout = layoutText({
       text: this.text,
       width: this.width,
-      height: this.height,
+      // Don't pass height constraint to allow vertical auto-expansion
+      // Only pass height if explicitly set to constrain (e.g., for ellipsis)
+      height: this.ellipsis ? this.height : undefined,
       wrap: this.wrap || 'word',
       align: effectiveAlign,
       ellipsis: this.ellipsis || false,
@@ -27751,6 +27883,12 @@ class Textbox extends IText {
   _applyKashidaToLayout() {
     if (!this._textLines || !this.__charBounds) {
       return;
+    }
+
+    // Clear visual positions cache - it becomes stale when kashida is applied
+    // Check if cache exists (it's initialized in IText constructor which runs after this during construction)
+    if (this._visualPositionsCache) {
+      this._clearVisualPositionsCache();
     }
     const kashidaRatios = {
       none: 0,
@@ -27867,12 +28005,12 @@ class Textbox extends IText {
       this._measureLine(lineIndex);
 
       // Now expand spaces to fill any remaining gap
-      const newLineBounds = this.__charBounds[lineIndex];
+      let newLineBounds = this.__charBounds[lineIndex];
       if (newLineBounds && newLineBounds.length > 0) {
-        const newLastBound = newLineBounds[newLineBounds.length - 1];
-        const newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
-        const remainingGap = this.width - newLineWidth;
-        if (remainingGap > 1) {
+        let newLastBound = newLineBounds[newLineBounds.length - 1];
+        let newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
+        let remainingGap = this.width - newLineWidth;
+        if (remainingGap > 0.5) {
           // Count spaces in the new line
           let spaceCount = 0;
           for (let i = 0; i < newLine.length; i++) {
@@ -27882,20 +28020,73 @@ class Textbox extends IText {
           }
           if (spaceCount > 0) {
             const extraPerSpace = remainingGap / spaceCount;
+            let accumulatedExtra = 0;
 
-            // Just expand space widths - the rendering uses kernedWidth for spacing
-            // Don't modify left positions as this breaks selection for RTL
+            // Expand space widths AND update left positions for subsequent chars
             for (let i = 0; i < newLineBounds.length; i++) {
               const bound = newLineBounds[i];
               if (!bound) continue;
+
+              // Update left position to account for previous space expansions
+              bound.left += accumulatedExtra;
 
               // If this is a space, expand it
               if (/\s/.test(newLine[i])) {
                 bound.width += extraPerSpace;
                 bound.kernedWidth += extraPerSpace;
+                accumulatedExtra += extraPerSpace;
               }
             }
-            // console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
+            // Update the extra entry at the end (cursor position)
+            if (newLineBounds[newLine.length]) {
+              newLineBounds[newLine.length].left += accumulatedExtra;
+            }
+
+            // Recalculate remaining gap after space expansion
+            newLastBound = newLineBounds[newLineBounds.length - 1];
+            newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
+            remainingGap = this.width - newLineWidth;
+          }
+        }
+
+        // If there's still a gap after space expansion, distribute it across all kashida points
+        if (remainingGap > 0.5 && this.__kashidaInfo[lineIndex].length > 0) {
+          const kashidaPointCount = this.__kashidaInfo[lineIndex].length;
+          const extraPerKashida = remainingGap / kashidaPointCount;
+
+          // Find kashida positions in newLine and expand their widths
+          let kashidaIndex = 0;
+          let accumulatedExtra = 0;
+          for (let i = 0; i < newLineBounds.length; i++) {
+            const bound = newLineBounds[i];
+            if (!bound) continue;
+
+            // Update left position for accumulated expansion
+            bound.left += accumulatedExtra;
+
+            // Check if this is a tatweel character
+            if (newLine[i] === ARABIC_TATWEEL) {
+              var _this$__kashidaInfo$l;
+              // Distribute extra width among tatweels
+              const extraForThis = extraPerKashida / (((_this$__kashidaInfo$l = this.__kashidaInfo[lineIndex][kashidaIndex]) === null || _this$__kashidaInfo$l === void 0 ? void 0 : _this$__kashidaInfo$l.tatweelCount) || 1);
+              bound.width += extraForThis;
+              bound.kernedWidth += extraForThis;
+              accumulatedExtra += extraForThis;
+
+              // Move to next kashida info when we've passed this group
+              const currentKashidaInfo = this.__kashidaInfo[lineIndex][kashidaIndex];
+              if (currentKashidaInfo && i > 0) {
+                // Check if next char is not tatweel - means we're done with this group
+                if (i + 1 >= newLine.length || newLine[i + 1] !== ARABIC_TATWEEL) {
+                  kashidaIndex++;
+                }
+              }
+            }
+          }
+
+          // Update the extra entry at the end
+          if (newLineBounds[newLine.length]) {
+            newLineBounds[newLine.length].left += accumulatedExtra;
           }
         }
       }
@@ -27906,7 +28097,8 @@ class Textbox extends IText {
       // console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
     }
 
-    // Cache line widths for all lines to prevent remeasurement during render
+    // For justified lines with kashida, line width should equal textbox width
+    // Only set undefined widths (non-justified lines without kashida)
     for (let i = 0; i < this._textLines.length; i++) {
       if (this.__lineWidths[i] === undefined && this.__charBounds[i]) {
         const bounds = this.__charBounds[i];

@@ -245,11 +245,24 @@ export abstract class ITextClickBehavior<
       charIndex = lineStartIndex + charLength;
     }
 
-    const lineCharIndex = charIndex - lineStartIndex;
-    const result = this.flipX
-      ? lineStartIndex + (charLength - lineCharIndex)
-      : charIndex;
+    let lineCharIndex = charIndex - lineStartIndex;
 
-    return Math.min(result, this._text.length);
+    // Handle flipX
+    if (this.flipX) {
+      lineCharIndex = charLength - lineCharIndex;
+    }
+
+    // Convert display index to original index (handles kashida)
+    const originalLineCharIndex = (this as any)._displayToOriginalIndex(lineIndex, lineCharIndex);
+
+    // Calculate original line start (sum of original line lengths before this line)
+    let originalLineStart = 0;
+    for (let i = 0; i < lineIndex; i++) {
+      const originalLineLength = (this as any)._getOriginalLineLength(i);
+      originalLineStart += originalLineLength + this.missingNewlineOffset(i);
+    }
+
+    const originalIndex = originalLineStart + originalLineCharIndex;
+    return Math.min(originalIndex, this.text.length);
   }
 }
