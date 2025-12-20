@@ -469,16 +469,16 @@ export abstract class ITextBehavior<
     const hadLock = (this as any).lockDynamicMinWidth;
     (this as any).lockDynamicMinWidth = true;
     const countKashida = (val?: string) => (val ? (val.match(/\u0640/g) || []).length : 0);
-    console.log('[OverlayCommit] pre-layout', {
-      textLength: text?.length,
-      kashidas: countKashida(text),
-      prevWidth,
-      prevMinWidth,
-      prevUsingBrowserWrap,
-      hadLock,
-      dir: (this as any).direction,
-      align: (this as any).textAlign,
-    });
+    // console.log('[OverlayCommit] pre-layout', {
+    //   textLength: text?.length,
+    //   kashidas: countKashida(text),
+    //   prevWidth,
+    //   prevMinWidth,
+    //   prevUsingBrowserWrap,
+    //   hadLock,
+    //   dir: (this as any).direction,
+    //   align: (this as any).textAlign,
+    // });
 
     const overlayEditor = (this as any).__overlayEditor;
     
@@ -488,7 +488,7 @@ export abstract class ITextBehavior<
         const result = extractLinesFromDOM(overlayEditor.textareaElement);
         storeBrowserLines(this, result.lines);
       } catch (error) {
-        console.warn('Failed to extract browser lines:', error);
+        // console.warn('Failed to extract browser lines:', error);
       }
     }
 
@@ -505,15 +505,15 @@ export abstract class ITextBehavior<
 
     this.dirty = true;
     this.initDimensions();
-    console.log('[OverlayCommit] post-layout', {
-      width: this.get('width'),
-      dynMinWidth: (this as any).dynamicMinWidth,
-      usingBrowserWrap: (this as any)._usingBrowserWrapping,
-      lockDynamicMinWidth: (this as any).lockDynamicMinWidth,
-      kashidas: countKashida(this.text),
-      left: this.left,
-      top: this.top,
-    });
+    // console.log('[OverlayCommit] post-layout', {
+    //   width: this.get('width'),
+    //   dynMinWidth: (this as any).dynamicMinWidth,
+    //   usingBrowserWrap: (this as any)._usingBrowserWrapping,
+    //   lockDynamicMinWidth: (this as any).lockDynamicMinWidth,
+    //   kashidas: countKashida(this.text),
+    //   left: this.left,
+    //   top: this.top,
+    // });
     // Restore geometry after layout so the object doesn't drift
     this.set({
       left: prevLeft,
@@ -523,13 +523,13 @@ export abstract class ITextBehavior<
     this.setCoords();
     this.exitEditing();
     (this as any).lockDynamicMinWidth = hadLock;
-    console.log('[OverlayCommit] final', {
-      width: this.get('width'),
-      dynMinWidth: (this as any).dynamicMinWidth,
-      lockRestored: hadLock,
-      left: this.left,
-      top: this.top,
-    });
+    // console.log('[OverlayCommit] final', {
+    //   width: this.get('width'),
+    //   dynMinWidth: (this as any).dynamicMinWidth,
+    //   lockRestored: hadLock,
+    //   left: this.left,
+    //   top: this.top,
+    // });
     this.fire('changed');
     this.canvas && this.canvas.requestRenderAll();
   }
@@ -646,7 +646,7 @@ export abstract class ITextBehavior<
    * @private
    */
   _updateTextarea() {
-    console.log('🔤 _updateTextarea called with fabric text:', this.text);
+    // console.log('🔤 _updateTextarea called with fabric text:', this.text);
     this.cursorOffsetCache = {};
     if (!this.hiddenTextarea) {
       return;
@@ -655,9 +655,9 @@ export abstract class ITextBehavior<
     // Sync textarea content with fabric text to prevent double-keypress issues
     const currentFabricText = this.text;
     if (this.hiddenTextarea.value !== currentFabricText) {
-      console.log('🔤 _updateTextarea: syncing textarea to fabric text');
-      console.log('🔤 _updateTextarea: textarea was:', this.hiddenTextarea.value);
-      console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
+      // console.log('🔤 _updateTextarea: syncing textarea to fabric text');
+      // console.log('🔤 _updateTextarea: textarea was:', this.hiddenTextarea.value);
+      // console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
       this.hiddenTextarea.value = currentFabricText;
     }
     

@@ -405,8 +405,8 @@ export class Textbox<
       const tatweelsPerPoint = Math.floor(totalTatweels / maxKashidaPoints);
       const extraTatweels = totalTatweels % maxKashidaPoints;
 
-      console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
-      console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
+      // console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
+      // console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
 
       // Sort by charIndex descending so we insert from the end (prevents index shifting issues)
       const sortedPoints = [...usedKashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
@@ -422,7 +422,7 @@ export class Textbox<
           // Insert tatweels AFTER the character at charIndex
           const tatweels = Array(count).fill(ARABIC_TATWEEL);
           newLine.splice(point.charIndex + 1, 0, ...tatweels);
-          console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
+          // console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
 
           // Store kashida info for index conversion
           this.__kashidaInfo[lineIndex].push({
@@ -477,7 +477,7 @@ export class Textbox<
                 bound.kernedWidth += extraPerSpace;
               }
             }
-            console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
+            // console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
           }
         }
       }
@@ -485,7 +485,7 @@ export class Textbox<
       // Set line width to textbox width (for justified lines)
       this.__lineWidths[lineIndex] = this.width;
 
-      console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
+      // console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
     }
 
     // Cache line widths for all lines to prevent remeasurement during render
@@ -508,11 +508,11 @@ export class Textbox<
     (this as any)._justifyApplied = true;
 
     // Debug log final kashida state
-    console.log('=== _applyKashidaToLayout END ===');
-    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
-      line: i,
-      entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
-    }))));
+    // console.log('=== _applyKashidaToLayout END ===');
+    // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+    //   line: i,
+    //   entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    // }))));
   }
 
   /**
@@ -1089,9 +1089,9 @@ export class Textbox<
    * @private
    */
   _extractJustifySpaceMeasurements(element: HTMLElement, lines: string[]) {
-    console.log('=== _extractJustifySpaceMeasurements START ===');
-    console.log('Textbox width:', this.width);
-    console.log('Lines count:', lines.length);
+    // console.log('=== _extractJustifySpaceMeasurements START ===');
+    // console.log('Textbox width:', this.width);
+    // console.log('Lines count:', lines.length);
 
     const measureCtx =
       (this as any)._browserMeasureCtx ||
@@ -1099,13 +1099,13 @@ export class Textbox<
         .createElement('canvas')
         .getContext('2d'));
     if (!measureCtx) {
-      console.log('ERROR: No measure context');
+      // console.log('ERROR: No measure context');
       return [];
     }
     measureCtx.font = `${this.fontStyle || 'normal'} ${this.fontWeight || 'normal'} ${this.fontSize}px "${this.fontFamily}"`;
     const normalSpaceWidth = measureCtx.measureText(' ').width || 6;
-    console.log('Font:', measureCtx.font);
-    console.log('Normal space width:', normalSpaceWidth);
+    // console.log('Font:', measureCtx.font);
+    // console.log('Normal space width:', normalSpaceWidth);
 
     const spaceWidths: number[][] = [];
 
@@ -1114,7 +1114,7 @@ export class Textbox<
       const spaceCount = (line.match(/\s/g) || []).length;
       const isLastLine = lineIndex === lines.length - 1;
 
-      console.log(`\nLine ${lineIndex}: "${line.substring(0, 50)}..." spaces: ${spaceCount}, isLast: ${isLastLine}`);
+      // console.log(`\nLine ${lineIndex}: "${line.substring(0, 50)}..." spaces: ${spaceCount}, isLast: ${isLastLine}`);
 
       if (spaceCount > 0 && !isLastLine) {
         // Don't justify last line
@@ -1123,8 +1123,8 @@ export class Textbox<
         const extraPerSpace = remainingSpace > 0 ? remainingSpace / spaceCount : 0;
         const expandedSpaceWidth = normalSpaceWidth + extraPerSpace;
 
-        console.log(`  Natural width: ${naturalWidth.toFixed(2)}, Remaining: ${remainingSpace.toFixed(2)}`);
-        console.log(`  Extra per space: ${extraPerSpace.toFixed(2)}, Expanded space: ${expandedSpaceWidth.toFixed(2)}`);
+        // console.log(`  Natural width: ${naturalWidth.toFixed(2)}, Remaining: ${remainingSpace.toFixed(2)}`);
+        // console.log(`  Extra per space: ${extraPerSpace.toFixed(2)}, Expanded space: ${expandedSpaceWidth.toFixed(2)}`);
 
         const safeWidth = Math.max(normalSpaceWidth, expandedSpaceWidth);
         for (let i = 0; i < spaceCount; i++) {
@@ -1132,7 +1132,7 @@ export class Textbox<
         }
       } else if (spaceCount > 0) {
         // Last line: keep natural space width
-        console.log(`  Last line - using normal space width: ${normalSpaceWidth}`);
+        // console.log(`  Last line - using normal space width: ${normalSpaceWidth}`);
         for (let i = 0; i < spaceCount; i++) {
           lineSpaces.push(normalSpaceWidth);
         }
@@ -1141,8 +1141,8 @@ export class Textbox<
       spaceWidths.push(lineSpaces);
     });
 
-    console.log('\nFinal spaceWidths:', spaceWidths);
-    console.log('=== _extractJustifySpaceMeasurements END ===\n');
+    // console.log('\nFinal spaceWidths:', spaceWidths);
+    // console.log('=== _extractJustifySpaceMeasurements END ===\n');
     return spaceWidths;
   }
 
@@ -1224,7 +1224,7 @@ export class Textbox<
 
       // If kashida is enabled, insert actual tatweel characters
       if (hasKashidaPoints && perKashidaWidth > 0) {
-        console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
+        // console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
 
         // Sort by charIndex descending to insert from end
         const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
@@ -1235,14 +1235,14 @@ export class Textbox<
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          console.log(`  tatweelWidth: ${tatweelWidth}`);
+          // console.log(`  tatweelWidth: ${tatweelWidth}`);
 
           if (tatweelWidth > 0) {
             const newLine = [...line];
 
             for (const point of sortedPoints) {
               const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
 
               // Insert tatweels after the character
               for (let t = 0; t < tatweelCount; t++) {
@@ -1257,7 +1257,7 @@ export class Textbox<
               });
             }
 
-            console.log(`  New line: ${newLine.join('')}`);
+            // console.log(`  New line: ${newLine.join('')}`);
 
             // Update _textLines with kashida
             this._textLines[lineIndex] = newLine;
@@ -1315,11 +1315,11 @@ export class Textbox<
     (this as any)._justifyApplied = true;
 
     // Debug log final kashida state
-    console.log('=== _applyBrowserJustifySpaces END ===');
-    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
-      line: i,
-      entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
-    }))));
+    // console.log('=== _applyBrowserJustifySpaces END ===');
+    // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+    //   line: i,
+    //   entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    // }))));
   }
 
   /**

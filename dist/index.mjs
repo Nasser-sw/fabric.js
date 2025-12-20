@@ -21277,8 +21277,8 @@ class FabricText extends StyledText {
    * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    console.log('=== enlargeSpaces START ===');
-    console.log('this.kashida:', this.kashida);
+    // console.log('=== enlargeSpaces START ===');
+    // console.log('this.kashida:', this.kashida);
 
     // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
     const kashidaRatios = {
@@ -21289,7 +21289,7 @@ class FabricText extends StyledText {
       stylistic: 1.0
     };
     const kashidaRatio = kashidaRatios[this.kashida] || 0;
-    console.log('kashidaRatio:', kashidaRatio);
+    // console.log('kashidaRatio:', kashidaRatio);
 
     // Reset kashida info
     this.__kashidaInfo = [];
@@ -21306,15 +21306,16 @@ class FabricText extends StyledText {
       const isLastLine = i === len - 1 || this.isEndOfWrapping(i) || isVisualLastLine;
       const shouldJustifyLine = this.textAlign.includes('justify') && !isLastLine;
       if (!shouldJustifyLine) {
-        console.log(`  Line ${i}: skipped (not justified)`);
+        // console.log(`  Line ${i}: skipped (not justified)`);
         continue;
       }
       const line = this._textLines[i];
       const currentLineWidth = this.getLineWidth(i);
       const totalExtraSpace = this.width - currentLineWidth;
-      console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
+      // console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
+
       if (totalExtraSpace <= 0) {
-        console.log(`  Line ${i}: skipped (no extra space)`);
+        // console.log(`  Line ${i}: skipped (no extra space)`);
         continue;
       }
 
@@ -21338,8 +21339,8 @@ class FabricText extends StyledText {
 
       // If kashida is enabled, insert tatweel characters into the text
       if (hasKashidaPoints && perKashidaWidth > 0) {
-        console.log(`=== Inserting kashida for line ${i} ===`);
-        console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
+        // console.log(`=== Inserting kashida for line ${i} ===`);
+        // console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
 
         // Sort by charIndex descending to insert from end (so indices stay valid)
         const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
@@ -21347,22 +21348,22 @@ class FabricText extends StyledText {
         // Calculate how many tatweels to insert per point
         // Measure tatweel width to determine count
         const ctx = getMeasuringContext();
-        console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
+        // console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
+
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          console.log(`  tatweelWidth: ${tatweelWidth}`);
+          // console.log(`  tatweelWidth: ${tatweelWidth}`);
+
           if (tatweelWidth > 0) {
             const newLine = [...line];
-            let insertedCount = 0;
             for (const point of sortedPoints) {
               const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
 
               // Insert tatweels after the character
               for (let t = 0; t < tatweelCount; t++) {
                 newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
-                insertedCount++;
               }
 
               // Store kashida info with updated indices and tatweel count
@@ -21372,9 +21373,10 @@ class FabricText extends StyledText {
                 tatweelCount: tatweelCount
               });
             }
-            console.log(`  Total inserted: ${insertedCount} tatweels`);
-            console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
-            console.log(`  New line: ${newLine.join('')}`);
+
+            // console.log(`  Total inserted: ${insertedCount} tatweels`);
+            // console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
+            // console.log(`  New line: ${newLine.join('')}`);
 
             // Update _textLines with the new line containing tatweels
             this._textLines[i] = newLine;
@@ -21388,7 +21390,8 @@ class FabricText extends StyledText {
             this.__charBounds[i] = [];
             this.__lineWidths[i] = undefined;
             this._measureLine(i);
-            console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
+
+            // console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
           }
         }
       }
@@ -21413,14 +21416,11 @@ class FabricText extends StyledText {
     }
 
     // Final debug log showing kashida state
-    console.log('=== enlargeSpaces END ===');
-    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
-      line: i,
-      entries: lineInfo.map(k => ({
-        charIndex: k.charIndex,
-        tatweelCount: k.tatweelCount
-      }))
-    }))));
+    // console.log('=== enlargeSpaces END ===');
+    // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+    //   line: i,
+    //   entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    // }))));
   }
 
   /**
@@ -21895,10 +21895,7 @@ class FabricText extends StyledText {
    */
   _measureLine(lineIndex) {
     // Debug: detect if measureLine is called after justify was applied
-    if (this._justifyApplied) {
-      console.warn(`WARNING: _measureLine called for line ${lineIndex} AFTER justify was applied! This will overwrite justified charBounds.`);
-      console.trace('Stack trace:');
-    }
+    if (this._justifyApplied) ;
     let width = 0,
       prevGrapheme,
       graphemeInfo;
@@ -22073,13 +22070,7 @@ class FabricText extends StyledText {
       top = this._getTopOffset();
 
     // Debug: log once per render
-    if (method === 'fillText' && (_this$textAlign = this.textAlign) !== null && _this$textAlign !== void 0 && _this$textAlign.includes('justify')) {
-      console.log('=== RENDER DEBUG ===');
-      console.log('direction:', this.direction);
-      console.log('textAlign:', this.textAlign);
-      console.log('width:', this.width);
-      console.log('_getLeftOffset:', left);
-    }
+    if (method === 'fillText' && (_this$textAlign = this.textAlign) !== null && _this$textAlign !== void 0 && _this$textAlign.includes('justify')) ;
     for (let i = 0, len = this._textLines.length; i < len; i++) {
       var _this$textAlign2;
       const heightOfLine = this.getHeightOfLine(i),
@@ -22088,8 +22079,8 @@ class FabricText extends StyledText {
 
       // Debug: log line offsets for justify
       if (method === 'fillText' && (_this$textAlign2 = this.textAlign) !== null && _this$textAlign2 !== void 0 && _this$textAlign2.includes('justify')) {
-        const lineWidth = this.getLineWidth(i);
-        console.log(`Line ${i}: leftOffset=${leftOffset.toFixed(2)}, lineWidth=${lineWidth.toFixed(2)}, renderAt=${(left + leftOffset).toFixed(2)}`);
+        this.getLineWidth(i);
+        // console.log(`Line ${i}: leftOffset=${leftOffset.toFixed(2)}, lineWidth=${lineWidth.toFixed(2)}, renderAt=${(left + leftOffset).toFixed(2)}`);
       }
       this._renderTextLine(method, ctx, this._textLines[i], left + leftOffset, top + lineHeights + maxHeight, i);
       lineHeights += heightOfLine;
@@ -22182,12 +22173,12 @@ class FabricText extends StyledText {
     }
     // Debug: Log charBounds being used for first line only during justify
     if (isJustify && lineIndex === 0 && method === 'fillText') {
-      console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
-      console.log('Initial left:', left.toFixed(2), 'sign:', sign);
-      console.log('_justifyApplied flag:', this._justifyApplied);
+      // console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
+      // console.log('Initial left:', left.toFixed(2), 'sign:', sign);
+      // console.log('_justifyApplied flag:', (this as any)._justifyApplied);
       const lineBounds = this.__charBounds[lineIndex];
-      const totalKW = (lineBounds === null || lineBounds === void 0 ? void 0 : lineBounds.reduce((s, b) => s + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0)) || 0;
-      console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
+      (lineBounds === null || lineBounds === void 0 ? void 0 : lineBounds.reduce((s, b) => s + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0)) || 0;
+      // console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
       // Log first few space widths to verify expansion
       const spaceIndices = [3, 9, 15, 23, 31];
       spaceIndices.forEach(idx => {
@@ -22236,10 +22227,6 @@ class FabricText extends StyledText {
           // For RTL with textAlign='right': x is the right edge, so drawingLeft = left
           // Both cases: drawingLeft = left (the text alignment handles the edge correctly)
           drawingLeft = left;
-          // Debug: log first chunk positioning for justify
-          if (isJustify && lineIndex === 0 && method === 'fillText' && i < 5) {
-            console.log(`  Chunk ending at char ${i}: left=${left.toFixed(2)}, boxWidth=${boxWidth.toFixed(2)}, drawingLeft=${drawingLeft.toFixed(2)}, textAlign=${isLtr ? 'left' : 'right'}`);
-          }
           this._renderChar(method, ctx, lineIndex, i, charsToRender, drawingLeft, top);
         }
         charsToRender = '';
@@ -22247,11 +22234,6 @@ class FabricText extends StyledText {
         left += sign * boxWidth;
         boxWidth = 0;
       }
-    }
-    // Debug: log final position for justify
-    if (isJustify && lineIndex === 0 && method === 'fillText') {
-      console.log('Final left position after rendering:', left.toFixed(2));
-      console.log('Expected final position:', (sign > 0 ? this.width / 2 : -this.width / 2).toFixed(2));
     }
     ctx.restore();
   }
@@ -22484,8 +22466,8 @@ class FabricText extends StyledText {
    * @private
    */
   _clearCache() {
-    console.log('🗑️ _clearCache called');
-    console.trace('🗑️ _clearCache stack trace');
+    // console.log('🗑️ _clearCache called');
+    // console.trace('🗑️ _clearCache stack trace');
     this._forceClearCache = false;
     this.__lineWidths = [];
     this.__lineHeights = [];
@@ -22506,46 +22488,51 @@ class FabricText extends StyledText {
    * @returns Original character index (without tatweels)
    */
   _displayToOriginalIndex(lineIndex, displayCharIndex) {
-    var _this$__kashidaInfo, _this$__kashidaInfo2;
-    console.log(`🔄 _displayToOriginalIndex called: line=${lineIndex}, displayIdx=${displayCharIndex}`);
-    console.log(`🔄 __kashidaInfo exists: ${!!this.__kashidaInfo}, length: ${(_this$__kashidaInfo = this.__kashidaInfo) === null || _this$__kashidaInfo === void 0 ? void 0 : _this$__kashidaInfo.length}`);
-    console.log(`🔄 __kashidaInfo raw:`, JSON.stringify(this.__kashidaInfo));
-    const kashidaInfo = (_this$__kashidaInfo2 = this.__kashidaInfo) === null || _this$__kashidaInfo2 === void 0 ? void 0 : _this$__kashidaInfo2[lineIndex];
+    var _this$__kashidaInfo;
+    // console.log(`🔄 _displayToOriginalIndex called: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    // console.log(`🔄 __kashidaInfo exists: ${!!this.__kashidaInfo}, length: ${this.__kashidaInfo?.length}`);
+    // console.log(`🔄 __kashidaInfo raw:`, JSON.stringify(this.__kashidaInfo));
+
+    const kashidaInfo = (_this$__kashidaInfo = this.__kashidaInfo) === null || _this$__kashidaInfo === void 0 ? void 0 : _this$__kashidaInfo[lineIndex];
     if (!kashidaInfo || kashidaInfo.length === 0) {
       // No kashida on this line, indices are the same
-      console.log(`🔄 No kashida info for line ${lineIndex}, returning same index`);
+      // console.log(`🔄 No kashida info for line ${lineIndex}, returning same index`);
       return displayCharIndex;
     }
 
     // Sort kashida info by charIndex ascending for proper traversal
     const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
-    console.log(`🔄 _displayToOriginalIndex: line=${lineIndex}, displayIdx=${displayCharIndex}`);
-    console.log(`🔄 kashidaInfo:`, sortedKashida.map(k => `{charIdx:${k.charIndex}, cnt:${k.tatweelCount}}`).join(', '));
+
+    // console.log(`🔄 _displayToOriginalIndex: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    // console.log(`🔄 kashidaInfo:`, sortedKashida.map(k => `{charIdx:${k.charIndex}, cnt:${k.tatweelCount}}`).join(', '));
+
     let tatweelsBeforeIndex = 0;
     for (const k of sortedKashida) {
       const tatweelCount = k.tatweelCount || 0;
       // Position where tatweels start (after the original character)
       const tatweelStartPos = k.charIndex + 1 + tatweelsBeforeIndex;
       const tatweelEndPos = tatweelStartPos + tatweelCount;
-      console.log(`🔄   k.charIndex=${k.charIndex}, tatweelStartPos=${tatweelStartPos}, tatweelEndPos=${tatweelEndPos}, tatweelsBeforeIndex=${tatweelsBeforeIndex}`);
+
+      // console.log(`🔄   k.charIndex=${k.charIndex}, tatweelStartPos=${tatweelStartPos}, tatweelEndPos=${tatweelEndPos}, tatweelsBeforeIndex=${tatweelsBeforeIndex}`);
+
       if (displayCharIndex < tatweelStartPos) {
         // Before this kashida point
-        console.log(`🔄   displayIdx < tatweelStartPos, break`);
+        // console.log(`🔄   displayIdx < tatweelStartPos, break`);
         break;
       } else if (displayCharIndex < tatweelEndPos) {
         // Within tatweel characters - map to the character before tatweels
-        console.log(`🔄   Within tatweel, return ${k.charIndex + 1}`);
+        // console.log(`🔄   Within tatweel, return ${k.charIndex + 1}`);
         return k.charIndex + 1;
       } else {
         // After this kashida point
         tatweelsBeforeIndex += tatweelCount;
-        console.log(`🔄   After this kashida, tatweelsBeforeIndex now=${tatweelsBeforeIndex}`);
+        // console.log(`🔄   After this kashida, tatweelsBeforeIndex now=${tatweelsBeforeIndex}`);
       }
     }
 
     // Subtract all tatweels that come before this position
     const result = displayCharIndex - tatweelsBeforeIndex;
-    console.log(`🔄 Final result: ${displayCharIndex} - ${tatweelsBeforeIndex} = ${result}`);
+    // console.log(`🔄 Final result: ${displayCharIndex} - ${tatweelsBeforeIndex} = ${result}`);
     return result;
   }
 
@@ -22556,8 +22543,8 @@ class FabricText extends StyledText {
    * @returns Display character index (with tatweels)
    */
   _originalToDisplayIndex(lineIndex, originalCharIndex) {
-    var _this$__kashidaInfo3;
-    const kashidaInfo = (_this$__kashidaInfo3 = this.__kashidaInfo) === null || _this$__kashidaInfo3 === void 0 ? void 0 : _this$__kashidaInfo3[lineIndex];
+    var _this$__kashidaInfo2;
+    const kashidaInfo = (_this$__kashidaInfo2 = this.__kashidaInfo) === null || _this$__kashidaInfo2 === void 0 ? void 0 : _this$__kashidaInfo2[lineIndex];
     if (!kashidaInfo || kashidaInfo.length === 0) {
       // No kashida on this line, indices are the same
       return originalCharIndex;
@@ -22586,8 +22573,8 @@ class FabricText extends StyledText {
    * @returns True if the character at this index is a tatweel
    */
   _isTatweelAtDisplayIndex(lineIndex, displayCharIndex) {
-    var _this$__kashidaInfo4;
-    const kashidaInfo = (_this$__kashidaInfo4 = this.__kashidaInfo) === null || _this$__kashidaInfo4 === void 0 ? void 0 : _this$__kashidaInfo4[lineIndex];
+    var _this$__kashidaInfo3;
+    const kashidaInfo = (_this$__kashidaInfo3 = this.__kashidaInfo) === null || _this$__kashidaInfo3 === void 0 ? void 0 : _this$__kashidaInfo3[lineIndex];
     if (!kashidaInfo || kashidaInfo.length === 0) {
       return false;
     }
@@ -22613,8 +22600,8 @@ class FabricText extends StyledText {
    * @returns Total number of tatweels in this line
    */
   _getTatweelCountForLine(lineIndex) {
-    var _this$__kashidaInfo5;
-    const kashidaInfo = (_this$__kashidaInfo5 = this.__kashidaInfo) === null || _this$__kashidaInfo5 === void 0 ? void 0 : _this$__kashidaInfo5[lineIndex];
+    var _this$__kashidaInfo4;
+    const kashidaInfo = (_this$__kashidaInfo4 = this.__kashidaInfo) === null || _this$__kashidaInfo4 === void 0 ? void 0 : _this$__kashidaInfo4[lineIndex];
     if (!kashidaInfo || kashidaInfo.length === 0) {
       return 0;
     }
@@ -23675,7 +23662,9 @@ class OverlayEditor {
       requestAnimationFrame(() => {
         if (!this.isDestroyed) {
           this.applyOverlayStyle();
-          console.log('📐 Height changed - rechecking alignment after repositioning:');
+          // console.log(
+          //   '📐 Height changed - rechecking alignment after repositioning:',
+          // );
         }
       });
     }
@@ -23771,7 +23760,7 @@ class OverlayEditor {
 
     // Special handling for text objects loaded from JSON - ensure they're properly initialized
     if (target.dirty !== false && target.initDimensions) {
-      console.log('🔧 Ensuring text object is properly initialized before overlay editing');
+      // console.log('🔧 Ensuring text object is properly initialized before overlay editing');
       // Force re-initialization if the text object seems to be in a dirty state
       target.initDimensions();
     }
@@ -23788,11 +23777,11 @@ class OverlayEditor {
     const autoDetectedDirection = this.firstStrongDir(this.textarea.value || '');
 
     // DEBUG: Log alignment details
-    console.log('🔍 ALIGNMENT DEBUG:');
-    console.log('   Fabric textAlign:', textAlign);
-    console.log('   Fabric direction:', target.direction);
-    console.log('   Text content:', JSON.stringify(target.text));
-    console.log('   Detected direction:', autoDetectedDirection);
+    // console.log('🔍 ALIGNMENT DEBUG:');
+    // console.log('   Fabric textAlign:', textAlign);
+    // console.log('   Fabric direction:', (target as any).direction);
+    // console.log('   Text content:', JSON.stringify(target.text));
+    // console.log('   Detected direction:', autoDetectedDirection);
 
     // Map fabric.js justify to CSS
     if (textAlign.includes('justify')) {
@@ -23810,7 +23799,7 @@ class OverlayEditor {
           // If text is RTL but fabric says justify-left, override to justify-right for better UX
           if (autoDetectedDirection === 'rtl') {
             this.textarea.style.textAlignLast = 'right';
-            console.log('   → Overrode justify-left to justify-right for RTL text');
+            // console.log('   → Overrode justify-left to justify-right for RTL text');
           } else {
             this.textarea.style.textAlignLast = 'left';
           }
@@ -23818,7 +23807,7 @@ class OverlayEditor {
           // If text is LTR but fabric says justify-right, override to justify-left for better UX  
           if (autoDetectedDirection === 'ltr') {
             this.textarea.style.textAlignLast = 'left';
-            console.log('   → Overrode justify-right to justify-left for LTR text');
+            // console.log('   → Overrode justify-right to justify-left for LTR text');
           } else {
             this.textarea.style.textAlignLast = 'right';
           }
@@ -23837,16 +23826,17 @@ class OverlayEditor {
         // Try to force better justify behavior
         this.textarea.style.textJustifyTrim = 'none';
         this.textarea.style.textAutospace = 'none';
-        console.log('   → Applied justify alignment:', textAlign, 'with last-line:', this.textarea.style.textAlignLast);
+
+        // console.log('   → Applied justify alignment:', textAlign, 'with last-line:', this.textarea.style.textAlignLast);
       } catch (error) {
-        console.warn('   → Justify setup failed, falling back to standard alignment:', error);
+        // console.warn('   → Justify setup failed, falling back to standard alignment:', error);
         cssTextAlign = textAlign.replace('justify-', '').replace('justify', 'left');
       }
     } else {
       this.textarea.style.textAlignLast = 'auto';
       this.textarea.style.textJustify = 'auto';
       this.textarea.style.wordSpacing = 'normal';
-      console.log('   → Applied standard alignment:', cssTextAlign);
+      // console.log('   → Applied standard alignment:', cssTextAlign);
     }
     this.textarea.style.textAlign = cssTextAlign;
     this.textarea.style.color = ((_target$fill = target.fill) === null || _target$fill === void 0 ? void 0 : _target$fill.toString()) || '#000';
@@ -23872,37 +23862,31 @@ class OverlayEditor {
     this.textarea.style.hyphens = 'none';
 
     // DEBUG: Log final CSS properties
-    console.log('🎨 FINAL TEXTAREA CSS:');
-    console.log('   textAlign:', this.textarea.style.textAlign);
-    console.log('   textAlignLast:', this.textarea.style.textAlignLast);
-    console.log('   direction:', this.textarea.style.direction);
-    console.log('   unicodeBidi:', this.textarea.style.unicodeBidi);
-    console.log('   width:', this.textarea.style.width);
-    console.log('   textJustify:', this.textarea.style.textJustify);
-    console.log('   wordSpacing:', this.textarea.style.wordSpacing);
-    console.log('   whiteSpace:', this.textarea.style.whiteSpace);
+    // console.log('🎨 FINAL TEXTAREA CSS:');
+    // console.log('   textAlign:', this.textarea.style.textAlign);
+    // console.log('   textAlignLast:', this.textarea.style.textAlignLast);
+    // console.log('   direction:', this.textarea.style.direction);
+    // console.log('   unicodeBidi:', this.textarea.style.unicodeBidi);
+    // console.log('   width:', this.textarea.style.width);
+    // console.log('   textJustify:', (this.textarea.style as any).textJustify);
+    // console.log('   wordSpacing:', (this.textarea.style as any).wordSpacing);
+    // console.log('   whiteSpace:', this.textarea.style.whiteSpace);
 
     // If justify, log Fabric object dimensions for comparison
-    if (textAlign.includes('justify')) {
-      var _calcTextWidth, _ref;
-      console.log('🔧 FABRIC OBJECT JUSTIFY INFO:');
-      console.log('   Fabric width:', target.width);
-      console.log('   Fabric calcTextWidth:', (_calcTextWidth = (_ref = target).calcTextWidth) === null || _calcTextWidth === void 0 ? void 0 : _calcTextWidth.call(_ref));
-      console.log('   Fabric textAlign:', target.textAlign);
-      console.log('   Text lines:', target.textLines);
-    }
+    if (textAlign.includes('justify')) ;
 
     // Debug font properties matching
-    console.log('🔤 FONT PROPERTIES COMPARISON:');
-    console.log('   Fabric fontFamily:', target.fontFamily);
-    console.log('   Fabric fontWeight:', target.fontWeight);
-    console.log('   Fabric fontStyle:', target.fontStyle);
-    console.log('   Fabric fontSize:', target.fontSize);
-    console.log('   → Textarea fontFamily:', this.textarea.style.fontFamily);
-    console.log('   → Textarea fontWeight:', this.textarea.style.fontWeight);
-    console.log('   → Textarea fontStyle:', this.textarea.style.fontStyle);
-    console.log('   → Textarea fontSize:', this.textarea.style.fontSize);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // console.log('🔤 FONT PROPERTIES COMPARISON:');
+    // console.log('   Fabric fontFamily:', target.fontFamily);
+    // console.log('   Fabric fontWeight:', target.fontWeight);
+    // console.log('   Fabric fontStyle:', target.fontStyle);
+    // console.log('   Fabric fontSize:', target.fontSize);
+    // console.log('   → Textarea fontFamily:', this.textarea.style.fontFamily);
+    // console.log('   → Textarea fontWeight:', this.textarea.style.fontWeight);
+    // console.log('   → Textarea fontStyle:', this.textarea.style.fontStyle);
+    // console.log('   → Textarea fontSize:', this.textarea.style.fontSize);
+
+    // console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Enhanced font rendering to better match fabric.js canvas rendering
     // Default to auto for more natural rendering
@@ -23917,11 +23901,12 @@ class OverlayEditor {
     if (isBold) {
       this.textarea.style.webkitFontSmoothing = 'subpixel-antialiased';
       this.textarea.style.mozOsxFontSmoothing = 'unset';
-      console.log('🔤 Applied enhanced bold rendering for better thickness matching');
+      // console.log('🔤 Applied enhanced bold rendering for better thickness matching');
     }
-    console.log('🎨 FONT SMOOTHING APPLIED:');
-    console.log('   webkitFontSmoothing:', this.textarea.style.webkitFontSmoothing);
-    console.log('   mozOsxFontSmoothing:', this.textarea.style.mozOsxFontSmoothing);
+
+    // console.log('🎨 FONT SMOOTHING APPLIED:');
+    // console.log('   webkitFontSmoothing:', (this.textarea.style as any).webkitFontSmoothing);
+    // console.log('   mozOsxFontSmoothing:', (this.textarea.style as any).mozOsxFontSmoothing);
 
     // Initial bounds are set correctly by Fabric.js - don't force update here
   }
@@ -23950,137 +23935,130 @@ class OverlayEditor {
       width: canvasBounds.width * zoom,
       height: canvasBounds.height * zoom
     };
-    console.log('🔍 BOUNDING BOX COMPARISON:');
-    console.log('📦 Textarea Rect:', {
-      left: Math.round(textareaRect.left * 100) / 100,
-      top: Math.round(textareaRect.top * 100) / 100,
-      width: Math.round(textareaRect.width * 100) / 100,
-      height: Math.round(textareaRect.height * 100) / 100
-    });
-    console.log('📦 Host Div Rect:', {
-      left: Math.round(hostRect.left * 100) / 100,
-      top: Math.round(hostRect.top * 100) / 100,
-      width: Math.round(hostRect.width * 100) / 100,
-      height: Math.round(hostRect.height * 100) / 100
-    });
-    console.log('📦 Canvas Object Bounds (screen):', {
-      left: Math.round(screenObjectBounds.left * 100) / 100,
-      top: Math.round(screenObjectBounds.top * 100) / 100,
-      width: Math.round(screenObjectBounds.width * 100) / 100,
-      height: Math.round(screenObjectBounds.height * 100) / 100
-    });
-    console.log('📦 Canvas Object Bounds (canvas):', canvasBounds);
+
+    // console.log('🔍 BOUNDING BOX COMPARISON:');
+    // console.log('📦 Textarea Rect:', {
+    //   left: Math.round(textareaRect.left * 100) / 100,
+    //   top: Math.round(textareaRect.top * 100) / 100,
+    //   width: Math.round(textareaRect.width * 100) / 100,
+    //   height: Math.round(textareaRect.height * 100) / 100,
+    // });
+    // console.log('📦 Host Div Rect:', {
+    //   left: Math.round(hostRect.left * 100) / 100,
+    //   top: Math.round(hostRect.top * 100) / 100,
+    //   width: Math.round(hostRect.width * 100) / 100,
+    //   height: Math.round(hostRect.height * 100) / 100,
+    // });
+    // console.log('📦 Canvas Object Bounds (screen):', {
+    //   left: Math.round(screenObjectBounds.left * 100) / 100,
+    //   top: Math.round(screenObjectBounds.top * 100) / 100,
+    //   width: Math.round(screenObjectBounds.width * 100) / 100,
+    //   height: Math.round(screenObjectBounds.height * 100) / 100,
+    // });
+    // console.log('📦 Canvas Object Bounds (canvas):', canvasBounds);
 
     // Calculate differences
-    const hostVsObject = {
+    ({
       leftDiff: Math.round((hostRect.left - screenObjectBounds.left) * 100) / 100,
       topDiff: Math.round((hostRect.top - screenObjectBounds.top) * 100) / 100,
       widthDiff: Math.round((hostRect.width - screenObjectBounds.width) * 100) / 100,
       heightDiff: Math.round((hostRect.height - screenObjectBounds.height) * 100) / 100
-    };
-    const textareaVsObject = {
+    });
+    ({
       leftDiff: Math.round((textareaRect.left - screenObjectBounds.left) * 100) / 100,
       topDiff: Math.round((textareaRect.top - screenObjectBounds.top) * 100) / 100,
       widthDiff: Math.round((textareaRect.width - screenObjectBounds.width) * 100) / 100,
       heightDiff: Math.round((textareaRect.height - screenObjectBounds.height) * 100) / 100
-    };
-    console.log('📏 Host Div vs Canvas Object Diff:', hostVsObject);
-    console.log('📏 Textarea vs Canvas Object Diff:', textareaVsObject);
+    });
 
-    // Check if they're aligned (within 2px tolerance)
-    const tolerance = 2;
-    const hostAligned = Math.abs(hostVsObject.leftDiff) < tolerance && Math.abs(hostVsObject.topDiff) < tolerance && Math.abs(hostVsObject.widthDiff) < tolerance && Math.abs(hostVsObject.heightDiff) < tolerance;
-    const textareaAligned = Math.abs(textareaVsObject.leftDiff) < tolerance && Math.abs(textareaVsObject.topDiff) < tolerance && Math.abs(textareaVsObject.widthDiff) < tolerance && Math.abs(textareaVsObject.heightDiff) < tolerance;
-    console.log(hostAligned ? '✅ Host Div ALIGNED with canvas object' : '❌ Host Div MISALIGNED with canvas object');
-    console.log(textareaAligned ? '✅ Textarea ALIGNED with canvas object' : '❌ Textarea MISALIGNED with canvas object');
-    console.log('🔍 Zoom:', zoom, 'Viewport Transform:', vpt);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // console.log(
+    //   hostAligned
+    //     ? '✅ Host Div ALIGNED with canvas object'
+    //     : '❌ Host Div MISALIGNED with canvas object',
+    // );
+    // console.log(
+    //   textareaAligned
+    //     ? '✅ Textarea ALIGNED with canvas object'
+    //     : '❌ Textarea MISALIGNED with canvas object',
+    // );
+    // console.log('🔍 Zoom:', zoom, 'Viewport Transform:', vpt);
+    // console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   /**
    * Debug method to compare text wrapping between textarea and Fabric text object
    */
   debugTextWrapping() {
-    const target = this.target;
+    this.target;
     const text = this.textarea.value;
-    console.log('📝 TEXT WRAPPING COMPARISON:');
-    console.log('📄 Text Content:', `"${text}"`);
-    console.log('📄 Text Length:', text.length);
+
+    // console.log('📝 TEXT WRAPPING COMPARISON:');
+    // console.log('📄 Text Content:', `"${text}"`);
+    // console.log('📄 Text Length:', text.length);
 
     // Analyze line breaks
     const explicitLines = text.split('\n');
-    console.log('📄 Explicit Lines (\\n):', explicitLines.length);
+    // console.log('📄 Explicit Lines (\\n):', explicitLines.length);
     explicitLines.forEach((line, i) => {
-      console.log(`   Line ${i + 1}: "${line}" (${line.length} chars)`);
+      // console.log(`   Line ${i + 1}: "${line}" (${line.length} chars)`);
     });
 
     // Get textarea computed styles for wrapping analysis
     const textareaStyles = window.getComputedStyle(this.textarea);
-    console.log('📐 Textarea Wrapping Styles:');
-    console.log('   width:', textareaStyles.width);
-    console.log('   fontSize:', textareaStyles.fontSize);
-    console.log('   fontFamily:', textareaStyles.fontFamily);
-    console.log('   fontWeight:', textareaStyles.fontWeight);
-    console.log('   letterSpacing:', textareaStyles.letterSpacing);
-    console.log('   lineHeight:', textareaStyles.lineHeight);
-    console.log('   whiteSpace:', textareaStyles.whiteSpace);
-    console.log('   wordWrap:', textareaStyles.wordWrap);
-    console.log('   overflowWrap:', textareaStyles.overflowWrap);
-    console.log('   direction:', textareaStyles.direction);
-    console.log('   textAlign:', textareaStyles.textAlign);
+    // console.log('📐 Textarea Wrapping Styles:');
+    // console.log('   width:', textareaStyles.width);
+    // console.log('   fontSize:', textareaStyles.fontSize);
+    // console.log('   fontFamily:', textareaStyles.fontFamily);
+    // console.log('   fontWeight:', textareaStyles.fontWeight);
+    // console.log('   letterSpacing:', textareaStyles.letterSpacing);
+    // console.log('   lineHeight:', textareaStyles.lineHeight);
+    // console.log('   whiteSpace:', textareaStyles.whiteSpace);
+    // console.log('   wordWrap:', textareaStyles.wordWrap);
+    // console.log('   overflowWrap:', textareaStyles.overflowWrap);
+    // console.log('   direction:', textareaStyles.direction);
+    // console.log('   textAlign:', textareaStyles.textAlign);
 
     // Get Fabric text object properties for comparison
-    console.log('📐 Fabric Text Object Properties:');
-    console.log('   width:', target.width);
-    console.log('   fontSize:', target.fontSize);
-    console.log('   fontFamily:', target.fontFamily);
-    console.log('   fontWeight:', target.fontWeight);
-    console.log('   charSpacing:', target.charSpacing);
-    console.log('   lineHeight:', target.lineHeight);
-    console.log('   direction:', target.direction);
-    console.log('   textAlign:', target.textAlign);
-    console.log('   scaleX:', target.scaleX);
-    console.log('   scaleY:', target.scaleY);
+    // console.log('📐 Fabric Text Object Properties:');
+    // console.log('   width:', (target as any).width);
+    // console.log('   fontSize:', target.fontSize);
+    // console.log('   fontFamily:', target.fontFamily);
+    // console.log('   fontWeight:', target.fontWeight);
+    // console.log('   charSpacing:', target.charSpacing);
+    // console.log('   lineHeight:', target.lineHeight);
+    // console.log('   direction:', (target as any).direction);
+    // console.log('   textAlign:', (target as any).textAlign);
+    // console.log('   scaleX:', target.scaleX);
+    // console.log('   scaleY:', target.scaleY);
 
     // Calculate effective dimensions for comparison - use actual rendered width
     // **THE FIX:** Use getBoundingRect to get the *actual rendered width* of the Fabric object.
-    const fabricEffectiveWidth = this.target.getBoundingRect().width;
+    this.target.getBoundingRect().width;
     // Use the exact width set on textarea for comparison
     const textareaComputedWidth = parseFloat(window.getComputedStyle(this.textarea).width);
-    const textareaEffectiveWidth = textareaComputedWidth / this.canvas.getZoom();
-    const widthDiff = Math.abs(textareaEffectiveWidth - fabricEffectiveWidth);
-    console.log('📏 Effective Width Comparison:');
-    console.log('   Textarea Effective Width:', textareaEffectiveWidth);
-    console.log('   Fabric Effective Width:', fabricEffectiveWidth);
-    console.log('   Width Difference:', widthDiff.toFixed(2) + 'px');
-    console.log(widthDiff < 1 ? '✅ Widths MATCH for wrapping' : '❌ Width MISMATCH may cause different wrapping');
+    textareaComputedWidth / this.canvas.getZoom();
 
-    // Check text direction and bidi handling
-    const hasRTLText = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
-    const hasBidiText = /[\u0590-\u06FF]/.test(text) && /[a-zA-Z]/.test(text);
-    console.log('🌍 Text Direction Analysis:');
-    console.log('   Has RTL characters:', hasRTLText);
-    console.log('   Has mixed Bidi text:', hasBidiText);
-    console.log('   Textarea direction:', textareaStyles.direction);
-    console.log('   Fabric direction:', target.direction || 'auto');
-    console.log('   Textarea unicodeBidi:', textareaStyles.unicodeBidi);
+    // console.log('🌍 Text Direction Analysis:');
+    // console.log('   Has RTL characters:', hasRTLText);
+    // console.log('   Has mixed Bidi text:', hasBidiText);
+    // console.log('   Textarea direction:', textareaStyles.direction);
+    // console.log('   Fabric direction:', (target as any).direction || 'auto');
+    // console.log('   Textarea unicodeBidi:', textareaStyles.unicodeBidi);
 
     // Measure actual rendered line count
     const textareaScrollHeight = this.textarea.scrollHeight;
     const textareaLineHeight = parseFloat(textareaStyles.lineHeight) || parseFloat(textareaStyles.fontSize) * 1.2;
     const estimatedTextareaLines = Math.round(textareaScrollHeight / textareaLineHeight);
-    console.log('📊 Line Count Analysis:');
-    console.log('   Textarea scrollHeight:', textareaScrollHeight);
-    console.log('   Textarea lineHeight:', textareaLineHeight);
-    console.log('   Estimated rendered lines:', estimatedTextareaLines);
-    console.log('   Explicit line breaks:', explicitLines.length);
-    if (estimatedTextareaLines > explicitLines.length) {
-      console.log('🔄 Text wrapping detected in textarea');
-      console.log('   Wrapped lines:', estimatedTextareaLines - explicitLines.length);
-    } else {
-      console.log('📏 No text wrapping in textarea');
-    }
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // console.log('📊 Line Count Analysis:');
+    // console.log('   Textarea scrollHeight:', textareaScrollHeight);
+    // console.log('   Textarea lineHeight:', textareaLineHeight);
+    // console.log('   Estimated rendered lines:', estimatedTextareaLines);
+    // console.log('   Explicit line breaks:', explicitLines.length);
+
+    if (estimatedTextareaLines > explicitLines.length) ;
+
+    // console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   /**
@@ -24169,17 +24147,16 @@ class OverlayEditor {
 
       // Only update direction when not explicitly set on the object
       if (!hasExplicitDirection && detectedDirection && detectedDirection !== currentDirection) {
-        console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
-        console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
+        // console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
+        // console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
 
         // Update the fabric object's direction
         this.target.set('direction', detectedDirection);
 
         // Force a re-render to apply the direction change
         this.canvas.requestRenderAll();
-        console.log(`✅ Fabric object direction updated to: ${detectedDirection}`);
-      } else {
-        console.log(`📝 Overlay Exit: Direction unchanged (${currentDirection}), text: "${finalText.substring(0, 30)}..."`);
+
+        // console.log(`✅ Fabric object direction updated to: ${detectedDirection}`);
       }
       if (this.onCommit) {
         this.onCommit(finalText);
@@ -24742,17 +24719,17 @@ class ITextBehavior extends FabricText {
     const prevUsingBrowserWrap = this._usingBrowserWrapping;
     const hadLock = this.lockDynamicMinWidth;
     this.lockDynamicMinWidth = true;
-    const countKashida = val => val ? (val.match(/\u0640/g) || []).length : 0;
-    console.log('[OverlayCommit] pre-layout', {
-      textLength: text === null || text === void 0 ? void 0 : text.length,
-      kashidas: countKashida(text),
-      prevWidth,
-      prevMinWidth,
-      prevUsingBrowserWrap,
-      hadLock,
-      dir: this.direction,
-      align: this.textAlign
-    });
+    // console.log('[OverlayCommit] pre-layout', {
+    //   textLength: text?.length,
+    //   kashidas: countKashida(text),
+    //   prevWidth,
+    //   prevMinWidth,
+    //   prevUsingBrowserWrap,
+    //   hadLock,
+    //   dir: (this as any).direction,
+    //   align: (this as any).textAlign,
+    // });
+
     const overlayEditor = this.__overlayEditor;
     if (overlayEditor) {
       // Extract browser lines for pixel-perfect rendering
@@ -24760,7 +24737,7 @@ class ITextBehavior extends FabricText {
         const result = extractLinesFromDOM(overlayEditor.textareaElement);
         storeBrowserLines(this, result.lines);
       } catch (error) {
-        console.warn('Failed to extract browser lines:', error);
+        // console.warn('Failed to extract browser lines:', error);
       }
     }
 
@@ -24776,15 +24753,15 @@ class ITextBehavior extends FabricText {
     }
     this.dirty = true;
     this.initDimensions();
-    console.log('[OverlayCommit] post-layout', {
-      width: this.get('width'),
-      dynMinWidth: this.dynamicMinWidth,
-      usingBrowserWrap: this._usingBrowserWrapping,
-      lockDynamicMinWidth: this.lockDynamicMinWidth,
-      kashidas: countKashida(this.text),
-      left: this.left,
-      top: this.top
-    });
+    // console.log('[OverlayCommit] post-layout', {
+    //   width: this.get('width'),
+    //   dynMinWidth: (this as any).dynamicMinWidth,
+    //   usingBrowserWrap: (this as any)._usingBrowserWrapping,
+    //   lockDynamicMinWidth: (this as any).lockDynamicMinWidth,
+    //   kashidas: countKashida(this.text),
+    //   left: this.left,
+    //   top: this.top,
+    // });
     // Restore geometry after layout so the object doesn't drift
     this.set({
       left: prevLeft,
@@ -24794,13 +24771,13 @@ class ITextBehavior extends FabricText {
     this.setCoords();
     this.exitEditing();
     this.lockDynamicMinWidth = hadLock;
-    console.log('[OverlayCommit] final', {
-      width: this.get('width'),
-      dynMinWidth: this.dynamicMinWidth,
-      lockRestored: hadLock,
-      left: this.left,
-      top: this.top
-    });
+    // console.log('[OverlayCommit] final', {
+    //   width: this.get('width'),
+    //   dynMinWidth: (this as any).dynamicMinWidth,
+    //   lockRestored: hadLock,
+    //   left: this.left,
+    //   top: this.top,
+    // });
     this.fire('changed');
     this.canvas && this.canvas.requestRenderAll();
   }
@@ -24900,7 +24877,7 @@ class ITextBehavior extends FabricText {
    * @private
    */
   _updateTextarea() {
-    console.log('🔤 _updateTextarea called with fabric text:', this.text);
+    // console.log('🔤 _updateTextarea called with fabric text:', this.text);
     this.cursorOffsetCache = {};
     if (!this.hiddenTextarea) {
       return;
@@ -24909,9 +24886,9 @@ class ITextBehavior extends FabricText {
     // Sync textarea content with fabric text to prevent double-keypress issues
     const currentFabricText = this.text;
     if (this.hiddenTextarea.value !== currentFabricText) {
-      console.log('🔤 _updateTextarea: syncing textarea to fabric text');
-      console.log('🔤 _updateTextarea: textarea was:', this.hiddenTextarea.value);
-      console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
+      // console.log('🔤 _updateTextarea: syncing textarea to fabric text');
+      // console.log('🔤 _updateTextarea: textarea was:', this.hiddenTextarea.value);
+      // console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
       this.hiddenTextarea.value = currentFabricText;
     }
     if (!this.inCompositionMode) {
@@ -25562,34 +25539,29 @@ class ITextKeyBehavior extends ITextBehavior {
     }
 
     // Debug log to track the double keypress issue
-    console.log('🔤 onInput debug:', {
-      fabricText: this.text,
-      textareaValue: value,
-      fabricSelection: {
-        start: this.selectionStart,
-        end: this.selectionEnd
-      },
-      textareaSelection: {
-        start: selectionStart,
-        end: selectionEnd
-      },
-      fromPaste,
-      inComposition: this.inCompositionMode
-    });
+    // console.log('🔤 onInput debug:', {
+    //   fabricText: this.text,
+    //   textareaValue: value,
+    //   fabricSelection: { start: this.selectionStart, end: this.selectionEnd },
+    //   textareaSelection: { start: selectionStart, end: selectionEnd },
+    //   fromPaste,
+    //   inComposition: this.inCompositionMode
+    // });
 
     // Immediate sync for simple character replacement - fix for double keypress issue
     if (this.text !== value && !this.inCompositionMode) {
-      console.log('🔤 Immediate sync: fabric text differs from textarea, syncing immediately');
-      console.log('🔤 Before sync - fabric text:', this.text);
-      console.log('🔤 Before sync - textarea value:', value);
-      console.log('🔤 fromPaste:', fromPaste);
+      // console.log('🔤 Immediate sync: fabric text differs from textarea, syncing immediately');
+      // console.log('🔤 Before sync - fabric text:', this.text);
+      // console.log('🔤 Before sync - textarea value:', value);
+      // console.log('🔤 fromPaste:', fromPaste);
 
       // Clear all relevant caches that might prevent visual updates
       this.cursorOffsetCache = {};
       this._browserWrapCache = null;
       this._lastDimensionState = null;
       this._forceClearCache = true;
-      console.log('🔤 Cleared all caches');
+
+      // console.log('🔤 Cleared all caches');
 
       // Use the same logic as updateAndFire but immediately
       this.updateFromTextArea();
@@ -25602,8 +25574,9 @@ class ITextKeyBehavior extends ITextBehavior {
         // Remove requestRenderAll() which queues for next animation frame
         this.canvas.renderAll();
       }
-      console.log('🔤 After updateFromTextArea - fabric text:', this.text);
-      console.log('🔤 Sync complete, caches cleared, synchronous render only');
+
+      // console.log('🔤 After updateFromTextArea - fabric text:', this.text);
+      // console.log('🔤 Sync complete, caches cleared, synchronous render only');
       return;
     }
     const updateAndFire = () => {
@@ -26853,10 +26826,11 @@ class IText extends ITextClickBehavior {
     for (let i = 0; i < lineIndex; i++) {
       const origLen = this._getOriginalLineLength(i);
       const newlineOffset = this.missingNewlineOffset(i);
-      console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
+      // console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
       lineStartIndex += origLen + newlineOffset;
     }
-    console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
+    // console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
+
     const line = this._textLines[lineIndex];
     const lineText = line.join('');
     const displayCharLength = line.length;
@@ -26915,7 +26889,9 @@ class IText extends ITextClickBehavior {
 
         // Check if this is a tatweel - if so, treat click as clicking on the extended character
         const isTatweel = this._isTatweelAtDisplayIndex(lineIndex, pos.logicalIndex);
-        console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
+
+        // console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
+
         const charMiddle = pos.visualX + pos.width / 2;
         const clickedLeftHalf = clickX <= charMiddle;
 
@@ -26924,7 +26900,7 @@ class IText extends ITextClickBehavior {
           // Tatweel extends the character before it, so cursor goes after that character
           // originalCharIndex from _displayToOriginalIndex already maps tatweel to char+1
           const result = lineStartIndex + originalCharIndex;
-          console.log(`📍 Tatweel click result: ${result}`);
+          // console.log(`📍 Tatweel click result: ${result}`);
           return result;
         }
 
@@ -26933,17 +26909,18 @@ class IText extends ITextClickBehavior {
         if (pos.isRtl) {
           // RTL character
           const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex + 1 : originalCharIndex);
-          console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          // console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
           return result;
         } else {
           // LTR character
           const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex : originalCharIndex + 1);
-          console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          // console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
           return result;
         }
       }
     }
-    console.log(`📍 No match, returning end: ${lineStartIndex + originalCharLength}`);
+
+    // console.log(`📍 No match, returning end: ${lineStartIndex + originalCharLength}`);
     return lineStartIndex + originalCharLength;
   }
 
@@ -27792,8 +27769,9 @@ class Textbox extends IText {
       // Distribute tatweels evenly
       const tatweelsPerPoint = Math.floor(totalTatweels / maxKashidaPoints);
       const extraTatweels = totalTatweels % maxKashidaPoints;
-      console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
-      console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
+
+      // console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
+      // console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
 
       // Sort by charIndex descending so we insert from the end (prevents index shifting issues)
       const sortedPoints = [...usedKashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
@@ -27808,7 +27786,7 @@ class Textbox extends IText {
           // Insert tatweels AFTER the character at charIndex
           const tatweels = Array(count).fill(ARABIC_TATWEEL);
           newLine.splice(point.charIndex + 1, 0, ...tatweels);
-          console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
+          // console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
 
           // Store kashida info for index conversion
           this.__kashidaInfo[lineIndex].push({
@@ -27861,14 +27839,15 @@ class Textbox extends IText {
                 bound.kernedWidth += extraPerSpace;
               }
             }
-            console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
+            // console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
           }
         }
       }
 
       // Set line width to textbox width (for justified lines)
       this.__lineWidths[lineIndex] = this.width;
-      console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
+
+      // console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
     }
 
     // Cache line widths for all lines to prevent remeasurement during render
@@ -27891,14 +27870,11 @@ class Textbox extends IText {
     this._justifyApplied = true;
 
     // Debug log final kashida state
-    console.log('=== _applyKashidaToLayout END ===');
-    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
-      line: i,
-      entries: lineInfo.map(k => ({
-        charIndex: k.charIndex,
-        tatweelCount: k.tatweelCount
-      }))
-    }))));
+    // console.log('=== _applyKashidaToLayout END ===');
+    // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+    //   line: i,
+    //   entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    // }))));
   }
 
   /**
@@ -28423,47 +28399,54 @@ class Textbox extends IText {
    * @private
    */
   _extractJustifySpaceMeasurements(element, lines) {
-    console.log('=== _extractJustifySpaceMeasurements START ===');
-    console.log('Textbox width:', this.width);
-    console.log('Lines count:', lines.length);
+    // console.log('=== _extractJustifySpaceMeasurements START ===');
+    // console.log('Textbox width:', this.width);
+    // console.log('Lines count:', lines.length);
+
     const measureCtx = this._browserMeasureCtx || (this._browserMeasureCtx = document.createElement('canvas').getContext('2d'));
     if (!measureCtx) {
-      console.log('ERROR: No measure context');
+      // console.log('ERROR: No measure context');
       return [];
     }
     measureCtx.font = `${this.fontStyle || 'normal'} ${this.fontWeight || 'normal'} ${this.fontSize}px "${this.fontFamily}"`;
     const normalSpaceWidth = measureCtx.measureText(' ').width || 6;
-    console.log('Font:', measureCtx.font);
-    console.log('Normal space width:', normalSpaceWidth);
+    // console.log('Font:', measureCtx.font);
+    // console.log('Normal space width:', normalSpaceWidth);
+
     const spaceWidths = [];
     lines.forEach((line, lineIndex) => {
       const lineSpaces = [];
       const spaceCount = (line.match(/\s/g) || []).length;
       const isLastLine = lineIndex === lines.length - 1;
-      console.log(`\nLine ${lineIndex}: "${line.substring(0, 50)}..." spaces: ${spaceCount}, isLast: ${isLastLine}`);
+
+      // console.log(`\nLine ${lineIndex}: "${line.substring(0, 50)}..." spaces: ${spaceCount}, isLast: ${isLastLine}`);
+
       if (spaceCount > 0 && !isLastLine) {
         // Don't justify last line
         const naturalWidth = measureCtx.measureText(line).width;
         const remainingSpace = this.width - naturalWidth;
         const extraPerSpace = remainingSpace > 0 ? remainingSpace / spaceCount : 0;
         const expandedSpaceWidth = normalSpaceWidth + extraPerSpace;
-        console.log(`  Natural width: ${naturalWidth.toFixed(2)}, Remaining: ${remainingSpace.toFixed(2)}`);
-        console.log(`  Extra per space: ${extraPerSpace.toFixed(2)}, Expanded space: ${expandedSpaceWidth.toFixed(2)}`);
+
+        // console.log(`  Natural width: ${naturalWidth.toFixed(2)}, Remaining: ${remainingSpace.toFixed(2)}`);
+        // console.log(`  Extra per space: ${extraPerSpace.toFixed(2)}, Expanded space: ${expandedSpaceWidth.toFixed(2)}`);
+
         const safeWidth = Math.max(normalSpaceWidth, expandedSpaceWidth);
         for (let i = 0; i < spaceCount; i++) {
           lineSpaces.push(safeWidth);
         }
       } else if (spaceCount > 0) {
         // Last line: keep natural space width
-        console.log(`  Last line - using normal space width: ${normalSpaceWidth}`);
+        // console.log(`  Last line - using normal space width: ${normalSpaceWidth}`);
         for (let i = 0; i < spaceCount; i++) {
           lineSpaces.push(normalSpaceWidth);
         }
       }
       spaceWidths.push(lineSpaces);
     });
-    console.log('\nFinal spaceWidths:', spaceWidths);
-    console.log('=== _extractJustifySpaceMeasurements END ===\n');
+
+    // console.log('\nFinal spaceWidths:', spaceWidths);
+    // console.log('=== _extractJustifySpaceMeasurements END ===\n');
     return spaceWidths;
   }
 
@@ -28536,7 +28519,7 @@ class Textbox extends IText {
 
       // If kashida is enabled, insert actual tatweel characters
       if (hasKashidaPoints && perKashidaWidth > 0) {
-        console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
+        // console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
 
         // Sort by charIndex descending to insert from end
         const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
@@ -28547,12 +28530,13 @@ class Textbox extends IText {
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          console.log(`  tatweelWidth: ${tatweelWidth}`);
+          // console.log(`  tatweelWidth: ${tatweelWidth}`);
+
           if (tatweelWidth > 0) {
             const newLine = [...line];
             for (const point of sortedPoints) {
               const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
 
               // Insert tatweels after the character
               for (let t = 0; t < tatweelCount; t++) {
@@ -28566,7 +28550,8 @@ class Textbox extends IText {
                 tatweelCount: tatweelCount
               });
             }
-            console.log(`  New line: ${newLine.join('')}`);
+
+            // console.log(`  New line: ${newLine.join('')}`);
 
             // Update _textLines with kashida
             this._textLines[lineIndex] = newLine;
@@ -28624,14 +28609,11 @@ class Textbox extends IText {
     this._justifyApplied = true;
 
     // Debug log final kashida state
-    console.log('=== _applyBrowserJustifySpaces END ===');
-    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
-      line: i,
-      entries: lineInfo.map(k => ({
-        charIndex: k.charIndex,
-        tatweelCount: k.tatweelCount
-      }))
-    }))));
+    // console.log('=== _applyBrowserJustifySpaces END ===');
+    // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+    //   line: i,
+    //   entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    // }))));
   }
 
   /**

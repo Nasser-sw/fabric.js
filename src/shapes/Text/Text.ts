@@ -619,8 +619,8 @@ export class FabricText<
    * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    console.log('=== enlargeSpaces START ===');
-    console.log('this.kashida:', this.kashida);
+    // console.log('=== enlargeSpaces START ===');
+    // console.log('this.kashida:', this.kashida);
 
     // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
     const kashidaRatios: Record<string, number> = {
@@ -631,7 +631,7 @@ export class FabricText<
       stylistic: 1.0,
     };
     const kashidaRatio = kashidaRatios[this.kashida] || 0;
-    console.log('kashidaRatio:', kashidaRatio);
+    // console.log('kashidaRatio:', kashidaRatio);
 
     // Reset kashida info
     this.__kashidaInfo = [];
@@ -654,17 +654,17 @@ export class FabricText<
         this.textAlign.includes('justify') && !isLastLine;
 
       if (!shouldJustifyLine) {
-        console.log(`  Line ${i}: skipped (not justified)`);
+        // console.log(`  Line ${i}: skipped (not justified)`);
         continue;
       }
 
       const line = this._textLines[i];
       const currentLineWidth = this.getLineWidth(i);
       const totalExtraSpace = this.width - currentLineWidth;
-      console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
+      // console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
 
       if (totalExtraSpace <= 0) {
-        console.log(`  Line ${i}: skipped (no extra space)`);
+        // console.log(`  Line ${i}: skipped (no extra space)`);
         continue;
       }
 
@@ -692,8 +692,8 @@ export class FabricText<
 
       // If kashida is enabled, insert tatweel characters into the text
       if (hasKashidaPoints && perKashidaWidth > 0) {
-        console.log(`=== Inserting kashida for line ${i} ===`);
-        console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
+        // console.log(`=== Inserting kashida for line ${i} ===`);
+        // console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
 
         // Sort by charIndex descending to insert from end (so indices stay valid)
         const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
@@ -701,12 +701,12 @@ export class FabricText<
         // Calculate how many tatweels to insert per point
         // Measure tatweel width to determine count
         const ctx = getMeasuringContext();
-        console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
+        // console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
 
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          console.log(`  tatweelWidth: ${tatweelWidth}`);
+          // console.log(`  tatweelWidth: ${tatweelWidth}`);
 
           if (tatweelWidth > 0) {
             const newLine = [...line];
@@ -714,7 +714,7 @@ export class FabricText<
 
             for (const point of sortedPoints) {
               const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
 
               // Insert tatweels after the character
               for (let t = 0; t < tatweelCount; t++) {
@@ -730,9 +730,9 @@ export class FabricText<
               });
             }
 
-            console.log(`  Total inserted: ${insertedCount} tatweels`);
-            console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
-            console.log(`  New line: ${newLine.join('')}`);
+            // console.log(`  Total inserted: ${insertedCount} tatweels`);
+            // console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
+            // console.log(`  New line: ${newLine.join('')}`);
 
             // Update _textLines with the new line containing tatweels
             this._textLines[i] = newLine;
@@ -747,7 +747,7 @@ export class FabricText<
             this.__lineWidths[i] = undefined as any;
             this._measureLine(i);
 
-            console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
+            // console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
           }
         }
       }
@@ -776,11 +776,11 @@ export class FabricText<
     }
 
     // Final debug log showing kashida state
-    console.log('=== enlargeSpaces END ===');
-    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
-      line: i,
-      entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
-    }))));
+    // console.log('=== enlargeSpaces END ===');
+    // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+    //   line: i,
+    //   entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    // }))));
   }
 
   /**
@@ -1315,8 +1315,8 @@ export class FabricText<
   _measureLine(lineIndex: number) {
     // Debug: detect if measureLine is called after justify was applied
     if ((this as any)._justifyApplied) {
-      console.warn(`WARNING: _measureLine called for line ${lineIndex} AFTER justify was applied! This will overwrite justified charBounds.`);
-      console.trace('Stack trace:');
+      // console.warn(`WARNING: _measureLine called for line ${lineIndex} AFTER justify was applied! This will overwrite justified charBounds.`);
+      // console.trace('Stack trace:');
     }
 
     let width = 0,
@@ -1513,11 +1513,11 @@ export class FabricText<
 
     // Debug: log once per render
     if (method === 'fillText' && this.textAlign?.includes('justify')) {
-      console.log('=== RENDER DEBUG ===');
-      console.log('direction:', this.direction);
-      console.log('textAlign:', this.textAlign);
-      console.log('width:', this.width);
-      console.log('_getLeftOffset:', left);
+      // console.log('=== RENDER DEBUG ===');
+      // console.log('direction:', this.direction);
+      // console.log('textAlign:', this.textAlign);
+      // console.log('width:', this.width);
+      // console.log('_getLeftOffset:', left);
     }
 
     for (let i = 0, len = this._textLines.length; i < len; i++) {
@@ -1528,7 +1528,7 @@ export class FabricText<
       // Debug: log line offsets for justify
       if (method === 'fillText' && this.textAlign?.includes('justify')) {
         const lineWidth = this.getLineWidth(i);
-        console.log(`Line ${i}: leftOffset=${leftOffset.toFixed(2)}, lineWidth=${lineWidth.toFixed(2)}, renderAt=${(left + leftOffset).toFixed(2)}`);
+        // console.log(`Line ${i}: leftOffset=${leftOffset.toFixed(2)}, lineWidth=${lineWidth.toFixed(2)}, renderAt=${(left + leftOffset).toFixed(2)}`);
       }
 
       this._renderTextLine(
@@ -1672,12 +1672,12 @@ export class FabricText<
     }
     // Debug: Log charBounds being used for first line only during justify
     if (isJustify && lineIndex === 0 && method === 'fillText') {
-      console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
-      console.log('Initial left:', left.toFixed(2), 'sign:', sign);
-      console.log('_justifyApplied flag:', (this as any)._justifyApplied);
+      // console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
+      // console.log('Initial left:', left.toFixed(2), 'sign:', sign);
+      // console.log('_justifyApplied flag:', (this as any)._justifyApplied);
       const lineBounds = this.__charBounds[lineIndex];
       const totalKW = lineBounds?.reduce((s, b) => s + (b?.kernedWidth || 0), 0) || 0;
-      console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
+      // console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
       // Log first few space widths to verify expansion
       const spaceIndices = [3, 9, 15, 23, 31];
       spaceIndices.forEach(idx => {
@@ -1737,7 +1737,7 @@ export class FabricText<
           drawingLeft = left;
           // Debug: log first chunk positioning for justify
           if (isJustify && lineIndex === 0 && method === 'fillText' && i < 5) {
-            console.log(`  Chunk ending at char ${i}: left=${left.toFixed(2)}, boxWidth=${boxWidth.toFixed(2)}, drawingLeft=${drawingLeft.toFixed(2)}, textAlign=${isLtr ? 'left' : 'right'}`);
+            // console.log(`  Chunk ending at char ${i}: left=${left.toFixed(2)}, boxWidth=${boxWidth.toFixed(2)}, drawingLeft=${drawingLeft.toFixed(2)}, textAlign=${isLtr ? 'left' : 'right'}`);
           }
           this._renderChar(
             method,
@@ -1757,8 +1757,8 @@ export class FabricText<
     }
     // Debug: log final position for justify
     if (isJustify && lineIndex === 0 && method === 'fillText') {
-      console.log('Final left position after rendering:', left.toFixed(2));
-      console.log('Expected final position:', (sign > 0 ? this.width / 2 : -this.width / 2).toFixed(2));
+      // console.log('Final left position after rendering:', left.toFixed(2));
+      // console.log('Expected final position:', (sign > 0 ? this.width / 2 : -this.width / 2).toFixed(2));
     }
     ctx.restore();
   }
@@ -2035,8 +2035,8 @@ export class FabricText<
    * @private
    */
   _clearCache() {
-    console.log('🗑️ _clearCache called');
-    console.trace('🗑️ _clearCache stack trace');
+    // console.log('🗑️ _clearCache called');
+    // console.trace('🗑️ _clearCache stack trace');
     this._forceClearCache = false;
     this.__lineWidths = [];
     this.__lineHeights = [];
@@ -2057,22 +2057,22 @@ export class FabricText<
    * @returns Original character index (without tatweels)
    */
   _displayToOriginalIndex(lineIndex: number, displayCharIndex: number): number {
-    console.log(`🔄 _displayToOriginalIndex called: line=${lineIndex}, displayIdx=${displayCharIndex}`);
-    console.log(`🔄 __kashidaInfo exists: ${!!this.__kashidaInfo}, length: ${this.__kashidaInfo?.length}`);
-    console.log(`🔄 __kashidaInfo raw:`, JSON.stringify(this.__kashidaInfo));
+    // console.log(`🔄 _displayToOriginalIndex called: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    // console.log(`🔄 __kashidaInfo exists: ${!!this.__kashidaInfo}, length: ${this.__kashidaInfo?.length}`);
+    // console.log(`🔄 __kashidaInfo raw:`, JSON.stringify(this.__kashidaInfo));
 
     const kashidaInfo = this.__kashidaInfo?.[lineIndex];
     if (!kashidaInfo || kashidaInfo.length === 0) {
       // No kashida on this line, indices are the same
-      console.log(`🔄 No kashida info for line ${lineIndex}, returning same index`);
+      // console.log(`🔄 No kashida info for line ${lineIndex}, returning same index`);
       return displayCharIndex;
     }
 
     // Sort kashida info by charIndex ascending for proper traversal
     const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
 
-    console.log(`🔄 _displayToOriginalIndex: line=${lineIndex}, displayIdx=${displayCharIndex}`);
-    console.log(`🔄 kashidaInfo:`, sortedKashida.map(k => `{charIdx:${k.charIndex}, cnt:${k.tatweelCount}}`).join(', '));
+    // console.log(`🔄 _displayToOriginalIndex: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    // console.log(`🔄 kashidaInfo:`, sortedKashida.map(k => `{charIdx:${k.charIndex}, cnt:${k.tatweelCount}}`).join(', '));
 
     let tatweelsBeforeIndex = 0;
 
@@ -2082,26 +2082,26 @@ export class FabricText<
       const tatweelStartPos = k.charIndex + 1 + tatweelsBeforeIndex;
       const tatweelEndPos = tatweelStartPos + tatweelCount;
 
-      console.log(`🔄   k.charIndex=${k.charIndex}, tatweelStartPos=${tatweelStartPos}, tatweelEndPos=${tatweelEndPos}, tatweelsBeforeIndex=${tatweelsBeforeIndex}`);
+      // console.log(`🔄   k.charIndex=${k.charIndex}, tatweelStartPos=${tatweelStartPos}, tatweelEndPos=${tatweelEndPos}, tatweelsBeforeIndex=${tatweelsBeforeIndex}`);
 
       if (displayCharIndex < tatweelStartPos) {
         // Before this kashida point
-        console.log(`🔄   displayIdx < tatweelStartPos, break`);
+        // console.log(`🔄   displayIdx < tatweelStartPos, break`);
         break;
       } else if (displayCharIndex < tatweelEndPos) {
         // Within tatweel characters - map to the character before tatweels
-        console.log(`🔄   Within tatweel, return ${k.charIndex + 1}`);
+        // console.log(`🔄   Within tatweel, return ${k.charIndex + 1}`);
         return k.charIndex + 1;
       } else {
         // After this kashida point
         tatweelsBeforeIndex += tatweelCount;
-        console.log(`🔄   After this kashida, tatweelsBeforeIndex now=${tatweelsBeforeIndex}`);
+        // console.log(`🔄   After this kashida, tatweelsBeforeIndex now=${tatweelsBeforeIndex}`);
       }
     }
 
     // Subtract all tatweels that come before this position
     const result = displayCharIndex - tatweelsBeforeIndex;
-    console.log(`🔄 Final result: ${displayCharIndex} - ${tatweelsBeforeIndex} = ${result}`);
+    // console.log(`🔄 Final result: ${displayCharIndex} - ${tatweelsBeforeIndex} = ${result}`);
     return result;
   }
 

@@ -180,21 +180,21 @@ export abstract class ITextKeyBehavior<
     }
     
     // Debug log to track the double keypress issue
-    console.log('🔤 onInput debug:', {
-      fabricText: this.text,
-      textareaValue: value,
-      fabricSelection: { start: this.selectionStart, end: this.selectionEnd },
-      textareaSelection: { start: selectionStart, end: selectionEnd },
-      fromPaste,
-      inComposition: this.inCompositionMode
-    });
+    // console.log('🔤 onInput debug:', {
+    //   fabricText: this.text,
+    //   textareaValue: value,
+    //   fabricSelection: { start: this.selectionStart, end: this.selectionEnd },
+    //   textareaSelection: { start: selectionStart, end: selectionEnd },
+    //   fromPaste,
+    //   inComposition: this.inCompositionMode
+    // });
     
     // Immediate sync for simple character replacement - fix for double keypress issue
     if (this.text !== value && !this.inCompositionMode) {
-      console.log('🔤 Immediate sync: fabric text differs from textarea, syncing immediately');
-      console.log('🔤 Before sync - fabric text:', this.text);
-      console.log('🔤 Before sync - textarea value:', value);
-      console.log('🔤 fromPaste:', fromPaste);
+      // console.log('🔤 Immediate sync: fabric text differs from textarea, syncing immediately');
+      // console.log('🔤 Before sync - fabric text:', this.text);
+      // console.log('🔤 Before sync - textarea value:', value);
+      // console.log('🔤 fromPaste:', fromPaste);
       
       // Clear all relevant caches that might prevent visual updates
       this.cursorOffsetCache = {};
@@ -202,7 +202,7 @@ export abstract class ITextKeyBehavior<
       (this as any)._lastDimensionState = null;
       this._forceClearCache = true;
       
-      console.log('🔤 Cleared all caches');
+      // console.log('🔤 Cleared all caches');
       
       // Use the same logic as updateAndFire but immediately
       this.updateFromTextArea();
@@ -214,8 +214,8 @@ export abstract class ITextKeyBehavior<
         this.canvas.renderAll();
       }
       
-      console.log('🔤 After updateFromTextArea - fabric text:', this.text);
-      console.log('🔤 Sync complete, caches cleared, synchronous render only');
+      // console.log('🔤 After updateFromTextArea - fabric text:', this.text);
+      // console.log('🔤 Sync complete, caches cleared, synchronous render only');
       return;
     }
     

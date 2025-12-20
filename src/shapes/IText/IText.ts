@@ -562,10 +562,10 @@ export class IText<
     for (let i = 0; i < lineIndex; i++) {
       const origLen = this._getOriginalLineLength(i);
       const newlineOffset = this.missingNewlineOffset(i);
-      console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
+      // console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
       lineStartIndex += origLen + newlineOffset;
     }
-    console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
+    // console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
 
     const line = this._textLines[lineIndex];
     const lineText = line.join('');
@@ -633,7 +633,7 @@ export class IText<
         // Check if this is a tatweel - if so, treat click as clicking on the extended character
         const isTatweel = this._isTatweelAtDisplayIndex(lineIndex, pos.logicalIndex);
 
-        console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
+        // console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
 
         const charMiddle = pos.visualX + pos.width / 2;
         const clickedLeftHalf = clickX <= charMiddle;
@@ -643,7 +643,7 @@ export class IText<
           // Tatweel extends the character before it, so cursor goes after that character
           // originalCharIndex from _displayToOriginalIndex already maps tatweel to char+1
           const result = lineStartIndex + originalCharIndex;
-          console.log(`📍 Tatweel click result: ${result}`);
+          // console.log(`📍 Tatweel click result: ${result}`);
           return result;
         }
 
@@ -652,18 +652,18 @@ export class IText<
         if (pos.isRtl) {
           // RTL character
           const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex + 1 : originalCharIndex);
-          console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          // console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
           return result;
         } else {
           // LTR character
           const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex : originalCharIndex + 1);
-          console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          // console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
           return result;
         }
       }
     }
 
-    console.log(`📍 No match, returning end: ${lineStartIndex + originalCharLength}`);
+    // console.log(`📍 No match, returning end: ${lineStartIndex + originalCharLength}`);
     return lineStartIndex + originalCharLength;
   }
 

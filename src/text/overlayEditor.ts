@@ -240,9 +240,9 @@ export class OverlayEditor {
       requestAnimationFrame(() => {
         if (!this.isDestroyed) {
           this.applyOverlayStyle();
-          console.log(
-            '📐 Height changed - rechecking alignment after repositioning:',
-          );
+          // console.log(
+          //   '📐 Height changed - rechecking alignment after repositioning:',
+          // );
         }
       });
     }
@@ -340,7 +340,7 @@ export class OverlayEditor {
     
     // Special handling for text objects loaded from JSON - ensure they're properly initialized
     if (target.dirty !== false && target.initDimensions) {
-      console.log('🔧 Ensuring text object is properly initialized before overlay editing');
+      // console.log('🔧 Ensuring text object is properly initialized before overlay editing');
       // Force re-initialization if the text object seems to be in a dirty state
       target.initDimensions();
     }
@@ -358,11 +358,11 @@ export class OverlayEditor {
     const autoDetectedDirection = this.firstStrongDir(this.textarea.value || '');
     
     // DEBUG: Log alignment details
-    console.log('🔍 ALIGNMENT DEBUG:');
-    console.log('   Fabric textAlign:', textAlign);
-    console.log('   Fabric direction:', (target as any).direction);
-    console.log('   Text content:', JSON.stringify(target.text));
-    console.log('   Detected direction:', autoDetectedDirection);
+    // console.log('🔍 ALIGNMENT DEBUG:');
+    // console.log('   Fabric textAlign:', textAlign);
+    // console.log('   Fabric direction:', (target as any).direction);
+    // console.log('   Text content:', JSON.stringify(target.text));
+    // console.log('   Detected direction:', autoDetectedDirection);
     
     // Map fabric.js justify to CSS
     if (textAlign.includes('justify')) {
@@ -380,7 +380,7 @@ export class OverlayEditor {
           // If text is RTL but fabric says justify-left, override to justify-right for better UX
           if (autoDetectedDirection === 'rtl') {
             this.textarea.style.textAlignLast = 'right';
-            console.log('   → Overrode justify-left to justify-right for RTL text');
+            // console.log('   → Overrode justify-left to justify-right for RTL text');
           } else {
             this.textarea.style.textAlignLast = 'left';
           }
@@ -388,7 +388,7 @@ export class OverlayEditor {
           // If text is LTR but fabric says justify-right, override to justify-left for better UX  
           if (autoDetectedDirection === 'ltr') {
             this.textarea.style.textAlignLast = 'left';
-            console.log('   → Overrode justify-right to justify-left for LTR text');
+            // console.log('   → Overrode justify-right to justify-left for LTR text');
           } else {
             this.textarea.style.textAlignLast = 'right';
           }
@@ -408,16 +408,16 @@ export class OverlayEditor {
         (this.textarea.style as any).textJustifyTrim = 'none';
         (this.textarea.style as any).textAutospace = 'none';
         
-        console.log('   → Applied justify alignment:', textAlign, 'with last-line:', this.textarea.style.textAlignLast);
+        // console.log('   → Applied justify alignment:', textAlign, 'with last-line:', this.textarea.style.textAlignLast);
       } catch (error) {
-        console.warn('   → Justify setup failed, falling back to standard alignment:', error);
+        // console.warn('   → Justify setup failed, falling back to standard alignment:', error);
         cssTextAlign = textAlign.replace('justify-', '').replace('justify', 'left');
       }
     } else {
       this.textarea.style.textAlignLast = 'auto';
       (this.textarea.style as any).textJustify = 'auto';
       (this.textarea.style as any).wordSpacing = 'normal';
-      console.log('   → Applied standard alignment:', cssTextAlign);
+      // console.log('   → Applied standard alignment:', cssTextAlign);
     }
     
     this.textarea.style.textAlign = cssTextAlign;
@@ -444,37 +444,37 @@ export class OverlayEditor {
     this.textarea.style.hyphens = 'none';
     
     // DEBUG: Log final CSS properties
-    console.log('🎨 FINAL TEXTAREA CSS:');
-    console.log('   textAlign:', this.textarea.style.textAlign);
-    console.log('   textAlignLast:', this.textarea.style.textAlignLast);
-    console.log('   direction:', this.textarea.style.direction);
-    console.log('   unicodeBidi:', this.textarea.style.unicodeBidi);
-    console.log('   width:', this.textarea.style.width);
-    console.log('   textJustify:', (this.textarea.style as any).textJustify);
-    console.log('   wordSpacing:', (this.textarea.style as any).wordSpacing);
-    console.log('   whiteSpace:', this.textarea.style.whiteSpace);
+    // console.log('🎨 FINAL TEXTAREA CSS:');
+    // console.log('   textAlign:', this.textarea.style.textAlign);
+    // console.log('   textAlignLast:', this.textarea.style.textAlignLast);
+    // console.log('   direction:', this.textarea.style.direction);
+    // console.log('   unicodeBidi:', this.textarea.style.unicodeBidi);
+    // console.log('   width:', this.textarea.style.width);
+    // console.log('   textJustify:', (this.textarea.style as any).textJustify);
+    // console.log('   wordSpacing:', (this.textarea.style as any).wordSpacing);
+    // console.log('   whiteSpace:', this.textarea.style.whiteSpace);
     
     // If justify, log Fabric object dimensions for comparison
     if (textAlign.includes('justify')) {
-      console.log('🔧 FABRIC OBJECT JUSTIFY INFO:');
-      console.log('   Fabric width:', (target as any).width);
-      console.log('   Fabric calcTextWidth:', (target as any).calcTextWidth?.());
-      console.log('   Fabric textAlign:', (target as any).textAlign);
-      console.log('   Text lines:', (target as any).textLines);
+      // console.log('🔧 FABRIC OBJECT JUSTIFY INFO:');
+      // console.log('   Fabric width:', (target as any).width);
+      // console.log('   Fabric calcTextWidth:', (target as any).calcTextWidth?.());
+      // console.log('   Fabric textAlign:', (target as any).textAlign);
+      // console.log('   Text lines:', (target as any).textLines);
     }
     
     // Debug font properties matching
-    console.log('🔤 FONT PROPERTIES COMPARISON:');
-    console.log('   Fabric fontFamily:', target.fontFamily);
-    console.log('   Fabric fontWeight:', target.fontWeight);
-    console.log('   Fabric fontStyle:', target.fontStyle);
-    console.log('   Fabric fontSize:', target.fontSize);
-    console.log('   → Textarea fontFamily:', this.textarea.style.fontFamily);
-    console.log('   → Textarea fontWeight:', this.textarea.style.fontWeight);
-    console.log('   → Textarea fontStyle:', this.textarea.style.fontStyle);
-    console.log('   → Textarea fontSize:', this.textarea.style.fontSize);
+    // console.log('🔤 FONT PROPERTIES COMPARISON:');
+    // console.log('   Fabric fontFamily:', target.fontFamily);
+    // console.log('   Fabric fontWeight:', target.fontWeight);
+    // console.log('   Fabric fontStyle:', target.fontStyle);
+    // console.log('   Fabric fontSize:', target.fontSize);
+    // console.log('   → Textarea fontFamily:', this.textarea.style.fontFamily);
+    // console.log('   → Textarea fontWeight:', this.textarea.style.fontWeight);
+    // console.log('   → Textarea fontStyle:', this.textarea.style.fontStyle);
+    // console.log('   → Textarea fontSize:', this.textarea.style.fontSize);
     
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     // Enhanced font rendering to better match fabric.js canvas rendering
     // Default to auto for more natural rendering
@@ -491,12 +491,12 @@ export class OverlayEditor {
     if (isBold) {
       (this.textarea.style as any).webkitFontSmoothing = 'subpixel-antialiased';
       (this.textarea.style as any).mozOsxFontSmoothing = 'unset';
-      console.log('🔤 Applied enhanced bold rendering for better thickness matching');
+      // console.log('🔤 Applied enhanced bold rendering for better thickness matching');
     }
     
-    console.log('🎨 FONT SMOOTHING APPLIED:');
-    console.log('   webkitFontSmoothing:', (this.textarea.style as any).webkitFontSmoothing);
-    console.log('   mozOsxFontSmoothing:', (this.textarea.style as any).mozOsxFontSmoothing);
+    // console.log('🎨 FONT SMOOTHING APPLIED:');
+    // console.log('   webkitFontSmoothing:', (this.textarea.style as any).webkitFontSmoothing);
+    // console.log('   mozOsxFontSmoothing:', (this.textarea.style as any).mozOsxFontSmoothing);
 
 
     // Initial bounds are set correctly by Fabric.js - don't force update here
@@ -527,26 +527,26 @@ export class OverlayEditor {
       height: canvasBounds.height * zoom,
     };
 
-    console.log('🔍 BOUNDING BOX COMPARISON:');
-    console.log('📦 Textarea Rect:', {
-      left: Math.round(textareaRect.left * 100) / 100,
-      top: Math.round(textareaRect.top * 100) / 100,
-      width: Math.round(textareaRect.width * 100) / 100,
-      height: Math.round(textareaRect.height * 100) / 100,
-    });
-    console.log('📦 Host Div Rect:', {
-      left: Math.round(hostRect.left * 100) / 100,
-      top: Math.round(hostRect.top * 100) / 100,
-      width: Math.round(hostRect.width * 100) / 100,
-      height: Math.round(hostRect.height * 100) / 100,
-    });
-    console.log('📦 Canvas Object Bounds (screen):', {
-      left: Math.round(screenObjectBounds.left * 100) / 100,
-      top: Math.round(screenObjectBounds.top * 100) / 100,
-      width: Math.round(screenObjectBounds.width * 100) / 100,
-      height: Math.round(screenObjectBounds.height * 100) / 100,
-    });
-    console.log('📦 Canvas Object Bounds (canvas):', canvasBounds);
+    // console.log('🔍 BOUNDING BOX COMPARISON:');
+    // console.log('📦 Textarea Rect:', {
+    //   left: Math.round(textareaRect.left * 100) / 100,
+    //   top: Math.round(textareaRect.top * 100) / 100,
+    //   width: Math.round(textareaRect.width * 100) / 100,
+    //   height: Math.round(textareaRect.height * 100) / 100,
+    // });
+    // console.log('📦 Host Div Rect:', {
+    //   left: Math.round(hostRect.left * 100) / 100,
+    //   top: Math.round(hostRect.top * 100) / 100,
+    //   width: Math.round(hostRect.width * 100) / 100,
+    //   height: Math.round(hostRect.height * 100) / 100,
+    // });
+    // console.log('📦 Canvas Object Bounds (screen):', {
+    //   left: Math.round(screenObjectBounds.left * 100) / 100,
+    //   top: Math.round(screenObjectBounds.top * 100) / 100,
+    //   width: Math.round(screenObjectBounds.width * 100) / 100,
+    //   height: Math.round(screenObjectBounds.height * 100) / 100,
+    // });
+    // console.log('📦 Canvas Object Bounds (canvas):', canvasBounds);
 
     // Calculate differences
     const hostVsObject = {
@@ -571,8 +571,8 @@ export class OverlayEditor {
         100,
     };
 
-    console.log('📏 Host Div vs Canvas Object Diff:', hostVsObject);
-    console.log('📏 Textarea vs Canvas Object Diff:', textareaVsObject);
+    // console.log('📏 Host Div vs Canvas Object Diff:', hostVsObject);
+    // console.log('📏 Textarea vs Canvas Object Diff:', textareaVsObject);
 
     // Check if they're aligned (within 2px tolerance)
     const tolerance = 2;
@@ -588,18 +588,18 @@ export class OverlayEditor {
       Math.abs(textareaVsObject.widthDiff) < tolerance &&
       Math.abs(textareaVsObject.heightDiff) < tolerance;
 
-    console.log(
-      hostAligned
-        ? '✅ Host Div ALIGNED with canvas object'
-        : '❌ Host Div MISALIGNED with canvas object',
-    );
-    console.log(
-      textareaAligned
-        ? '✅ Textarea ALIGNED with canvas object'
-        : '❌ Textarea MISALIGNED with canvas object',
-    );
-    console.log('🔍 Zoom:', zoom, 'Viewport Transform:', vpt);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // console.log(
+    //   hostAligned
+    //     ? '✅ Host Div ALIGNED with canvas object'
+    //     : '❌ Host Div MISALIGNED with canvas object',
+    // );
+    // console.log(
+    //   textareaAligned
+    //     ? '✅ Textarea ALIGNED with canvas object'
+    //     : '❌ Textarea MISALIGNED with canvas object',
+    // );
+    // console.log('🔍 Zoom:', zoom, 'Viewport Transform:', vpt);
+    // console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   /**
@@ -609,44 +609,44 @@ export class OverlayEditor {
     const target = this.target;
     const text = this.textarea.value;
 
-    console.log('📝 TEXT WRAPPING COMPARISON:');
-    console.log('📄 Text Content:', `"${text}"`);
-    console.log('📄 Text Length:', text.length);
+    // console.log('📝 TEXT WRAPPING COMPARISON:');
+    // console.log('📄 Text Content:', `"${text}"`);
+    // console.log('📄 Text Length:', text.length);
 
     // Analyze line breaks
     const explicitLines = text.split('\n');
-    console.log('📄 Explicit Lines (\\n):', explicitLines.length);
+    // console.log('📄 Explicit Lines (\\n):', explicitLines.length);
     explicitLines.forEach((line, i) => {
-      console.log(`   Line ${i + 1}: "${line}" (${line.length} chars)`);
+      // console.log(`   Line ${i + 1}: "${line}" (${line.length} chars)`);
     });
 
     // Get textarea computed styles for wrapping analysis
     const textareaStyles = window.getComputedStyle(this.textarea);
-    console.log('📐 Textarea Wrapping Styles:');
-    console.log('   width:', textareaStyles.width);
-    console.log('   fontSize:', textareaStyles.fontSize);
-    console.log('   fontFamily:', textareaStyles.fontFamily);
-    console.log('   fontWeight:', textareaStyles.fontWeight);
-    console.log('   letterSpacing:', textareaStyles.letterSpacing);
-    console.log('   lineHeight:', textareaStyles.lineHeight);
-    console.log('   whiteSpace:', textareaStyles.whiteSpace);
-    console.log('   wordWrap:', textareaStyles.wordWrap);
-    console.log('   overflowWrap:', textareaStyles.overflowWrap);
-    console.log('   direction:', textareaStyles.direction);
-    console.log('   textAlign:', textareaStyles.textAlign);
+    // console.log('📐 Textarea Wrapping Styles:');
+    // console.log('   width:', textareaStyles.width);
+    // console.log('   fontSize:', textareaStyles.fontSize);
+    // console.log('   fontFamily:', textareaStyles.fontFamily);
+    // console.log('   fontWeight:', textareaStyles.fontWeight);
+    // console.log('   letterSpacing:', textareaStyles.letterSpacing);
+    // console.log('   lineHeight:', textareaStyles.lineHeight);
+    // console.log('   whiteSpace:', textareaStyles.whiteSpace);
+    // console.log('   wordWrap:', textareaStyles.wordWrap);
+    // console.log('   overflowWrap:', textareaStyles.overflowWrap);
+    // console.log('   direction:', textareaStyles.direction);
+    // console.log('   textAlign:', textareaStyles.textAlign);
 
     // Get Fabric text object properties for comparison
-    console.log('📐 Fabric Text Object Properties:');
-    console.log('   width:', (target as any).width);
-    console.log('   fontSize:', target.fontSize);
-    console.log('   fontFamily:', target.fontFamily);
-    console.log('   fontWeight:', target.fontWeight);
-    console.log('   charSpacing:', target.charSpacing);
-    console.log('   lineHeight:', target.lineHeight);
-    console.log('   direction:', (target as any).direction);
-    console.log('   textAlign:', (target as any).textAlign);
-    console.log('   scaleX:', target.scaleX);
-    console.log('   scaleY:', target.scaleY);
+    // console.log('📐 Fabric Text Object Properties:');
+    // console.log('   width:', (target as any).width);
+    // console.log('   fontSize:', target.fontSize);
+    // console.log('   fontFamily:', target.fontFamily);
+    // console.log('   fontWeight:', target.fontWeight);
+    // console.log('   charSpacing:', target.charSpacing);
+    // console.log('   lineHeight:', target.lineHeight);
+    // console.log('   direction:', (target as any).direction);
+    // console.log('   textAlign:', (target as any).textAlign);
+    // console.log('   scaleX:', target.scaleX);
+    // console.log('   scaleY:', target.scaleY);
 
     // Calculate effective dimensions for comparison - use actual rendered width
     // **THE FIX:** Use getBoundingRect to get the *actual rendered width* of the Fabric object.
@@ -659,15 +659,15 @@ export class OverlayEditor {
       textareaComputedWidth / this.canvas.getZoom();
     const widthDiff = Math.abs(textareaEffectiveWidth - fabricEffectiveWidth);
 
-    console.log('📏 Effective Width Comparison:');
-    console.log('   Textarea Effective Width:', textareaEffectiveWidth);
-    console.log('   Fabric Effective Width:', fabricEffectiveWidth);
-    console.log('   Width Difference:', widthDiff.toFixed(2) + 'px');
-    console.log(
-      widthDiff < 1
-        ? '✅ Widths MATCH for wrapping'
-        : '❌ Width MISMATCH may cause different wrapping',
-    );
+    // console.log('📏 Effective Width Comparison:');
+    // console.log('   Textarea Effective Width:', textareaEffectiveWidth);
+    // console.log('   Fabric Effective Width:', fabricEffectiveWidth);
+    // console.log('   Width Difference:', widthDiff.toFixed(2) + 'px');
+    // console.log(
+    //   widthDiff < 1
+    //     ? '✅ Widths MATCH for wrapping'
+    //     : '❌ Width MISMATCH may cause different wrapping',
+    // );
 
     // Check text direction and bidi handling
     const hasRTLText =
@@ -676,12 +676,12 @@ export class OverlayEditor {
       );
     const hasBidiText = /[\u0590-\u06FF]/.test(text) && /[a-zA-Z]/.test(text);
 
-    console.log('🌍 Text Direction Analysis:');
-    console.log('   Has RTL characters:', hasRTLText);
-    console.log('   Has mixed Bidi text:', hasBidiText);
-    console.log('   Textarea direction:', textareaStyles.direction);
-    console.log('   Fabric direction:', (target as any).direction || 'auto');
-    console.log('   Textarea unicodeBidi:', textareaStyles.unicodeBidi);
+    // console.log('🌍 Text Direction Analysis:');
+    // console.log('   Has RTL characters:', hasRTLText);
+    // console.log('   Has mixed Bidi text:', hasBidiText);
+    // console.log('   Textarea direction:', textareaStyles.direction);
+    // console.log('   Fabric direction:', (target as any).direction || 'auto');
+    // console.log('   Textarea unicodeBidi:', textareaStyles.unicodeBidi);
 
     // Measure actual rendered line count
     const textareaScrollHeight = this.textarea.scrollHeight;
@@ -692,23 +692,23 @@ export class OverlayEditor {
       textareaScrollHeight / textareaLineHeight,
     );
 
-    console.log('📊 Line Count Analysis:');
-    console.log('   Textarea scrollHeight:', textareaScrollHeight);
-    console.log('   Textarea lineHeight:', textareaLineHeight);
-    console.log('   Estimated rendered lines:', estimatedTextareaLines);
-    console.log('   Explicit line breaks:', explicitLines.length);
+    // console.log('📊 Line Count Analysis:');
+    // console.log('   Textarea scrollHeight:', textareaScrollHeight);
+    // console.log('   Textarea lineHeight:', textareaLineHeight);
+    // console.log('   Estimated rendered lines:', estimatedTextareaLines);
+    // console.log('   Explicit line breaks:', explicitLines.length);
 
     if (estimatedTextareaLines > explicitLines.length) {
-      console.log('🔄 Text wrapping detected in textarea');
-      console.log(
-        '   Wrapped lines:',
-        estimatedTextareaLines - explicitLines.length,
-      );
+      // console.log('🔄 Text wrapping detected in textarea');
+      // console.log(
+      //   '   Wrapped lines:',
+      //   estimatedTextareaLines - explicitLines.length,
+      // );
     } else {
-      console.log('📏 No text wrapping in textarea');
+      // console.log('📏 No text wrapping in textarea');
     }
 
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
 
@@ -805,8 +805,8 @@ export class OverlayEditor {
       
       // Only update direction when not explicitly set on the object
       if (!hasExplicitDirection && detectedDirection && detectedDirection !== currentDirection) {
-        console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
-        console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
+        // console.log(`🔄 Overlay Exit: Auto-detected direction change from "${currentDirection}" to "${detectedDirection}"`);
+        // console.log(`   Text content: "${finalText.substring(0, 50)}..."`);
         
         // Update the fabric object's direction
         (this.target as any).set('direction', detectedDirection);
@@ -814,9 +814,9 @@ export class OverlayEditor {
         // Force a re-render to apply the direction change
         this.canvas.requestRenderAll();
         
-        console.log(`✅ Fabric object direction updated to: ${detectedDirection}`);
+        // console.log(`✅ Fabric object direction updated to: ${detectedDirection}`);
       } else {
-        console.log(`📝 Overlay Exit: Direction unchanged (${currentDirection}), text: "${finalText.substring(0, 30)}..."`);
+        // console.log(`📝 Overlay Exit: Direction unchanged (${currentDirection}), text: "${finalText.substring(0, 30)}..."`);
       }
       
       if (this.onCommit) {
