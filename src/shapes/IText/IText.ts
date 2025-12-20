@@ -1,8 +1,8 @@
 import { Canvas } from '../../canvas/Canvas';
 import type { ITextEvents } from './ITextBehavior';
 import { ITextClickBehavior } from './ITextClickBehavior';
-import { hitTest, getCursorRect, getSelectionRects } from '../../text/hitTest';
-import type { HitTestResult, CursorRect } from '../../text/hitTest';
+import { getCursorRect } from '../../text/hitTest';
+import { analyzeBiDi } from '../../text/unicode';
 import {
   ctrlKeysMapDown,
   ctrlKeysMapUp,
@@ -24,7 +24,6 @@ import type { ObjectToCanvasElementOptions } from '../Object/Object';
 import type { FabricObject } from '../Object/FabricObject';
 import { createCanvasElementFor } from '../../util/misc/dom';
 import { applyCanvasTransform } from '../../util/internals/applyCanvasTransform';
-import { Point } from '../../Point';
 import { invertTransform } from '../../util/misc/matrix';
 
 export type CursorBoundaries = {
@@ -78,9 +77,9 @@ interface UniqueITextProps {
 
 export interface SerializedITextProps
   extends SerializedTextProps,
-    UniqueITextProps {}
+  UniqueITextProps { }
 
-export interface ITextProps extends TextProps, UniqueITextProps {}
+export interface ITextProps extends TextProps, UniqueITextProps { }
 
 /**
  * @fires changed
@@ -126,13 +125,12 @@ export interface ITextProps extends TextProps, UniqueITextProps {}
  * ```
  */
 export class IText<
-    Props extends TOptions<ITextProps> = Partial<ITextProps>,
-    SProps extends SerializedITextProps = SerializedITextProps,
-    EventSpec extends ITextEvents = ITextEvents,
-  >
+  Props extends TOptions<ITextProps> = Partial<ITextProps>,
+  SProps extends SerializedITextProps = SerializedITextProps,
+  EventSpec extends ITextEvents = ITextEvents,
+>
   extends ITextClickBehavior<Props, SProps, EventSpec>
-  implements UniqueITextProps
-{
+  implements UniqueITextProps {
   /**
    * Index where text selection starts (or where cursor is when there is no selection)
    * @type Number
@@ -144,6 +142,18 @@ export class IText<
    * @type Number
    */
   declare selectionEnd: number;
+
+  /**
+   * Cache for visual positions per line to ensure consistency
+   * during selection operations
+   * @private
+   */
+  private _visualPositionsCache: Map<number, Array<{
+    logicalIndex: number;
+    visualX: number;
+    width: number;
+    isRtl: boolean;
+  }>> = new Map();
 
   declare compositionStart: number;
 
@@ -358,6 +368,8 @@ export class IText<
     // clear the cursorOffsetCache, so we ensure to calculate once per renderCursor
     // the correct position but not at every cursor animation.
     this.cursorOffsetCache = {};
+    // Clear visual positions cache on full render since dimensions may have changed
+    this._clearVisualPositionsCache();
     this.renderCursorOrSelection();
   }
 
@@ -385,6 +397,9 @@ export class IText<
     if (!ctx) {
       return;
     }
+    // Clear cache to ensure fresh cursor position calculation
+    // This is important during selection drag when positions change frequently
+    this.cursorOffsetCache = {};
     const boundaries = this._getCursorBoundaries();
 
     const ancestors = this.findAncestorsWithClipPath();
@@ -469,12 +484,8 @@ export class IText<
     index: number = this.selectionStart,
     skipCaching?: boolean,
   ): CursorBoundaries {
-    // Use advanced cursor positioning if available
-    if (this.enableAdvancedLayout) {
-      return this._getCursorBoundariesAdvanced(index);
-    }
-    
-    // Fall back to original method
+    // Always use original method which uses __charBounds directly
+    // and has proper RTL handling built-in
     return this._getCursorBoundariesOriginal(index, skipCaching);
   }
 
@@ -509,7 +520,7 @@ export class IText<
 
     const layout = (this as any)._layoutTextAdvanced();
     const cursorRect = getCursorRect(index, layout, (this as any)._getAdvancedLayoutOptions());
-    
+
     return {
       left: this._getLeftOffset(),
       top: this._getTopOffset(),
@@ -519,23 +530,280 @@ export class IText<
   }
 
   /**
-   * Enhanced selection start from pointer using BiDi-aware hit testing
-   * @override
+   * Override selection to use measureText-based visual positions
+   * This ensures hit testing matches actual browser BiDi rendering
    */
   getSelectionStartFromPointer(e: TPointerEvent): number {
-    if (!this.enableAdvancedLayout || !(this as any)._layoutTextAdvanced) {
-      return super.getSelectionStartFromPointer(e);
+    // Get mouse position in object-local coordinates (origin at center)
+    const scenePoint = this.canvas!.getScenePoint(e);
+    const localPoint = scenePoint.transform(invertTransform(this.calcTransformMatrix()));
+
+    // Convert to top-left origin coordinates
+    const mouseX = localPoint.x + this.width / 2;
+    const mouseY = localPoint.y + this.height / 2;
+
+    // Find the line based on Y position
+    let height = 0, lineIndex = 0;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const lineHeight = this.getHeightOfLine(i);
+      if (mouseY >= height && mouseY < height + lineHeight) {
+        lineIndex = i;
+        break;
+      }
+      height += lineHeight;
+      if (i === this._textLines.length - 1) {
+        lineIndex = i;
+      }
     }
 
-    const mouseOffset = this.canvas!.getScenePoint(e)
-      .transform(invertTransform(this.calcTransformMatrix()))
-      .add(new Point(-this._getLeftOffset(), -this._getTopOffset()));
+    // Calculate line start index using ORIGINAL line lengths (without tatweels)
+    // This ensures selection indices refer to the original text, not the display text
+    let lineStartIndex = 0;
+    for (let i = 0; i < lineIndex; i++) {
+      const origLen = this._getOriginalLineLength(i);
+      const newlineOffset = this.missingNewlineOffset(i);
+      console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
+      lineStartIndex += origLen + newlineOffset;
+    }
+    console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
 
-    // Use BiDi-aware hit testing instead of naive RTL coordinate flipping
-    const layout = (this as any)._layoutTextAdvanced();
-    const hitResult = hitTest(mouseOffset.x, mouseOffset.y, layout, (this as any)._getAdvancedLayoutOptions());
-    
-    return Math.min(hitResult.charIndex, this._text.length);
+    const line = this._textLines[lineIndex];
+    const lineText = line.join('');
+    const displayCharLength = line.length;
+    const originalCharLength = this._getOriginalLineLength(lineIndex);
+
+    if (displayCharLength === 0) {
+      return lineStartIndex;
+    }
+
+    // Use measureText to get actual visual character positions
+    // This matches exactly how the canvas renders BiDi text
+    const visualPositions = this._measureVisualPositions(lineIndex, lineText);
+
+    // Calculate line offset based on alignment
+    const lineWidth = this.getLineWidth(lineIndex);
+    let lineStartX = 0;
+
+    if (this.textAlign === 'center' || this.textAlign === 'justify-center') {
+      lineStartX = (this.width - lineWidth) / 2;
+    } else if (this.textAlign === 'right' || this.textAlign === 'justify-right') {
+      lineStartX = this.width - lineWidth;
+    } else if (this.direction === 'rtl' && (this.textAlign === 'justify' || this.textAlign === 'left')) {
+      // For RTL with left/justify, text starts from right
+      lineStartX = this.width - lineWidth;
+    }
+
+    // Find which character was clicked based on visual position
+    const clickX = mouseX - lineStartX;
+
+    // Sort positions by visual X for hit testing
+    const sortedPositions = [...visualPositions].sort((a, b) => a.visualX - b.visualX);
+
+    // Handle click before first character
+    if (sortedPositions.length > 0 && clickX < sortedPositions[0].visualX) {
+      // Before first visual character - cursor at visual left edge
+      // For RTL base direction, this means logical end of line
+      return this.direction === 'rtl'
+        ? lineStartIndex + originalCharLength
+        : lineStartIndex;
+    }
+
+    // Handle click after last character
+    if (sortedPositions.length > 0) {
+      const lastPos = sortedPositions[sortedPositions.length - 1];
+      if (clickX > lastPos.visualX + lastPos.width) {
+        // After last visual character - cursor at visual right edge
+        // For RTL base direction, this means logical start of line
+        return this.direction === 'rtl'
+          ? lineStartIndex
+          : lineStartIndex + originalCharLength;
+      }
+    }
+
+    // Find the character at click position
+    for (let i = 0; i < sortedPositions.length; i++) {
+      const pos = sortedPositions[i];
+      const charEnd = pos.visualX + pos.width;
+
+      if (clickX >= pos.visualX && clickX <= charEnd) {
+        // Convert display index to original index
+        // This also handles tatweels - they map to the character they extend
+        const originalCharIndex = this._displayToOriginalIndex(lineIndex, pos.logicalIndex);
+
+        // Check if this is a tatweel - if so, treat click as clicking on the extended character
+        const isTatweel = this._isTatweelAtDisplayIndex(lineIndex, pos.logicalIndex);
+
+        console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
+
+        const charMiddle = pos.visualX + pos.width / 2;
+        const clickedLeftHalf = clickX <= charMiddle;
+
+        // For tatweels, clicking anywhere on it should place cursor after the extended character
+        if (isTatweel) {
+          // Tatweel extends the character before it, so cursor goes after that character
+          // originalCharIndex from _displayToOriginalIndex already maps tatweel to char+1
+          const result = lineStartIndex + originalCharIndex;
+          console.log(`📍 Tatweel click result: ${result}`);
+          return result;
+        }
+
+        // For RTL characters: left visual half means cursor AFTER (higher logical index)
+        // For LTR characters: left visual half means cursor BEFORE (lower logical index)
+        if (pos.isRtl) {
+          // RTL character
+          const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex + 1 : originalCharIndex);
+          console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          return result;
+        } else {
+          // LTR character
+          const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex : originalCharIndex + 1);
+          console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          return result;
+        }
+      }
+    }
+
+    console.log(`📍 No match, returning end: ${lineStartIndex + originalCharLength}`);
+    return lineStartIndex + originalCharLength;
+  }
+
+  /**
+   * Clear the visual positions cache
+   * Should be called when text content or dimensions change
+   */
+  _clearVisualPositionsCache() {
+    this._visualPositionsCache.clear();
+  }
+
+  /**
+   * Measure visual character positions for hit testing using BiDi analysis
+   * This properly handles mixed RTL/LTR text by analyzing BiDi runs
+   * Results are cached per line for consistency during selection operations
+   */
+  _measureVisualPositions(lineIndex: number, lineText: string): Array<{
+    logicalIndex: number;
+    visualX: number;
+    width: number;
+    isRtl: boolean;  // Direction of this character's run
+  }> {
+    // Check cache first
+    if (this._visualPositionsCache.has(lineIndex)) {
+      return this._visualPositionsCache.get(lineIndex)!;
+    }
+
+    const line = this._textLines[lineIndex];
+    const positions: Array<{logicalIndex: number; visualX: number; width: number; isRtl: boolean}> = [];
+
+    const chars = this.__charBounds[lineIndex];
+    if (!chars || chars.length === 0) {
+      this._visualPositionsCache.set(lineIndex, positions);
+      return positions;
+    }
+
+    // For LTR direction, use logical positions directly
+    if (this.direction !== 'rtl') {
+      for (let i = 0; i < line.length; i++) {
+        positions.push({
+          logicalIndex: i,
+          visualX: chars[i]?.left || 0,
+          width: chars[i]?.kernedWidth || 0,
+          isRtl: false,
+        });
+      }
+      this._visualPositionsCache.set(lineIndex, positions);
+      return positions;
+    }
+
+    // For RTL, use BiDi analysis to determine visual positions
+    const runs = analyzeBiDi(lineText, 'rtl');
+
+    // Build mapping from string position to grapheme index
+    // This is needed because analyzeBiDi works on string positions (code points)
+    // but we need grapheme indices for charBounds
+    const stringPosToGrapheme: number[] = [];
+    let strPos = 0;
+    for (let gi = 0; gi < line.length; gi++) {
+      const grapheme = line[gi];
+      for (let j = 0; j < grapheme.length; j++) {
+        stringPosToGrapheme[strPos + j] = gi;
+      }
+      strPos += grapheme.length;
+    }
+
+    // Calculate width for each run
+    interface RunInfo {
+      run: typeof runs[0];
+      width: number;
+      charIndices: number[];
+    }
+
+    const runInfos: RunInfo[] = [];
+
+    for (const run of runs) {
+      const runChars: number[] = [];
+      let runWidth = 0;
+      const seenGraphemes = new Set<number>();
+
+      // Map string positions in this run to grapheme indices
+      for (let sp = run.start; sp < run.end; sp++) {
+        const gi = stringPosToGrapheme[sp];
+        if (gi !== undefined && !seenGraphemes.has(gi)) {
+          seenGraphemes.add(gi);
+          runChars.push(gi);
+          runWidth += chars[gi]?.kernedWidth || 0;
+        }
+      }
+
+      runInfos.push({
+        run,
+        width: runWidth,
+        charIndices: runChars,
+      });
+    }
+
+    // For RTL base direction, runs are displayed right-to-left
+    // So first run appears on the right, last run on the left
+    const totalWidth = this.getLineWidth(lineIndex);
+    let visualX = totalWidth; // Start from right edge
+
+    for (const runInfo of runInfos) {
+      visualX -= runInfo.width; // Move left by run width
+
+      const isRtlRun = runInfo.run.direction === 'rtl';
+      if (isRtlRun) {
+        // RTL run: characters displayed right-to-left within run
+        // First char of run at visual right of run, last at visual left
+        let charX = visualX + runInfo.width;
+        for (const idx of runInfo.charIndices) {
+          const charWidth = chars[idx]?.kernedWidth || 0;
+          charX -= charWidth;
+          positions.push({
+            logicalIndex: idx,
+            visualX: charX,
+            width: charWidth,
+            isRtl: true,
+          });
+        }
+      } else {
+        // LTR run: characters displayed left-to-right within run
+        // First char of run at visual left of run, last at visual right
+        let charX = visualX;
+        for (const idx of runInfo.charIndices) {
+          const charWidth = chars[idx]?.kernedWidth || 0;
+          positions.push({
+            logicalIndex: idx,
+            visualX: charX,
+            width: charWidth,
+            isRtl: false,
+          });
+          charX += charWidth;
+        }
+      }
+    }
+
+    // Cache the result
+    this._visualPositionsCache.set(lineIndex, positions);
+    return positions;
   }
 
   /**
@@ -555,48 +823,142 @@ export class IText<
   }
 
   /**
-   * Calculates cursor left/top offset relative to instance's center point
+   * Calculates cursor left/top offset relative to _getLeftOffset()
+   * Uses visual positions for BiDi text support
+   * Handles kashida by converting original indices to display indices
    * @private
-   * @param {number} index index from start
+   * @param {number} index index from start (in original text space, without tatweels)
    */
   __getCursorBoundariesOffsets(index: number) {
-    let topOffset = 0,
-      leftOffset = 0;
-    const { charIndex, lineIndex } = this.get2DCursorLocation(index);
+    let topOffset = 0;
+
+    // Find line index and original char index using original line lengths
+    let lineIndex = 0;
+    let originalCharIndex = index;
+
+    for (let i = 0; i < this._textLines.length; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      if (originalCharIndex <= originalLineLength) {
+        lineIndex = i;
+        break;
+      }
+      originalCharIndex -= originalLineLength + this.missingNewlineOffset(i);
+      lineIndex = i + 1;
+    }
+
+    // Clamp lineIndex to valid range
+    if (lineIndex >= this._textLines.length) {
+      lineIndex = this._textLines.length - 1;
+      originalCharIndex = this._getOriginalLineLength(lineIndex);
+    }
 
     for (let i = 0; i < lineIndex; i++) {
       topOffset += this.getHeightOfLine(i);
     }
-    const lineLeftOffset = this._getLineLeftOffset(lineIndex);
-    const bound = this.__charBounds[lineIndex][charIndex];
-    bound && (leftOffset = bound.left);
-    if (
-      this.charSpacing !== 0 &&
-      charIndex === this._textLines[lineIndex].length
-    ) {
-      leftOffset -= this._getWidthOfCharSpacing();
+
+    // Convert original char index to display char index for visual lookup
+    const displayCharIndex = this._originalToDisplayIndex(lineIndex, originalCharIndex);
+
+    // Get visual positions for cursor placement
+    const lineText = this._textLines[lineIndex].join('');
+    const visualPositions = this._measureVisualPositions(lineIndex, lineText);
+    const lineWidth = this.getLineWidth(lineIndex);
+    const displayLineLength = this._textLines[lineIndex].length;
+    const originalLineLength = this._getOriginalLineLength(lineIndex);
+
+    // Find visual X position for cursor (0 to lineWidth, from visual left)
+    let visualX = 0;
+
+    if (visualPositions.length === 0) {
+      // Fallback for empty line
+      return { top: topOffset, left: 0 };
     }
-    const boundaries = {
-      top: topOffset,
-      left: lineLeftOffset + (leftOffset > 0 ? leftOffset : 0),
-    };
-    if (this.direction === 'rtl') {
-      if (
-        this.textAlign === RIGHT ||
-        this.textAlign === JUSTIFY ||
-        this.textAlign === JUSTIFY_RIGHT
-      ) {
-        boundaries.left *= -1;
-      } else if (this.textAlign === LEFT || this.textAlign === JUSTIFY_LEFT) {
-        boundaries.left = lineLeftOffset - (leftOffset > 0 ? leftOffset : 0);
-      } else if (
-        this.textAlign === CENTER ||
-        this.textAlign === JUSTIFY_CENTER
-      ) {
-        boundaries.left = lineLeftOffset - (leftOffset > 0 ? leftOffset : 0);
+
+    if (originalCharIndex === 0) {
+      // Cursor at logical start
+      // For RTL base direction, logical start is at visual right
+      if (this.direction === 'rtl') {
+        visualX = lineWidth; // Right edge
+      } else {
+        visualX = 0; // Left edge
+      }
+    } else if (originalCharIndex >= originalLineLength) {
+      // Cursor at logical end
+      // For RTL base direction, logical end is at visual left
+      if (this.direction === 'rtl') {
+        visualX = 0; // Left edge
+      } else {
+        visualX = lineWidth; // Right edge
+      }
+    } else {
+      // Cursor between characters - find visual position of character at displayCharIndex
+      const charPos = visualPositions.find(p => p.logicalIndex === displayCharIndex);
+      if (charPos) {
+        // Use character's direction to determine cursor position
+        // For RTL char: cursor "before" it appears at its right visual edge
+        // For LTR char: cursor "before" it appears at its left visual edge
+        if (charPos.isRtl) {
+          visualX = charPos.visualX + charPos.width;
+        } else {
+          visualX = charPos.visualX;
+        }
+      } else {
+        // Fallback - try the previous character in display space
+        const prevDisplayIndex = displayCharIndex > 0 ? displayCharIndex - 1 : 0;
+        const prevCharPos = visualPositions.find(p => p.logicalIndex === prevDisplayIndex);
+        if (prevCharPos) {
+          // Cursor after previous character
+          if (prevCharPos.isRtl) {
+            visualX = prevCharPos.visualX;
+          } else {
+            visualX = prevCharPos.visualX + prevCharPos.width;
+          }
+        } else {
+          // Ultimate fallback
+          const bound = this.__charBounds[lineIndex][displayCharIndex];
+          visualX = bound?.left || 0;
+        }
       }
     }
-    return boundaries;
+
+    // Calculate alignment offset (how much line is shifted from left edge)
+    let alignOffset = 0;
+    if (this.textAlign === 'center' || this.textAlign === 'justify-center') {
+      alignOffset = (this.width - lineWidth) / 2;
+    } else if (this.textAlign === 'right' || this.textAlign === 'justify-right') {
+      alignOffset = this.width - lineWidth;
+    } else if (this.direction === 'rtl' && (this.textAlign === 'justify' || this.textAlign === 'left')) {
+      alignOffset = this.width - lineWidth;
+    }
+
+    // The returned left value is added to _getLeftOffset() in _getCursorBoundaries
+    // _getLeftOffset() returns -width/2 for LTR, +width/2 for RTL
+    // Final cursor X = _getLeftOffset() + leftOffset
+    //
+    // For LTR: cursor X = -width/2 + (alignOffset + visualX)
+    // For RTL: cursor X = +width/2 + leftOffset
+    //          We want cursor at: -width/2 + alignOffset + visualX
+    //          So leftOffset = -width/2 + alignOffset + visualX - width/2 = alignOffset + visualX - width
+
+    let leftOffset: number;
+    if (this.direction === 'rtl') {
+      // For RTL, _getLeftOffset() = +width/2
+      // We want final X = -width/2 + alignOffset + visualX
+      // So: +width/2 + leftOffset = -width/2 + alignOffset + visualX
+      // leftOffset = -width + alignOffset + visualX
+      leftOffset = -this.width + alignOffset + visualX;
+    } else {
+      // For LTR, _getLeftOffset() = -width/2
+      // We want final X = -width/2 + alignOffset + visualX
+      // So: -width/2 + leftOffset = -width/2 + alignOffset + visualX
+      // leftOffset = alignOffset + visualX
+      leftOffset = alignOffset + visualX;
+    }
+
+    return {
+      top: topOffset,
+      left: leftOffset,
+    };
   }
 
   /**
@@ -642,7 +1004,7 @@ export class IText<
       topOffset =
         boundaries.topOffset +
         ((1 - this._fontSizeFraction) * this.getHeightOfLine(lineIndex)) /
-          this.lineHeight -
+        this.lineHeight -
         charHeight * (1 - this._fontSizeFraction);
 
     return {
@@ -709,9 +1071,10 @@ export class IText<
   }
 
   /**
-   * Renders text selection
+   * Renders text selection using visual positions for BiDi support
+   * Handles kashida by converting original indices to display indices
    * @private
-   * @param {{ selectionStart: number, selectionEnd: number }} selection
+   * @param {{ selectionStart: number, selectionEnd: number }} selection (in original text space)
    * @param {Object} boundaries Object with left/top/leftOffset/topOffset
    * @param {CanvasRenderingContext2D} ctx transformed context to draw on
    */
@@ -722,49 +1085,115 @@ export class IText<
   ) {
     const selectionStart = selection.selectionStart,
       selectionEnd = selection.selectionEnd,
-      isJustify = this.textAlign.includes(JUSTIFY),
-      start = this.get2DCursorLocation(selectionStart),
-      end = this.get2DCursorLocation(selectionEnd),
-      startLine = start.lineIndex,
-      endLine = end.lineIndex,
-      startChar = start.charIndex < 0 ? 0 : start.charIndex,
-      endChar = end.charIndex < 0 ? 0 : end.charIndex;
+      isJustify = this.textAlign.includes(JUSTIFY);
+
+    // Convert selection indices to line/char using original text space
+    // This handles kashida properly since selection indices don't include tatweels
+    let startLine = 0, endLine = 0;
+    let originalStartChar = selectionStart, originalEndChar = selectionEnd;
+
+    // Find start line and char
+    let charCount = 0;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      if (charCount + originalLineLength >= selectionStart) {
+        startLine = i;
+        originalStartChar = selectionStart - charCount;
+        break;
+      }
+      charCount += originalLineLength + this.missingNewlineOffset(i);
+    }
+
+    // Find end line and char
+    charCount = 0;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      if (charCount + originalLineLength >= selectionEnd) {
+        endLine = i;
+        originalEndChar = selectionEnd - charCount;
+        break;
+      }
+      charCount += originalLineLength + this.missingNewlineOffset(i);
+      if (i === this._textLines.length - 1) {
+        endLine = i;
+        originalEndChar = originalLineLength;
+      }
+    }
 
     for (let i = startLine; i <= endLine; i++) {
-      const lineOffset = this._getLineLeftOffset(i) || 0;
       let lineHeight = this.getHeightOfLine(i),
-        realLineHeight = 0,
-        boxStart = 0,
-        boxEnd = 0;
-      
-      // Simplified selection rendering that works for both LTR and RTL
+        realLineHeight = 0;
+
+      // Get visual positions for this line
+      const lineText = this._textLines[i].join('');
+      const visualPositions = this._measureVisualPositions(i, lineText);
+      const displayLineLength = this._textLines[i].length;
+      const originalLineLength = this._getOriginalLineLength(i);
+
+      // Calculate selection bounds in original space, then convert to display
+      let originalLineStartChar = 0;
+      let originalLineEndChar = originalLineLength;
+
       if (i === startLine) {
-        boxStart = this.__charBounds[startLine][startChar].left;
+        originalLineStartChar = originalStartChar;
       }
-      if (i >= startLine && i < endLine) {
-        boxEnd =
-          isJustify && !this.isEndOfWrapping(i)
-            ? this.width
-            : this.getLineWidth(i) || 5;
-      } else if (i === endLine) {
-        if (endChar === 0) {
-          boxEnd = this.__charBounds[endLine][endChar].left;
-        } else {
-          const charSpacing = this._getWidthOfCharSpacing();
-          boxEnd =
-            this.__charBounds[endLine][endChar - 1].left +
-            this.__charBounds[endLine][endChar - 1].width -
-            charSpacing;
+      if (i === endLine) {
+        originalLineEndChar = originalEndChar;
+      }
+
+      // Convert original char indices to display indices for visual lookup
+      const displayLineStartChar = this._originalToDisplayIndex(i, originalLineStartChar);
+      const displayLineEndChar = this._originalToDisplayIndex(i, originalLineEndChar);
+
+      // Get visual X positions for selection range
+      let minVisualX = Infinity;
+      let maxVisualX = -Infinity;
+
+      for (const pos of visualPositions) {
+        if (pos.logicalIndex >= displayLineStartChar && pos.logicalIndex < displayLineEndChar) {
+          minVisualX = Math.min(minVisualX, pos.visualX);
+          maxVisualX = Math.max(maxVisualX, pos.visualX + pos.width);
         }
       }
+
+      // Handle edge cases
+      if (minVisualX === Infinity || maxVisualX === -Infinity) {
+        if (i >= startLine && i < endLine) {
+          // Full line selection
+          minVisualX = 0;
+          maxVisualX = isJustify && !this.isEndOfWrapping(i)
+            ? this.width
+            : this.getLineWidth(i) || 5;
+        } else {
+          continue; // No selection on this line
+        }
+      }
+
       realLineHeight = lineHeight;
       if (this.lineHeight < 1 || (i === endLine && this.lineHeight > 1)) {
         lineHeight /= this.lineHeight;
       }
-      let drawStart = boundaries.left + lineOffset + boxStart,
-        drawHeight = lineHeight,
-        extraTop = 0;
-      const drawWidth = boxEnd - boxStart;
+
+      // Calculate draw position
+      // Visual positions are relative to line start (0 to lineWidth)
+      // Need to add alignment offset
+      const lineWidth = this.getLineWidth(i);
+      let alignOffset = 0;
+
+      if (this.textAlign === 'center' || this.textAlign === 'justify-center') {
+        alignOffset = (this.width - lineWidth) / 2;
+      } else if (this.textAlign === 'right' || this.textAlign === 'justify-right') {
+        alignOffset = this.width - lineWidth;
+      } else if (this.direction === 'rtl' && (this.textAlign === 'justify' || this.textAlign === 'left')) {
+        alignOffset = this.width - lineWidth;
+      }
+
+      // Draw from center origin (-width/2 to width/2)
+      const drawStart = -this.width / 2 + alignOffset + minVisualX;
+      const drawWidth = maxVisualX - minVisualX;
+      let drawHeight = lineHeight;
+      let extraTop = 0;
+
       if (this.inCompositionMode) {
         ctx.fillStyle = this.compositionColor || 'black';
         drawHeight = 1;
@@ -772,22 +1201,7 @@ export class IText<
       } else {
         ctx.fillStyle = this.selectionColor;
       }
-      if (this.direction === 'rtl') {
-        if (
-          this.textAlign === RIGHT ||
-          this.textAlign === JUSTIFY ||
-          this.textAlign === JUSTIFY_RIGHT
-        ) {
-          drawStart = this.width - drawStart - drawWidth;
-        } else if (this.textAlign === LEFT || this.textAlign === JUSTIFY_LEFT) {
-          drawStart = boundaries.left + lineOffset - boxEnd;
-        } else if (
-          this.textAlign === CENTER ||
-          this.textAlign === JUSTIFY_CENTER
-        ) {
-          drawStart = boundaries.left + lineOffset - boxEnd;
-        }
-      }
+
       ctx.fillRect(
         drawStart,
         boundaries.top + boundaries.topOffset + extraTop,

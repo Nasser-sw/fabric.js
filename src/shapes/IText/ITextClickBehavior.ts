@@ -232,7 +232,8 @@ export abstract class ITextClickBehavior<
 
     for (let j = 0; j < charLength; j++) {
       const charStart = lineLeftOffset + chars[j].left;
-      const charEnd = lineLeftOffset + chars[j + 1].left;
+      // For last character, use its width to calculate end position
+      const charEnd = lineLeftOffset + (chars[j + 1]?.left ?? (chars[j].left + chars[j].kernedWidth));
       const charMiddle = (charStart + charEnd) / 2;
       if (mouseOffset.x <= charMiddle) {
         charIndex = lineStartIndex + j;

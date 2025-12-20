@@ -445,11 +445,171 @@ export function getLineBreakClass(char: string): string {
 export function isLineBreakAllowed(before: string, after: string): boolean {
   const beforeClass = getLineBreakClass(before);
   const afterClass = getLineBreakClass(after);
-  
+
   // Simplified line breaking rules
   if (beforeClass === 'OP') return false; // Don't break after opening
   if (afterClass === 'CL') return false; // Don't break before closing
   if (beforeClass === 'SP') return true; // Always allow break after space
-  
+
   return true; // Default allow
+}
+
+// ============================================================================
+// Arabic Kashida (Tatweel) Support
+// ============================================================================
+
+/**
+ * Arabic Tatweel (kashida) character used for justification
+ */
+export const ARABIC_TATWEEL = '\u0640';
+
+/**
+ * Arabic letters that do NOT connect to the following letter (non-connecting on left).
+ * These letters cannot have kashida inserted after them.
+ * ا (Alef), د (Dal), ذ (Thal), ر (Ra), ز (Zay), و (Waw), ة (Teh Marbuta), ء (Hamza)
+ */
+const ARABIC_NON_CONNECTING = new Set([
+  '\u0627', // Alef
+  '\u062F', // Dal
+  '\u0630', // Thal
+  '\u0631', // Ra
+  '\u0632', // Zay
+  '\u0648', // Waw
+  '\u0629', // Teh Marbuta
+  '\u0621', // Hamza
+  '\u0622', // Alef with Madda
+  '\u0623', // Alef with Hamza Above
+  '\u0625', // Alef with Hamza Below
+  '\u0672', // Alef with Wavy Hamza Above
+  '\u0673', // Alef with Wavy Hamza Below
+  '\u0675', // High Hamza Alef
+  '\u0688', // Dal with Small Tah
+  '\u0689', // Dal with Ring
+  '\u068A', // Dal with Dot Below
+  '\u068B', // Dal with Dot Below and Small Tah
+  '\u068C', // Dahal
+  '\u068D', // Ddahal
+  '\u068E', // Dul
+  '\u068F', // Dal with Three Dots Above Downwards
+  '\u0690', // Dal with Four Dots Above
+  '\u0691', // Rreh
+  '\u0692', // Reh with Small V
+  '\u0693', // Reh with Ring
+  '\u0694', // Reh with Dot Below
+  '\u0695', // Reh with Small V Below
+  '\u0696', // Reh with Dot Below and Dot Above
+  '\u0697', // Reh with Two Dots Above
+  '\u0698', // Jeh
+  '\u0699', // Reh with Four Dots Above
+  '\u06C4', // Waw with Ring
+  '\u06C5', // Kirghiz Oe
+  '\u06C6', // Oe
+  '\u06C7', // U
+  '\u06C8', // Yu
+  '\u06C9', // Kirghiz Yu
+  '\u06CA', // Waw with Two Dots Above
+  '\u06CB', // Ve
+  '\u06CD', // Yeh with Tail
+  '\u06CF', // Waw with Dot Above
+]);
+
+/**
+ * Check if a character is an Arabic letter (main Arabic block + extended)
+ */
+export function isArabicLetter(char: string): boolean {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  // Arabic: U+0600-U+06FF (main block)
+  // Arabic Supplement: U+0750-U+077F
+  // Arabic Extended-A: U+08A0-U+08FF
+  return (
+    (code >= 0x0620 && code <= 0x064A) || // Main letters
+    (code >= 0x066E && code <= 0x06D3) || // Extended letters
+    (code >= 0x0750 && code <= 0x077F) || // Arabic Supplement
+    (code >= 0x08A0 && code <= 0x08FF)    // Arabic Extended-A
+  );
+}
+
+/**
+ * Check if kashida can be inserted between two characters.
+ * Kashida can only be inserted:
+ * - Between two Arabic letters
+ * - After a letter that connects to the next (not in ARABIC_NON_CONNECTING)
+ * - Not at word boundaries (no whitespace before/after)
+ */
+export function canInsertKashida(prevChar: string, nextChar: string): boolean {
+  if (!prevChar || !nextChar) return false;
+
+  // Can't insert at whitespace boundaries
+  if (/\s/.test(prevChar) || /\s/.test(nextChar)) return false;
+
+  // Both must be Arabic letters
+  if (!isArabicLetter(prevChar) || !isArabicLetter(nextChar)) return false;
+
+  // Previous char must connect to the next (not be non-connecting)
+  if (ARABIC_NON_CONNECTING.has(prevChar)) return false;
+
+  return true;
+}
+
+/**
+ * Represents a valid kashida insertion point
+ */
+export interface KashidaPoint {
+  /** Index in the grapheme array where kashida can be inserted after */
+  charIndex: number;
+  /** Priority for kashida insertion (higher = insert here first) */
+  priority: number;
+}
+
+/**
+ * Find all valid kashida insertion points in a line of text.
+ * Returns points sorted by priority (highest first).
+ *
+ * Priority rules (similar to Adobe Illustrator):
+ * 1. Between connected letters (ب + ب = highest)
+ * 2. Prefer middle of words over edges
+ * 3. Avoid inserting right before/after spaces
+ */
+export function findKashidaPoints(graphemes: string[]): KashidaPoint[] {
+  const points: KashidaPoint[] = [];
+
+  for (let i = 0; i < graphemes.length - 1; i++) {
+    const prev = graphemes[i];
+    const next = graphemes[i + 1];
+
+    if (canInsertKashida(prev, next)) {
+      // Calculate priority based on position in word
+      let priority = 1;
+
+      // Find word boundaries
+      let wordStart = i;
+      let wordEnd = i + 1;
+
+      while (wordStart > 0 && !isWhitespace(graphemes[wordStart - 1])) {
+        wordStart--;
+      }
+      while (wordEnd < graphemes.length && !isWhitespace(graphemes[wordEnd])) {
+        wordEnd++;
+      }
+
+      const wordLength = wordEnd - wordStart;
+      const posInWord = i - wordStart;
+
+      // Higher priority for middle positions
+      const distFromEdge = Math.min(posInWord, wordLength - 1 - posInWord);
+      priority = distFromEdge + 1;
+
+      // Boost priority for longer words
+      if (wordLength > 4) priority += 1;
+      if (wordLength > 6) priority += 1;
+
+      points.push({ charIndex: i, priority });
+    }
+  }
+
+  // Sort by priority descending
+  points.sort((a, b) => b.priority - a.priority);
+
+  return points;
 }

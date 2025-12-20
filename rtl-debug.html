@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>RTL Text Debug - Visual Bounding Box and Text Position</title>
     <style>
@@ -10,7 +11,7 @@
             font-style: normal;
             font-display: swap;
         }
-        
+
         @font-face {
             font-family: 'STV';
             src: url('./fonts/STV Bold.ttf') format('truetype');
@@ -18,7 +19,7 @@
             font-style: normal;
             font-display: swap;
         }
-        
+
         @font-face {
             font-family: 'STV';
             src: url('./fonts/STV Light.ttf') format('truetype');
@@ -26,29 +27,35 @@
             font-style: normal;
             font-display: swap;
         }
-        
-        body { 
-            font-family: Arial, sans-serif; 
+
+        body {
+            font-family: Arial, sans-serif;
             margin: 20px;
             background: #f5f5f5;
         }
-        canvas { 
-            border: 1px solid #ccc; 
+
+        canvas {
+            border: 1px solid #ccc;
             margin: 10px;
             background: white;
         }
+
         .canvas-container {
             position: relative;
         }
+
         .canvas-container .upper-canvas {
             pointer-events: auto;
         }
+
         .lower-canvas {
             z-index: 1;
         }
+
         .upper-canvas {
             z-index: 2;
         }
+
         .debug-info {
             font-family: monospace;
             background: #333;
@@ -58,13 +65,15 @@
             border-radius: 4px;
             white-space: pre-wrap;
         }
+
         .controls {
             background: white;
             padding: 15px;
             border-radius: 4px;
             margin: 10px 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
+
         button {
             padding: 8px 16px;
             margin: 5px;
@@ -74,7 +83,11 @@
             border-radius: 4px;
             cursor: pointer;
         }
-        button:hover { background: #0056b3; }
+
+        button:hover {
+            background: #0056b3;
+        }
+
         .text-sample {
             margin: 5px 0;
             padding: 5px;
@@ -83,16 +96,17 @@
         }
     </style>
 </head>
+
 <body>
     <h1>RTL Text Debug - Visual Bounding Box and Text Position</h1>
-    
+
     <div class="controls">
         <h3>Test Cases:</h3>
         <div class="text-sample">Arabic: مرحبا بك في العالم</div>
         <div class="text-sample">Hebrew: שלום עולם</div>
         <div class="text-sample">Mixed: Hello مرحبا World</div>
         <div class="text-sample">English LTR: Hello World</div>
-        
+
         <br>
         <button onclick="showRTLText()">Show RTL Arabic Text</button>
         <button onclick="showLTRText()">Show LTR English Text</button>
@@ -115,42 +129,63 @@
             <button onclick="setAlign('justify-center')">Justify-Center</button>
             <button onclick="setAlign('justify-right')">Justify-Right</button>
         </div>
+        <div style="margin-top:8px;">
+            <strong>Kashida Test (Arabic Justification):</strong>
+        </div>
+        <div style="margin-top:4px; display:flex; gap:6px; flex-wrap:wrap;">
+            <button onclick="showKashidaTest('none')" style="background:#6c757d;">Kashida: None</button>
+            <button onclick="showKashidaTest('short')" style="background:#17a2b8;">Kashida: Short (25%)</button>
+            <button onclick="showKashidaTest('medium')" style="background:#28a745;">Kashida: Medium (50%)</button>
+            <button onclick="showKashidaTest('long')" style="background:#ffc107; color:#333;">Kashida: Long
+                (75%)</button>
+            <button onclick="showKashidaTest('stylistic')" style="background:#dc3545;">Kashida: Stylistic
+                (100%)</button>
+        </div>
+        <div style="margin-top:4px; display:flex; gap:6px; flex-wrap:wrap;">
+            <button onclick="setKashida('none')">Set None</button>
+            <button onclick="setKashida('short')">Set Short</button>
+            <button onclick="setKashida('medium')">Set Medium</button>
+            <button onclick="setKashida('long')">Set Long</button>
+            <button onclick="setKashida('stylistic')">Set Stylistic</button>
+        </div>
     </div>
 
     <canvas id="canvas" width="1080" height="1080"></canvas>
-    
+
     <div id="debug-info" class="debug-info">Debug information will appear here...</div>
     <div id="click-info" class="debug-info">Click on text to see selection coordinates...</div>
 
-    <script src="./dist/index.js"></script>
+    <script src="./dist/index.js?v=10"></script>
     <script>
+        console.log("DEBUG: Updated rtl-debug.html loaded");
+        // alert("DEBUG: Updated RTL Page Loaded - Please check console for 'Hit Testing Debug' when clicking");
         // Check if fabric.js loaded
         console.log('fabric object:', typeof fabric);
         console.log('fabric.Canvas:', typeof fabric.Canvas);
         console.log('fabric.Text:', typeof fabric.Text);
         console.log('fabric.IText:', typeof fabric.IText);
-        
+
         if (typeof fabric === 'undefined') {
             document.getElementById('debug-info').textContent = 'ERROR: fabric.js not loaded! Check the script path.';
         }
-        
+
         const canvas = new fabric.Canvas('canvas', {
             backgroundColor: 'white',
             selection: true,
             preserveObjectStacking: true
         });
-        
+
         // Ensure upper canvas is transparent
         canvas.upperCanvasEl.style.backgroundColor = 'transparent';
         let debugMode = true;
         let currentText = null;
         let debugInfo = document.getElementById('debug-info');
         let clickInfo = document.getElementById('click-info');
-        
+
         // Test canvas rendering immediately
         console.log('Canvas created:', canvas);
         console.log('Canvas element:', canvas.getElement());
-        
+
         // Add immediate visual test
         const testCircle = new fabric.Circle({
             left: 10,
@@ -177,6 +212,8 @@ Text Properties:
 ├─ Text: "${text.text}"
 ├─ Direction: ${text.direction}
 ├─ TextAlign: ${text.textAlign}
+├─ Kashida: ${text.kashida || 'none'}
+├─ enableAdvancedLayout: ${text.enableAdvancedLayout}
 ├─ Width: ${text.width.toFixed(2)}
 ├─ Height: ${text.height.toFixed(2)}
 ├─ Left: ${text.left.toFixed(2)}
@@ -202,11 +239,18 @@ Line Left Offsets:
 ${text._textLines.map((line, i) => `├─ Line ${i}: ${text._getLineLeftOffset(i).toFixed(2)}`).join('\n')}
 
 Character Bounds (first line):
-${text.__charBounds && text.__charBounds[0] ? 
-    text.__charBounds[0].map((char, i) => 
-        `├─ Char ${i}: left=${char.left.toFixed(2)}, width=${char.width.toFixed(2)}, kernedWidth=${char.kernedWidth.toFixed(2)}`
-    ).join('\n') 
-    : '├─ No character bounds available'}
+${text.__charBounds && text.__charBounds[0] ?
+                    text.__charBounds[0].map((char, i) =>
+                        `├─ Char ${i}: left=${char.left.toFixed(2)}, width=${char.width.toFixed(2)}, kernedWidth=${char.kernedWidth.toFixed(2)}`
+                    ).join('\n')
+                    : '├─ No character bounds available'}
+
+Kashida Points (first line):
+${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 0 ?
+                    text.__kashidaInfo[0].map((k, i) =>
+                        `├─ Point ${i}: charIndex=${k.charIndex}, width=${k.width.toFixed(2)}`
+                    ).join('\n')
+                    : '├─ No kashida points (kashida: ' + (text.kashida || 'none') + ')'}
 `;
             debugInfo.textContent = info;
         }
@@ -215,7 +259,7 @@ ${text.__charBounds && text.__charBounds[0] ?
             if (!debugMode || !text) return;
 
             const bbox = text.getBoundingRect();
-            
+
             // Draw bounding box rectangle
             const bboxRect = new fabric.Rect({
                 left: bbox.left,
@@ -246,9 +290,9 @@ ${text.__charBounds && text.__charBounds[0] ?
 
             // Draw text width visualization
             const textWidthLine = new fabric.Line([
-                text.left - text.width/2,
+                text.left - text.width / 2,
                 text.top,
-                text.left + text.width/2,
+                text.left + text.width / 2,
                 text.top
             ], {
                 stroke: 'green',
@@ -303,12 +347,13 @@ ${text.__charBounds && text.__charBounds[0] ?
                 textAlign: 'right',
                 fill: '#333',
                 editable: true,
-                selectable: true
+                selectable: true,
+                enableAdvancedLayout: true
             });
-            
+
             canvas.add(currentText);
             canvas.renderAll();
-            
+
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'RTL Arabic Text');
@@ -329,10 +374,10 @@ ${text.__charBounds && text.__charBounds[0] ?
                 editable: true,
                 selectable: true
             });
-            
+
             canvas.add(currentText);
             canvas.renderAll();
-            
+
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'LTR English Text');
@@ -351,12 +396,13 @@ ${text.__charBounds && text.__charBounds[0] ?
                 textAlign: 'center',
                 fill: '#333',
                 editable: true,
-                selectable: true
+                selectable: true,
+                enableAdvancedLayout: true
             });
-            
+
             canvas.add(currentText);
             canvas.renderAll();
-            
+
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'Mixed RTL/LTR Text');
@@ -365,7 +411,7 @@ ${text.__charBounds && text.__charBounds[0] ?
 
         function showSimpleTest() {
             clearCanvas();
-            
+
             // Add a simple visible rectangle first to test canvas
             const rect = new fabric.Rect({
                 left: 100,
@@ -375,7 +421,7 @@ ${text.__charBounds && text.__charBounds[0] ?
                 fill: 'red'
             });
             canvas.add(rect);
-            
+
             // Test different text approaches
             console.log('Creating basic fabric.Text...');
             const basicText = new fabric.Text('BASIC TEXT', {
@@ -387,7 +433,7 @@ ${text.__charBounds && text.__charBounds[0] ?
             });
             canvas.add(basicText);
             console.log('Basic text added:', basicText.getBoundingRect());
-            
+
             console.log('Creating fabric.IText...');
             currentText = new fabric.IText('ITEXT HERE', {
                 left: 50,
@@ -399,7 +445,7 @@ ${text.__charBounds && text.__charBounds[0] ?
             });
             canvas.add(currentText);
             console.log('IText added:', currentText.getBoundingRect());
-            
+
             console.log('Creating RTL text...');
             const rtlText = new fabric.IText('مرحبا', {
                 left: 50,
@@ -412,16 +458,16 @@ ${text.__charBounds && text.__charBounds[0] ?
             });
             canvas.add(rtlText);
             console.log('RTL text added:', rtlText.getBoundingRect());
-            
+
             // Force canvas to render and log all objects
             canvas.renderAll();
             console.log('Canvas objects:', canvas.getObjects().length);
             console.log('Canvas dimensions:', canvas.width, 'x', canvas.height);
-            
+
             // Try to zoom out to see if text is outside viewport
             canvas.setZoom(0.5);
             canvas.renderAll();
-            
+
             updateDebugInfo(currentText, 'Simple Test - Check Console');
         }
 
@@ -446,14 +492,14 @@ ${text.__charBounds && text.__charBounds[0] ?
         }
 
         // Handle canvas clicks to show selection information
-        canvas.on('mouse:down', function(options) {
+        canvas.on('mouse:down', function (options) {
             if (!options.target || !options.target.type || !options.target.type.includes('text')) return;
-            
+
             const text = options.target;
             const pointer = canvas.getScenePoint(options.e);
             const selection = text.getSelectionStartFromPointer(options.e);
             const cursorBounds = text._getCursorBoundaries(selection);
-            
+
             const clickDebugInfo = `
 Click Debug Information:
 ════════════════════════════════════════════════
@@ -478,15 +524,15 @@ Text Direction: ${text.direction}
 Text Align: ${text.textAlign}
 `;
             clickInfo.textContent = clickDebugInfo;
-            
+
             // Draw cursor position and character bounds
             clearDebugOverlays();
             drawBoundingBoxOverlay(text);
             drawCharacterBounds(text);
-            
+
             const cursorX = cursorBounds.left + cursorBounds.leftOffset;
             const cursorY = cursorBounds.top + cursorBounds.topOffset;
-            
+
             const cursorLine = new fabric.Line([cursorX, cursorY - 10, cursorX, cursorY + 20], {
                 stroke: 'orange',
                 strokeWidth: 3,
@@ -494,7 +540,7 @@ Text Align: ${text.textAlign}
                 evented: false,
                 excludeFromExport: true
             });
-            
+
             const cursorLabel = new fabric.Text(`Cursor: (${cursorX.toFixed(0)},${cursorY.toFixed(0)})`, {
                 left: cursorX + 5,
                 top: cursorY - 25,
@@ -504,7 +550,7 @@ Text Align: ${text.textAlign}
                 evented: false,
                 excludeFromExport: true
             });
-            
+
             canvas.add(cursorLine, cursorLabel);
         });
 
@@ -520,101 +566,145 @@ Text Align: ${text.textAlign}
             drawBoundingBoxOverlay(currentText);
             updateDebugInfo(currentText, `Align: ${align}`);
         }
-        
+
+        // BiDi direction detection
+        function getBidiCharDir(char, baseDir) {
+            if (/[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(char)) {
+                return 'rtl';
+            }
+            if (/[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/.test(char)) {
+                return 'ltr';
+            }
+            return baseDir; // Neutral inherits base
+        }
+
+        // Analyze BiDi runs
+        function getBiDiRuns(text, baseDir) {
+            if (!text) return [];
+            const runs = [];
+            let current = null;
+            for (let i = 0; i < text.length; i++) {
+                const dir = getBidiCharDir(text[i], baseDir);
+                if (!current || current.direction !== dir) {
+                    if (current) runs.push(current);
+                    current = { direction: dir, start: i, end: i + 1, text: text[i] };
+                } else {
+                    current.end = i + 1;
+                    current.text += text[i];
+                }
+            }
+            if (current) runs.push(current);
+            return runs;
+        }
+
         function drawCharacterBounds(text) {
             if (!debugMode || !text || !text.__charBounds || !text.__charBounds[0]) return;
-            
-            console.log('=== Drawing character bounds ===');
-            console.log('Text object:', text);
-            console.log('Text position:', text.left, text.top);
-            console.log('Text width/height:', text.width, text.height);
-            console.log('Text direction:', text.direction);
-            console.log('Text align:', text.textAlign);
-            console.log('Font family:', text.fontFamily);
-            
+
+            console.log('=== Drawing character bounds (BiDi) ===');
             const bbox = text.getBoundingRect();
-            console.log('Bounding rect:', bbox);
-            
-            const textLeft = text._getLeftOffset() + text.left;
-            const textTop = text._getTopOffset() + text.top;
+            const baseY = bbox.top;
+            const isRtl = text.direction === 'rtl';
+            const chars = text.__charBounds[0];
             const lineLeftOffset = text._getLineLeftOffset(0);
-            
-            console.log('Calculated offsets:');
-            console.log('  _getLeftOffset():', text._getLeftOffset());
-            console.log('  _getTopOffset():', text._getTopOffset());
-            console.log('  _getLineLeftOffset(0):', lineLeftOffset);
-            console.log('  Final textLeft:', textLeft);
-            console.log('  Final textTop:', textTop);
-            
-            const isSTVFont = text.fontFamily && text.fontFamily.includes('STV');
-            console.log('STV font detected:', isSTVFont, '- BiDi processing should be disabled');
-            
-            // Draw each character's bounds as they should appear
-            text.__charBounds[0].forEach((charBound, i) => {
-                const char = text.text[i] || '';
-                
-                // Use bounding box as the base position since that's where text actually renders
-                const baseX = bbox.left;
-                const baseY = bbox.top;
-                
-                let charX, charWidth;
-                
-                if (text.direction === 'rtl') {
-                    // For RTL, start from the right edge of the bounding box
-                    // and work backwards (right to left)
-                    charX = baseX + bbox.width - charBound.left - Math.abs(charBound.kernedWidth);
-                    charWidth = Math.abs(charBound.kernedWidth);
-                } else {
-                    // For LTR, start from left edge and add character offset
-                    charX = baseX + charBound.left;
-                    charWidth = charBound.kernedWidth;
+            const lineText = text._textLines[0] ? text._textLines[0].join('') : text.text;
+
+            console.log('Direction:', text.direction, 'Text:', lineText);
+
+            // For LTR, use simple positions
+            if (!isRtl) {
+                chars.forEach((charBound, i) => {
+                    const charText = text._textLines[0]?.[i] || '';
+                    const charX = bbox.left + lineLeftOffset + charBound.left;
+                    const charWidth = charBound.kernedWidth || charBound.width;
+                    drawCharBox(charX, baseY, charWidth, text.fontSize, i, charText);
+                });
+                return;
+            }
+
+            // For RTL: analyze BiDi runs and calculate visual positions
+            const runs = getBiDiRuns(lineText, 'rtl');
+            console.log('BiDi runs:', runs);
+
+            // Build char info
+            const charInfos = chars.map((c, i) => ({
+                charIndex: i,
+                width: c.kernedWidth || c.width,
+                grapheme: text._textLines[0]?.[i] || ''
+            }));
+
+            // Group chars by runs
+            const runInfos = [];
+            for (const run of runs) {
+                const runChars = [];
+                let totalWidth = 0;
+                let strPos = 0;
+                for (let i = 0; i < charInfos.length; i++) {
+                    const gLen = charInfos[i].grapheme.length || 1;
+                    if (strPos >= run.start && strPos < run.end) {
+                        runChars.push(charInfos[i]);
+                        totalWidth += charInfos[i].width;
+                    }
+                    strPos += gLen;
                 }
-                
-                // Use different colors for STV vs standard fonts
-                const fillColor = isSTVFont ? 
-                    'rgba(255, 165, 0, 0.3)' : // Orange for STV (no BiDi)
-                    (i % 2 === 0 ? 'rgba(255, 0, 255, 0.2)' : 'rgba(0, 255, 255, 0.2)'); // Magenta/Cyan for others
-                const strokeColor = isSTVFont ? 'orange' : (i % 2 === 0 ? 'magenta' : 'cyan');
-                
-                // Draw character boundary rectangle
-                const charRect = new fabric.Rect({
-                    left: charX,
-                    top: baseY,
-                    width: charWidth,
-                    height: text.fontSize,
-                    fill: fillColor,
-                    stroke: strokeColor,
-                    strokeWidth: isSTVFont ? 2 : 1,
-                    selectable: false,
-                    evented: false,
-                    excludeFromExport: true
-                });
-                
-                // Add character label
-                const charLabel = new fabric.Text(`${isSTVFont ? 'STV-' : ''}${i}:"${char}"`, {
-                    left: charX,
-                    top: baseY - 15,
-                    fontSize: 10,
-                    fill: isSTVFont ? 'darkorange' : 'purple',
-                    fontFamily: 'Arial', // Use Arial for labels to ensure readability
-                    selectable: false,
-                    evented: false,
-                    excludeFromExport: true
-                });
-                
-                canvas.add(charRect, charLabel);
-                
-                console.log(`${isSTVFont ? 'STV ' : ''}Char ${i} "${char}":`, {
-                    boundLeft: charBound.left,
-                    kernedWidth: charBound.kernedWidth,
-                    calculatedX: charX,
-                    width: charWidth
-                });
+                if (runChars.length > 0) {
+                    runInfos.push({ direction: run.direction, chars: runChars, totalWidth });
+                }
+            }
+
+            // Reverse runs for RTL base
+            runInfos.reverse();
+
+            // Calculate visual positions
+            const visualPositions = new Map();
+            let visualX = 0;
+            for (const runInfo of runInfos) {
+                if (runInfo.direction === 'rtl') {
+                    let runX = visualX + runInfo.totalWidth;
+                    for (const c of runInfo.chars) {
+                        runX -= c.width;
+                        visualPositions.set(c.charIndex, { x: runX, width: c.width });
+                    }
+                } else {
+                    let runX = visualX;
+                    for (const c of runInfo.chars) {
+                        visualPositions.set(c.charIndex, { x: runX, width: c.width });
+                        runX += c.width;
+                    }
+                }
+                visualX += runInfo.totalWidth;
+            }
+
+            // Draw character boxes
+            chars.forEach((charBound, i) => {
+                const charText = charInfos[i]?.grapheme || '';
+                const pos = visualPositions.get(i);
+                if (!pos) return;
+                const charX = bbox.left + lineLeftOffset + pos.x;
+                drawCharBox(charX, baseY, pos.width, text.fontSize, i, charText);
+                console.log(`Char ${i} "${charText}": visualX=${pos.x.toFixed(2)}, canvasX=${charX.toFixed(2)}`);
             });
         }
 
+        function drawCharBox(x, y, width, height, index, charText) {
+            const fillColor = index % 2 === 0 ? 'rgba(255, 0, 255, 0.2)' : 'rgba(0, 255, 255, 0.2)';
+            const strokeColor = index % 2 === 0 ? 'magenta' : 'cyan';
+
+            const charRect = new fabric.Rect({
+                left: x, top: y, width: width, height: height,
+                fill: fillColor, stroke: strokeColor, strokeWidth: 1,
+                selectable: false, evented: false, excludeFromExport: true
+            });
+
+            const charLabel = new fabric.Text(`${index}:"${charText}"`, {
+                left: x, top: y - 15, fontSize: 10, fill: 'purple',
+                fontFamily: 'Arial', selectable: false, evented: false, excludeFromExport: true
+            });
+
+            canvas.add(charRect, charLabel);
+        }
+
         // Update debug info when text properties change
-        canvas.on('object:modified', function(options) {
+        canvas.on('object:modified', function (options) {
             if (options.target && options.target.type.includes('text')) {
                 clearDebugOverlays();
                 drawBoundingBoxOverlay(options.target);
@@ -638,16 +728,16 @@ Text Align: ${text.textAlign}
                 editable: true,
                 selectable: true
             });
-            
+
             canvas.add(currentText);
             canvas.renderAll();
-            
+
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'STV Regular Font Arabic Text');
             }, 300);
         }
-        
+
         function showSTVBold() {
             clearCanvas();
             currentText = new fabric.Textbox('هذا نص تجريبي بخط STV الغامق للاختبار', {
@@ -663,16 +753,16 @@ Text Align: ${text.textAlign}
                 editable: true,
                 selectable: true
             });
-            
+
             canvas.add(currentText);
             canvas.renderAll();
-            
+
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'STV Bold Font Arabic Text');
             }, 300);
         }
-        
+
         function showSTVLight() {
             clearCanvas();
             currentText = new fabric.Textbox('هذا نص تجريبي بخط STV الخفيف للاختبار', {
@@ -688,10 +778,10 @@ Text Align: ${text.textAlign}
                 editable: true,
                 selectable: true
             });
-            
+
             canvas.add(currentText);
             canvas.renderAll();
-            
+
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'STV Light Font Arabic Text');
@@ -702,17 +792,17 @@ Text Align: ${text.textAlign}
         function exportJSON() {
             const json = JSON.stringify(canvas.toJSON(['fontFamily', 'direction', 'textAlign']));
             console.log('Canvas JSON:', json);
-            
+
             // Create download link
             const link = document.createElement('a');
             link.download = `rtl-debug-canvas-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
             link.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(json);
-            
+
             // Trigger download
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            
+
             debugInfo.textContent = 'Canvas exported as JSON file';
             return json;
         }
@@ -723,7 +813,7 @@ Text Align: ${text.textAlign}
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = function (e) {
                 importJSON(e.target.result);
             };
             reader.readAsText(file);
@@ -733,15 +823,15 @@ Text Align: ${text.textAlign}
             try {
                 console.log('Loading JSON into canvas...');
                 const parsed = JSON.parse(jsonString);
-                
-                canvas.loadFromJSON(parsed, function() {
+
+                canvas.loadFromJSON(parsed, function () {
                     canvas.requestRenderAll();
                     console.log('JSON loaded successfully');
-                    
+
                     // Find the first text object
                     const objects = canvas.getObjects();
                     currentText = objects.find(obj => obj.type === 'textbox' || obj.type === 'text' || obj.type === 'i-text');
-                    
+
                     if (currentText) {
                         console.log('Found text object:', currentText);
                         setTimeout(() => {
@@ -751,7 +841,7 @@ Text Align: ${text.textAlign}
                             updateDebugInfo(currentText, 'Loaded from JSON');
                         }, 300); // Extra time for font loading
                     }
-                    
+
                     debugInfo.textContent = `JSON loaded successfully. Found ${objects.length} objects.`;
                 });
             } catch (error) {
@@ -760,8 +850,75 @@ Text Align: ${text.textAlign}
             }
         }
 
+        // Kashida test function
+        function showKashidaTest(kashidaLevel) {
+            clearCanvas();
+
+            // Create multiple lines of Arabic text to test justify with kashida
+            const arabicText = 'هذا نص تجريبي طويل لاختبار خاصية الكاشيدة في المحاذاة المتساوية للنصوص العربية وهو يحتوي على عدة كلمات';
+
+            currentText = new fabric.Textbox(arabicText, {
+                left: 400,
+                top: 150,
+                width: 350,
+                fontFamily: 'Arial',
+                fontSize: 24,
+                direction: 'rtl',
+                textAlign: 'justify',
+                fill: '#333',
+                editable: true,
+                selectable: true,
+                kashida: kashidaLevel,
+                enableAdvancedLayout: true
+            });
+
+            canvas.add(currentText);
+            canvas.renderAll();
+
+            setTimeout(() => {
+                drawBoundingBoxOverlay(currentText);
+                updateDebugInfo(currentText, `Kashida: ${kashidaLevel}`);
+
+                // Show kashida info in debug
+                if (currentText.__kashidaInfo) {
+                    console.log('Kashida Info:', currentText.__kashidaInfo);
+                }
+            }, 100);
+        }
+
+        // Set kashida on current text
+        function setKashida(level) {
+            if (!currentText) {
+                alert('Add a text object first.');
+                return;
+            }
+
+            // Kashida only works with justify alignment
+            if (!currentText.textAlign.includes('justify')) {
+                currentText.set({ textAlign: 'justify' });
+                console.log('Changed textAlign to justify (required for kashida)');
+            }
+
+            currentText.set({ kashida: level });
+
+            // Force clear cache and reset dimension state to force recalculation
+            currentText._clearCache();
+            currentText._lastDimensionState = null; // Force initDimensions to recalculate
+            currentText.initDimensions();
+            currentText.setCoords();
+
+            canvas.requestRenderAll();
+            clearDebugOverlays();
+            drawBoundingBoxOverlay(currentText);
+            updateDebugInfo(currentText, `Kashida: ${level}`);
+
+            console.log('Kashida set to:', level);
+            console.log('Kashida Info:', currentText.__kashidaInfo);
+        }
+
         // Initialize with RTL text
         showRTLText();
     </script>
 </body>
+
 </html>

@@ -29,10 +29,11 @@ export const textLayoutProperties: string[] = [
   'pathSide',
   'pathAlign',
   'wrap',
-  'ellipsis', 
+  'ellipsis',
   'letterSpacing',
   'enableAdvancedLayout',
   'verticalAlign',
+  'kashida',
 ];
 
 export const additionalProps = [
@@ -104,7 +105,8 @@ export const textDefaultValues: Partial<TClassProperties<FabricText>> = {
   letterSpacing: 0,
   enableAdvancedLayout: false,
   verticalAlign: 'top' as const,
-  
+  kashida: 'none' as const,
+
   // Overlay editor properties
   useOverlayEditing: false,
   

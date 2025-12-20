@@ -410,7 +410,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta15";
+var version = "7.0.1-beta16";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -4856,7 +4856,7 @@ function getSvgRegex(arr) {
 const TEXT_DECORATION_THICKNESS = 'textDecorationThickness';
 const fontProperties = ['fontSize', 'fontWeight', 'fontFamily', 'fontStyle'];
 const textDecorationProperties = ['underline', 'overline', 'linethrough'];
-const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign'];
+const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign', 'kashida'];
 const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS, 'useOverlayEditing'];
 const styleProperties = [...fontProperties, ...textDecorationProperties, STROKE, 'strokeWidth', FILL, 'deltaY', 'textBackgroundColor', TEXT_DECORATION_THICKNESS];
 
@@ -4893,6 +4893,7 @@ const textDefaultValues = {
   letterSpacing: 0,
   enableAdvancedLayout: false,
   verticalAlign: 'top',
+  kashida: 'none',
   // Overlay editor properties
   useOverlayEditing: false,
   CACHE_FONT_SIZE: 400,
@@ -19725,6 +19726,14 @@ function fontLacksEnglishGlyphsCached(fontFamily) {
  * and grapheme cluster boundary detection.
  */
 
+// Unicode character categories for text processing
+const UNICODE_CATEGORIES = {
+  // Bidirectional types
+  L: /[\u0041-\u005A\u0061-\u007A\u00AA\u00B5\u00BA\u00C0-\u00D6\u00D8-\u00F6]/,
+  R: /[\u05BE\u05C0\u05C3\u05C6\u05D0-\u05EA\u05F0-\u05F4\u0608\u060B\u060D]/,
+  AL: /[\u0627\u0629-\u063A\u0641-\u064A\u066D-\u066F\u0671-\u06D3\u06D5]/,
+  EN: /[\u0030-\u0039\u00B2\u00B3\u00B9\u06F0-\u06F9]/,
+  AN: /[\u0660-\u0669\u066B\u066C]/};
 
 /**
  * Enhanced grapheme segmentation using Intl.Segmenter when available
@@ -19746,6 +19755,273 @@ function segmentGraphemes(text) {
 
   // Use existing Fabric.js implementation as fallback
   return graphemeSplit(text);
+}
+
+/**
+ * Analyze text for bidirectional runs using Unicode BiDi algorithm (simplified)
+ */
+function analyzeBiDi(text) {
+  let baseDirection = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'ltr';
+  if (!text) return [];
+  const runs = [];
+  const chars = Array.from(text);
+  let currentRun = null;
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const charDirection = getBidiDirection(char, baseDirection);
+
+    // Start new run if direction changes
+    if (!currentRun || currentRun.direction !== charDirection) {
+      if (currentRun) {
+        runs.push(currentRun);
+      }
+      currentRun = {
+        text: char,
+        direction: charDirection,
+        level: charDirection === 'rtl' ? 1 : 0,
+        start: i,
+        end: i + 1
+      };
+    } else {
+      // Continue current run
+      currentRun.text += char;
+      currentRun.end = i + 1;
+    }
+  }
+
+  // Add final run
+  if (currentRun) {
+    runs.push(currentRun);
+  }
+  return runs.length > 0 ? runs : [{
+    text,
+    direction: baseDirection,
+    level: baseDirection === 'rtl' ? 1 : 0,
+    start: 0,
+    end: text.length
+  }];
+}
+
+/**
+ * Character classification functions
+ */
+function isWhitespace(grapheme) {
+  return /\s/.test(grapheme);
+}
+
+/**
+ * Get bidirectional character type
+ */
+function getBidiDirection(char, baseDirection) {
+  // Strong RTL characters
+  if (UNICODE_CATEGORIES.R.test(char) || UNICODE_CATEGORIES.AL.test(char)) {
+    return 'rtl';
+  }
+
+  // Strong LTR characters  
+  if (UNICODE_CATEGORIES.L.test(char)) {
+    return 'ltr';
+  }
+
+  // Numbers follow base direction in simplified algorithm
+  if (UNICODE_CATEGORIES.EN.test(char) || UNICODE_CATEGORIES.AN.test(char)) {
+    return baseDirection;
+  }
+
+  // Neutral characters follow context
+  return baseDirection;
+}
+
+// ============================================================================
+// Arabic Kashida (Tatweel) Support
+// ============================================================================
+
+/**
+ * Arabic Tatweel (kashida) character used for justification
+ */
+const ARABIC_TATWEEL = '\u0640';
+
+/**
+ * Arabic letters that do NOT connect to the following letter (non-connecting on left).
+ * These letters cannot have kashida inserted after them.
+ * ا (Alef), د (Dal), ذ (Thal), ر (Ra), ز (Zay), و (Waw), ة (Teh Marbuta), ء (Hamza)
+ */
+const ARABIC_NON_CONNECTING = new Set(['\u0627',
+// Alef
+'\u062F',
+// Dal
+'\u0630',
+// Thal
+'\u0631',
+// Ra
+'\u0632',
+// Zay
+'\u0648',
+// Waw
+'\u0629',
+// Teh Marbuta
+'\u0621',
+// Hamza
+'\u0622',
+// Alef with Madda
+'\u0623',
+// Alef with Hamza Above
+'\u0625',
+// Alef with Hamza Below
+'\u0672',
+// Alef with Wavy Hamza Above
+'\u0673',
+// Alef with Wavy Hamza Below
+'\u0675',
+// High Hamza Alef
+'\u0688',
+// Dal with Small Tah
+'\u0689',
+// Dal with Ring
+'\u068A',
+// Dal with Dot Below
+'\u068B',
+// Dal with Dot Below and Small Tah
+'\u068C',
+// Dahal
+'\u068D',
+// Ddahal
+'\u068E',
+// Dul
+'\u068F',
+// Dal with Three Dots Above Downwards
+'\u0690',
+// Dal with Four Dots Above
+'\u0691',
+// Rreh
+'\u0692',
+// Reh with Small V
+'\u0693',
+// Reh with Ring
+'\u0694',
+// Reh with Dot Below
+'\u0695',
+// Reh with Small V Below
+'\u0696',
+// Reh with Dot Below and Dot Above
+'\u0697',
+// Reh with Two Dots Above
+'\u0698',
+// Jeh
+'\u0699',
+// Reh with Four Dots Above
+'\u06C4',
+// Waw with Ring
+'\u06C5',
+// Kirghiz Oe
+'\u06C6',
+// Oe
+'\u06C7',
+// U
+'\u06C8',
+// Yu
+'\u06C9',
+// Kirghiz Yu
+'\u06CA',
+// Waw with Two Dots Above
+'\u06CB',
+// Ve
+'\u06CD',
+// Yeh with Tail
+'\u06CF' // Waw with Dot Above
+]);
+
+/**
+ * Check if a character is an Arabic letter (main Arabic block + extended)
+ */
+function isArabicLetter(char) {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  // Arabic: U+0600-U+06FF (main block)
+  // Arabic Supplement: U+0750-U+077F
+  // Arabic Extended-A: U+08A0-U+08FF
+  return code >= 0x0620 && code <= 0x064A ||
+  // Main letters
+  code >= 0x066E && code <= 0x06D3 ||
+  // Extended letters
+  code >= 0x0750 && code <= 0x077F ||
+  // Arabic Supplement
+  code >= 0x08A0 && code <= 0x08FF // Arabic Extended-A
+  ;
+}
+
+/**
+ * Check if kashida can be inserted between two characters.
+ * Kashida can only be inserted:
+ * - Between two Arabic letters
+ * - After a letter that connects to the next (not in ARABIC_NON_CONNECTING)
+ * - Not at word boundaries (no whitespace before/after)
+ */
+function canInsertKashida(prevChar, nextChar) {
+  if (!prevChar || !nextChar) return false;
+
+  // Can't insert at whitespace boundaries
+  if (/\s/.test(prevChar) || /\s/.test(nextChar)) return false;
+
+  // Both must be Arabic letters
+  if (!isArabicLetter(prevChar) || !isArabicLetter(nextChar)) return false;
+
+  // Previous char must connect to the next (not be non-connecting)
+  if (ARABIC_NON_CONNECTING.has(prevChar)) return false;
+  return true;
+}
+
+/**
+ * Represents a valid kashida insertion point
+ */
+
+/**
+ * Find all valid kashida insertion points in a line of text.
+ * Returns points sorted by priority (highest first).
+ *
+ * Priority rules (similar to Adobe Illustrator):
+ * 1. Between connected letters (ب + ب = highest)
+ * 2. Prefer middle of words over edges
+ * 3. Avoid inserting right before/after spaces
+ */
+function findKashidaPoints(graphemes) {
+  const points = [];
+  for (let i = 0; i < graphemes.length - 1; i++) {
+    const prev = graphemes[i];
+    const next = graphemes[i + 1];
+    if (canInsertKashida(prev, next)) {
+      // Calculate priority based on position in word
+      let priority = 1;
+
+      // Find word boundaries
+      let wordStart = i;
+      let wordEnd = i + 1;
+      while (wordStart > 0 && !isWhitespace(graphemes[wordStart - 1])) {
+        wordStart--;
+      }
+      while (wordEnd < graphemes.length && !isWhitespace(graphemes[wordEnd])) {
+        wordEnd++;
+      }
+      const wordLength = wordEnd - wordStart;
+      const posInWord = i - wordStart;
+
+      // Higher priority for middle positions
+      const distFromEdge = Math.min(posInWord, wordLength - 1 - posInWord);
+      priority = distFromEdge + 1;
+
+      // Boost priority for longer words
+      if (wordLength > 4) priority += 1;
+      if (wordLength > 6) priority += 1;
+      points.push({
+        charIndex: i,
+        priority
+      });
+    }
+  }
+
+  // Sort by priority descending
+  points.sort((a, b) => b.priority - a.priority);
+  return points;
 }
 
 /**
@@ -20106,7 +20382,7 @@ function layoutSingleLine(text, options) {
   let lineHeight = 0;
   let charIndex = textOffset; // Track character position in original text
 
-  // Measure each grapheme
+  // Measure each grapheme in logical order
   for (let i = 0; i < graphemes.length; i++) {
     const grapheme = graphemes[i];
     const prevGrapheme = i > 0 ? graphemes[i - 1] : undefined;
@@ -20122,12 +20398,14 @@ function layoutSingleLine(text, options) {
     bounds.push({
       grapheme,
       x,
+      // Will be updated by BiDi reordering
       y: 0,
       // Will be adjusted later
       width: measurement.width,
       height: measurement.height,
       kernedWidth: measurement.kernedWidth,
       left: x,
+      // Logical position (cumulative)
       baseline: measurement.baseline,
       charIndex: charIndex,
       // Character position in original text
@@ -20140,6 +20418,9 @@ function layoutSingleLine(text, options) {
     lineWidth += effectiveWidth;
     lineHeight = Math.max(lineHeight, measurement.height);
   }
+
+  // Note: BiDi visual reordering is handled by the browser's canvas fillText
+  // The layout stores positions in logical order; hit testing handles the visual mapping
 
   // Remove trailing spacing from total width (but keep in bounds for rendering)
   if (bounds.length > 0) {
@@ -20222,10 +20503,118 @@ function wrapByCharacters(text, maxWidth, options) {
 }
 
 /**
+ * Apply BiDi visual reordering to calculate correct visual X positions
+ * This implements the Unicode Bidirectional Algorithm for character placement
+ */
+function applyBiDiVisualReordering(line, options) {
+  const baseDirection = options.direction === 'inherit' ? 'ltr' : options.direction;
+
+  // Quick check: if all characters are same direction as base, no reordering needed
+  const runs = analyzeBiDi(line.text, baseDirection);
+  const hasMixedBiDi = runs.length > 1 || runs.length === 1 && runs[0].direction !== baseDirection;
+  if (!hasMixedBiDi) {
+    // For pure LTR or pure RTL, just set visual x = logical left
+    // For RTL base direction, we need to flip positions
+    if (baseDirection === 'rtl') {
+      // RTL: rightmost character should be at x=0, leftmost at x=lineWidth
+      line.bounds.forEach(bound => {
+        bound.x = line.width - bound.left - bound.kernedWidth;
+      });
+    }
+    // For LTR, x is already correct (same as left)
+    return line;
+  }
+
+  // Mixed BiDi text - need to reorder runs visually
+  // 1. Build mapping from grapheme index to run
+  const graphemeToRun = [];
+  let runGraphemeStart = 0;
+  for (let runIdx = 0; runIdx < runs.length; runIdx++) {
+    const run = runs[runIdx];
+    const runGraphemes = segmentGraphemes(run.text);
+    for (let i = 0; i < runGraphemes.length; i++) {
+      graphemeToRun.push(runIdx);
+    }
+    runGraphemeStart += runGraphemes.length;
+  }
+
+  // 2. Calculate run widths and positions
+  const runWidths = [];
+  const runStartIndices = [];
+  let currentIdx = 0;
+  for (const run of runs) {
+    runStartIndices.push(currentIdx);
+    const runGraphemes = segmentGraphemes(run.text);
+    let runWidth = 0;
+    for (let i = 0; i < runGraphemes.length; i++) {
+      if (currentIdx + i < line.bounds.length) {
+        const letterSpacing = options.letterSpacing || 0;
+        const charSpacing = options.charSpacing ? options.fontSize * options.charSpacing / 1000 : 0;
+        runWidth += line.bounds[currentIdx + i].kernedWidth + letterSpacing + charSpacing;
+      }
+    }
+    runWidths.push(runWidth);
+    currentIdx += runGraphemes.length;
+  }
+
+  // 3. Determine visual order of runs based on base direction
+  // RTL base: runs display right-to-left (first run on right)
+  // LTR base: runs display left-to-right (first run on left)
+  const visualRunOrder = runs.map((_, i) => i);
+  if (baseDirection === 'rtl') {
+    visualRunOrder.reverse();
+  }
+
+  // 4. Calculate visual X position for each run
+  const runVisualX = new Array(runs.length);
+  let currentX = 0;
+  for (const runIdx of visualRunOrder) {
+    runVisualX[runIdx] = currentX;
+    currentX += runWidths[runIdx];
+  }
+
+  // 5. Assign visual X positions to each grapheme
+  for (let i = 0; i < line.bounds.length; i++) {
+    const runIdx = graphemeToRun[i];
+    if (runIdx === undefined) continue;
+    const run = runs[runIdx];
+    const runStart = runStartIndices[runIdx];
+
+    // Calculate spacing once
+    const letterSpacing = options.letterSpacing || 0;
+    const charSpacing = options.charSpacing ? options.fontSize * options.charSpacing / 1000 : 0;
+    const totalSpacing = letterSpacing + charSpacing;
+
+    // Calculate offset within run (sum of widths of chars before this one)
+    let offsetInRun = 0;
+    for (let j = runStart; j < i; j++) {
+      offsetInRun += line.bounds[j].kernedWidth + totalSpacing;
+    }
+
+    // Character width including spacing
+    const charWidth = line.bounds[i].kernedWidth + totalSpacing;
+
+    // For RTL runs, characters within the run are reversed visually
+    // First logical char appears on the right, last on the left
+    if (run.direction === 'rtl') {
+      // Visual X = run right edge - cumulative width including this char
+      // This places first char at right side of run, last char at left side
+      line.bounds[i].x = runVisualX[runIdx] + runWidths[runIdx] - offsetInRun - charWidth;
+    } else {
+      // LTR run: visual position is run start + offset within run
+      line.bounds[i].x = runVisualX[runIdx] + offsetInRun;
+    }
+  }
+  return line;
+}
+
+/**
  * Apply text alignment to lines
  */
 function applyAlignment(lines, align, containerWidth, options) {
   return lines.map(line => {
+    // First apply BiDi reordering to get correct visual X positions
+    applyBiDiVisualReordering(line, options);
     let offsetX = 0;
     switch (align) {
       case 'center':
@@ -20245,7 +20634,7 @@ function applyAlignment(lines, align, containerWidth, options) {
         break;
     }
 
-    // Apply offset to all bounds
+    // Apply offset to all bounds (both visual x and logical left for alignment)
     if (offsetX !== 0) {
       line.bounds.forEach(bound => {
         bound.x += offsetX;
@@ -20815,6 +21204,12 @@ class FabricText extends StyledText {
      * @protected
      */
     _defineProperty(this, "__charBounds", []);
+    /**
+     * contains kashida extension info for each line.
+     * Each entry contains { charIndex, width } for characters that have kashida extensions.
+     * @protected
+     */
+    _defineProperty(this, "__kashidaInfo", []);
     Object.assign(this, FabricText.ownDefaults);
     this.setOptions(options);
     if (!this.styles) {
@@ -20933,11 +21328,31 @@ class FabricText extends StyledText {
   }
 
   /**
-   * Enlarge space boxes and shift the others for justify alignment
+   * Enlarge space boxes and shift the others for justify alignment.
+   * Supports Arabic kashida (tatweel) justification when kashida property is set.
+   * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    let diffSpace, currentLineWidth, numberOfSpaces, accumulatedSpace, line, charBound, spaces;
+    console.log('=== enlargeSpaces START ===');
+    console.log('this.kashida:', this.kashida);
+
+    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
+    const kashidaRatios = {
+      none: 0,
+      short: 0.25,
+      medium: 0.5,
+      long: 0.75,
+      stylistic: 1.0
+    };
+    const kashidaRatio = kashidaRatios[this.kashida] || 0;
+    console.log('kashidaRatio:', kashidaRatio);
+
+    // Reset kashida info
+    this.__kashidaInfo = [];
     for (let i = 0, len = this._textLines.length; i < len; i++) {
+      // Initialize kashida info for this line
+      this.__kashidaInfo[i] = [];
+
       // Check if this line should be justified
       const hasTextAfter = this._textLines.slice(i + 1).some(line => {
         const lineText = Array.isArray(line) ? line.join('') : line;
@@ -20947,33 +21362,121 @@ class FabricText extends StyledText {
       const isLastLine = i === len - 1 || this.isEndOfWrapping(i) || isVisualLastLine;
       const shouldJustifyLine = this.textAlign.includes('justify') && !isLastLine;
       if (!shouldJustifyLine) {
+        console.log(`  Line ${i}: skipped (not justified)`);
         continue;
       }
-      accumulatedSpace = 0;
-      line = this._textLines[i];
-      currentLineWidth = this.getLineWidth(i);
-      if (currentLineWidth < this.width && (spaces = this.textLines[i].match(this._reSpacesAndTabs))) {
-        numberOfSpaces = spaces.length;
-        diffSpace = (this.width - currentLineWidth) / numberOfSpaces;
+      const line = this._textLines[i];
+      const currentLineWidth = this.getLineWidth(i);
+      const totalExtraSpace = this.width - currentLineWidth;
+      console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
+      if (totalExtraSpace <= 0) {
+        console.log(`  Line ${i}: skipped (no extra space)`);
+        continue;
+      }
 
-        // Same logic for both LTR and RTL:
-        // Expand space widths and shift subsequent characters
-        // The rendering handles direction via ctx.direction
-        for (let j = 0; j <= line.length; j++) {
-          charBound = this.__charBounds[i][j];
-          if (charBound) {
-            if (this._reSpaceAndTab.test(line[j])) {
-              charBound.width += diffSpace;
-              charBound.kernedWidth += diffSpace;
-              charBound.left += accumulatedSpace;
-              accumulatedSpace += diffSpace;
-            } else {
-              charBound.left += accumulatedSpace;
+      // Find spaces for space expansion
+      const spaces = this.textLines[i].match(this._reSpacesAndTabs);
+      const numberOfSpaces = spaces ? spaces.length : 0;
+
+      // Find kashida points if enabled
+      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
+      const hasKashidaPoints = kashidaPoints.length > 0;
+
+      // Calculate space distribution
+      let kashidaSpace = 0;
+      if (hasKashidaPoints && kashidaRatio > 0) {
+        // Distribute between kashida and spaces
+        kashidaSpace = totalExtraSpace * kashidaRatio;
+      }
+
+      // Calculate per-kashida and per-space widths
+      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
+
+      // If kashida is enabled, insert tatweel characters into the text
+      if (hasKashidaPoints && perKashidaWidth > 0) {
+        console.log(`=== Inserting kashida for line ${i} ===`);
+        console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
+
+        // Sort by charIndex descending to insert from end (so indices stay valid)
+        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
+
+        // Calculate how many tatweels to insert per point
+        // Measure tatweel width to determine count
+        const ctx = getMeasuringContext();
+        console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
+        if (ctx) {
+          ctx.font = this._getFontDeclaration();
+          const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
+          console.log(`  tatweelWidth: ${tatweelWidth}`);
+          if (tatweelWidth > 0) {
+            const newLine = [...line];
+            let insertedCount = 0;
+            for (const point of sortedPoints) {
+              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
+              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+
+              // Insert tatweels after the character
+              for (let t = 0; t < tatweelCount; t++) {
+                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
+                insertedCount++;
+              }
+
+              // Store kashida info with updated indices and tatweel count
+              this.__kashidaInfo[i].push({
+                charIndex: point.charIndex,
+                width: perKashidaWidth,
+                tatweelCount: tatweelCount
+              });
             }
+            console.log(`  Total inserted: ${insertedCount} tatweels`);
+            console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
+            console.log(`  New line: ${newLine.join('')}`);
+
+            // Update _textLines with the new line containing tatweels
+            this._textLines[i] = newLine;
+
+            // Update textLines string version
+            if (this.textLines && this.textLines[i] !== undefined) {
+              this.textLines[i] = newLine.join('');
+            }
+
+            // Recalculate charBounds for this line since text changed
+            this.__charBounds[i] = [];
+            this.__lineWidths[i] = undefined;
+            this._measureLine(i);
+            console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
+          }
+        }
+      }
+
+      // Now apply space expansion to remaining extra space
+      const newLineWidth = this.getLineWidth(i);
+      const remainingSpace = this.width - newLineWidth;
+      if (remainingSpace > 0 && numberOfSpaces > 0) {
+        const extraPerSpace = remainingSpace / numberOfSpaces;
+        let accumulatedOffset = 0;
+        for (let j = 0; j < this._textLines[i].length; j++) {
+          const charBound = this.__charBounds[i][j];
+          if (!charBound) continue;
+          charBound.left += accumulatedOffset;
+          if (this._reSpaceAndTab.test(this._textLines[i][j])) {
+            charBound.width += extraPerSpace;
+            charBound.kernedWidth += extraPerSpace;
+            accumulatedOffset += extraPerSpace;
           }
         }
       }
     }
+
+    // Final debug log showing kashida state
+    console.log('=== enlargeSpaces END ===');
+    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+      line: i,
+      entries: lineInfo.map(k => ({
+        charIndex: k.charIndex,
+        tatweelCount: k.tatweelCount
+      }))
+    }))));
   }
 
   /**
@@ -21048,9 +21551,13 @@ class FabricText extends StyledText {
     // Convert layout to legacy format for compatibility
     this._convertLayoutToLegacyFormat(layout);
 
-    // Ensure justify alignment is properly applied for compatibility with legacy rendering
-    // Skip legacy enlargeSpaces when using advanced layout; Konva layout already distributes spaces.
-
+    // Apply kashida if enabled for justify alignment
+    // This must be called after _convertLayoutToLegacyFormat to ensure __charBounds exists
+    if (this.textAlign.includes(JUSTIFY) && this.kashida && this.kashida !== 'none') {
+      if (this.__charBounds && this.__charBounds.length > 0) {
+        this.enlargeSpaces();
+      }
+    }
     this.dirty = true;
   }
 
@@ -21062,15 +21569,26 @@ class FabricText extends StyledText {
     this._textLines = layout.lines.map(line => line.graphemes);
     this.textLines = layout.lines.map(line => line.text);
 
+    // Set _text as flat array of all graphemes (required for editing)
+    this._text = layout.lines.flatMap(line => line.graphemes);
+
     // Convert bounds to legacy format
+    // IMPORTANT: Preserve both logical (left) and visual (renderLeft) positions
+    // - left: cumulative logical offset (for text editing operations)
+    // - renderLeft: actual visual X position after BiDi reordering and alignment
+    // The renderLeft is critical for correct cursor/selection hit testing in mixed RTL/LTR text
     this.__charBounds = layout.lines.map(line => line.bounds.map(bound => ({
       left: bound.left,
       top: bound.y,
       width: bound.width,
       height: bound.height,
       kernedWidth: bound.kernedWidth,
-      deltaY: bound.deltaY || 0
+      deltaY: bound.deltaY || 0,
+      renderLeft: bound.x // Visual X position for hit testing
     })));
+
+    // Populate line widths cache to prevent getLineWidth from triggering legacy measurement
+    this.__lineWidths = layout.lines.map(line => line.width);
 
     // Update grapheme info for compatibility
     if (layout.lines.length > 0) {
@@ -21237,6 +21755,48 @@ class FabricText extends StyledText {
    */
   _renderTextLine(method, ctx, line, left, top, lineIndex) {
     this._renderChars(method, ctx, line, left, top, lineIndex);
+  }
+
+  /**
+   * Build display text lines with kashida characters inserted.
+   * This creates a version of _textLines with tatweel characters added at kashida points.
+   * @private
+   */
+  _buildKashidaDisplayLines() {
+    if (this.kashida === 'none' || !this.__kashidaInfo) {
+      return this._textLines;
+    }
+    const displayLines = [];
+    for (let lineIndex = 0; lineIndex < this._textLines.length; lineIndex++) {
+      const line = this._textLines[lineIndex];
+      const kashidaInfo = this.__kashidaInfo[lineIndex];
+      if (!kashidaInfo || kashidaInfo.length === 0) {
+        displayLines.push([...line]);
+        continue;
+      }
+
+      // Sort kashida points by charIndex descending so we can insert from the end
+      const sortedKashida = [...kashidaInfo].sort((a, b) => b.charIndex - a.charIndex);
+
+      // Calculate how many tatweels to insert based on width
+      const newLine = [...line];
+      for (const {
+        charIndex,
+        width
+      } of sortedKashida) {
+        if (width <= 0 || charIndex >= newLine.length) continue;
+
+        // Calculate number of tatweel characters based on width
+        // Each tatweel is approximately 5px at font size 24
+        const tatweelCount = Math.max(1, Math.round(width / 3));
+        const tatweels = ARABIC_TATWEEL.repeat(tatweelCount);
+
+        // Insert tatweels after the character at charIndex
+        newLine.splice(charIndex + 1, 0, tatweels);
+      }
+      displayLines.push(newLine);
+    }
+    return displayLines;
   }
 
   /**
@@ -21636,12 +22196,18 @@ class FabricText extends StyledText {
     const lineHeight = this.getHeightOfLine(lineIndex),
       isJustify = this.textAlign.includes(JUSTIFY),
       path = this.path,
-      shortCut = !isJustify && this.charSpacing === 0 && this.isEmptyStyles(lineIndex) && !path,
       isLtr = this.direction === 'ltr',
       sign = this.direction === 'ltr' ? 1 : -1,
       // this was changed in the PR #7674
       // currentDirection = ctx.canvas.getAttribute('dir');
       currentDirection = ctx.direction;
+
+    // Check if we should use BiDi-aware rendering with pre-calculated positions
+    // This is needed for advanced layout with RTL or mixed BiDi text
+    const chars = this.__charBounds[lineIndex];
+    this.enableAdvancedLayout && (chars === null || chars === void 0 ? void 0 : chars.length) > 0 && chars[0].renderLeft !== undefined;
+
+    const shortCut = !isJustify && this.charSpacing === 0 && this.isEmptyStyles(lineIndex) && !path;
     let actualStyle,
       nextStyle,
       charsToRender = '',
@@ -21650,6 +22216,9 @@ class FabricText extends StyledText {
       timeToRender,
       drawingLeft;
     ctx.save();
+
+    // For BiDi rendering with pre-calculated positions, disable browser BiDi
+    // and render each character at its calculated visual position
     if (currentDirection !== this.direction) {
       ctx.canvas.setAttribute('dir', isLtr ? 'ltr' : 'rtl');
       ctx.direction = isLtr ? 'ltr' : 'rtl';
@@ -21971,12 +22540,154 @@ class FabricText extends StyledText {
    * @private
    */
   _clearCache() {
+    console.log('🗑️ _clearCache called');
+    console.trace('🗑️ _clearCache stack trace');
     this._forceClearCache = false;
     this.__lineWidths = [];
     this.__lineHeights = [];
     this.__charBounds = [];
+    this.__kashidaInfo = [];
     // Reset justify applied flag
     this._justifyApplied = false;
+    // Reset dimension state to force recalculation
+    this._lastDimensionState = null;
+  }
+
+  /**
+   * Convert a display character index (in _textLines with tatweels) to original text index.
+   * When kashida is applied, _textLines contains extra tatweel characters that don't exist
+   * in the original text. This method maps back to the original index.
+   * @param lineIndex - The line index
+   * @param displayCharIndex - Character index in the display text (with tatweels)
+   * @returns Original character index (without tatweels)
+   */
+  _displayToOriginalIndex(lineIndex, displayCharIndex) {
+    var _this$__kashidaInfo, _this$__kashidaInfo2;
+    console.log(`🔄 _displayToOriginalIndex called: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    console.log(`🔄 __kashidaInfo exists: ${!!this.__kashidaInfo}, length: ${(_this$__kashidaInfo = this.__kashidaInfo) === null || _this$__kashidaInfo === void 0 ? void 0 : _this$__kashidaInfo.length}`);
+    console.log(`🔄 __kashidaInfo raw:`, JSON.stringify(this.__kashidaInfo));
+    const kashidaInfo = (_this$__kashidaInfo2 = this.__kashidaInfo) === null || _this$__kashidaInfo2 === void 0 ? void 0 : _this$__kashidaInfo2[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      // No kashida on this line, indices are the same
+      console.log(`🔄 No kashida info for line ${lineIndex}, returning same index`);
+      return displayCharIndex;
+    }
+
+    // Sort kashida info by charIndex ascending for proper traversal
+    const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
+    console.log(`🔄 _displayToOriginalIndex: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    console.log(`🔄 kashidaInfo:`, sortedKashida.map(k => `{charIdx:${k.charIndex}, cnt:${k.tatweelCount}}`).join(', '));
+    let tatweelsBeforeIndex = 0;
+    for (const k of sortedKashida) {
+      const tatweelCount = k.tatweelCount || 0;
+      // Position where tatweels start (after the original character)
+      const tatweelStartPos = k.charIndex + 1 + tatweelsBeforeIndex;
+      const tatweelEndPos = tatweelStartPos + tatweelCount;
+      console.log(`🔄   k.charIndex=${k.charIndex}, tatweelStartPos=${tatweelStartPos}, tatweelEndPos=${tatweelEndPos}, tatweelsBeforeIndex=${tatweelsBeforeIndex}`);
+      if (displayCharIndex < tatweelStartPos) {
+        // Before this kashida point
+        console.log(`🔄   displayIdx < tatweelStartPos, break`);
+        break;
+      } else if (displayCharIndex < tatweelEndPos) {
+        // Within tatweel characters - map to the character before tatweels
+        console.log(`🔄   Within tatweel, return ${k.charIndex + 1}`);
+        return k.charIndex + 1;
+      } else {
+        // After this kashida point
+        tatweelsBeforeIndex += tatweelCount;
+        console.log(`🔄   After this kashida, tatweelsBeforeIndex now=${tatweelsBeforeIndex}`);
+      }
+    }
+
+    // Subtract all tatweels that come before this position
+    const result = displayCharIndex - tatweelsBeforeIndex;
+    console.log(`🔄 Final result: ${displayCharIndex} - ${tatweelsBeforeIndex} = ${result}`);
+    return result;
+  }
+
+  /**
+   * Convert an original text character index to display index (in _textLines with tatweels).
+   * @param lineIndex - The line index
+   * @param originalCharIndex - Character index in the original text (without tatweels)
+   * @returns Display character index (with tatweels)
+   */
+  _originalToDisplayIndex(lineIndex, originalCharIndex) {
+    var _this$__kashidaInfo3;
+    const kashidaInfo = (_this$__kashidaInfo3 = this.__kashidaInfo) === null || _this$__kashidaInfo3 === void 0 ? void 0 : _this$__kashidaInfo3[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      // No kashida on this line, indices are the same
+      return originalCharIndex;
+    }
+
+    // Sort kashida info by charIndex ascending
+    const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
+    let tatweelsBeforeIndex = 0;
+    for (const k of sortedKashida) {
+      const tatweelCount = k.tatweelCount || 0;
+      // If the original char index is after this kashida insertion point,
+      // add the tatweels to the offset
+      if (originalCharIndex > k.charIndex) {
+        tatweelsBeforeIndex += tatweelCount;
+      } else {
+        break;
+      }
+    }
+    return originalCharIndex + tatweelsBeforeIndex;
+  }
+
+  /**
+   * Check if a display character index points to a tatweel character.
+   * @param lineIndex - The line index
+   * @param displayCharIndex - Character index in the display text
+   * @returns True if the character at this index is a tatweel
+   */
+  _isTatweelAtDisplayIndex(lineIndex, displayCharIndex) {
+    var _this$__kashidaInfo4;
+    const kashidaInfo = (_this$__kashidaInfo4 = this.__kashidaInfo) === null || _this$__kashidaInfo4 === void 0 ? void 0 : _this$__kashidaInfo4[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      return false;
+    }
+
+    // Sort kashida info by charIndex ascending
+    const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
+    let tatweelsBeforeIndex = 0;
+    for (const k of sortedKashida) {
+      const tatweelCount = k.tatweelCount || 0;
+      const tatweelStartPos = k.charIndex + 1 + tatweelsBeforeIndex;
+      const tatweelEndPos = tatweelStartPos + tatweelCount;
+      if (displayCharIndex >= tatweelStartPos && displayCharIndex < tatweelEndPos) {
+        return true;
+      }
+      tatweelsBeforeIndex += tatweelCount;
+    }
+    return false;
+  }
+
+  /**
+   * Get the total number of tatweel characters inserted in a line.
+   * @param lineIndex - The line index
+   * @returns Total number of tatweels in this line
+   */
+  _getTatweelCountForLine(lineIndex) {
+    var _this$__kashidaInfo5;
+    const kashidaInfo = (_this$__kashidaInfo5 = this.__kashidaInfo) === null || _this$__kashidaInfo5 === void 0 ? void 0 : _this$__kashidaInfo5[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      return 0;
+    }
+    return kashidaInfo.reduce((sum, k) => sum + (k.tatweelCount || 0), 0);
+  }
+
+  /**
+   * Get the original line length (without tatweels).
+   * When kashida is applied, _textLines contains extra tatweel characters.
+   * This returns the length as it would be in the original text.
+   * @param lineIndex - The line index
+   * @returns Original line length without tatweels
+   */
+  _getOriginalLineLength(lineIndex) {
+    var _this$_textLines$line;
+    const displayLength = ((_this$_textLines$line = this._textLines[lineIndex]) === null || _this$_textLines$line === void 0 ? void 0 : _this$_textLines$line.length) || 0;
+    return displayLength - this._getTatweelCountForLine(lineIndex);
   }
 
   /**
@@ -25592,8 +26303,10 @@ class ITextClickBehavior extends ITextKeyBehavior {
     // use character left positions which are always increasing even with RTL segments
 
     for (let j = 0; j < charLength; j++) {
+      var _chars$left, _chars;
       const charStart = lineLeftOffset + chars[j].left;
-      const charEnd = lineLeftOffset + chars[j + 1].left;
+      // For last character, use its width to calculate end position
+      const charEnd = lineLeftOffset + ((_chars$left = (_chars = chars[j + 1]) === null || _chars === void 0 ? void 0 : _chars.left) !== null && _chars$left !== void 0 ? _chars$left : chars[j].left + chars[j].kernedWidth);
       const charMiddle = (charStart + charEnd) / 2;
       if (mouseOffset.x <= charMiddle) {
         charIndex = lineStartIndex + j;
@@ -25617,50 +26330,6 @@ class ITextClickBehavior extends ITextKeyBehavior {
  * for interactive text editing with grapheme-aware boundaries.
  */
 
-/**
- * Hit test a point against laid out text to find insertion position
- */
-function hitTest(x, y, layout, options) {
-  if (layout.lines.length === 0) {
-    return {
-      lineIndex: 0,
-      charIndex: 0,
-      graphemeIndex: 0,
-      isAtLineEnd: true,
-      isAtTextEnd: true,
-      insertionIndex: 0
-    };
-  }
-
-  // Find the line containing the y coordinate
-  const lineResult = findLineAtY(y, layout.lines);
-  const line = layout.lines[lineResult.lineIndex];
-  if (!line || line.bounds.length === 0) {
-    return {
-      lineIndex: lineResult.lineIndex,
-      charIndex: 0,
-      graphemeIndex: 0,
-      isAtLineEnd: true,
-      isAtTextEnd: lineResult.lineIndex >= layout.lines.length - 1,
-      insertionIndex: calculateInsertionIndex(lineResult.lineIndex, 0, layout)
-    };
-  }
-
-  // Find the character position within the line
-  const charResult = findCharAtX(x, line);
-
-  // Calculate total insertion index
-  const insertionIndex = calculateInsertionIndex(lineResult.lineIndex, charResult.graphemeIndex, layout);
-  return {
-    lineIndex: lineResult.lineIndex,
-    charIndex: charResult.charIndex,
-    graphemeIndex: charResult.graphemeIndex,
-    isAtLineEnd: charResult.isAtLineEnd,
-    isAtTextEnd: lineResult.lineIndex >= layout.lines.length - 1 && charResult.isAtLineEnd,
-    insertionIndex,
-    closestBound: charResult.closestBound
-  };
-}
 
 /**
  * Get cursor rectangle for a given insertion index
@@ -25706,159 +26375,6 @@ function getCursorRect(insertionIndex, layout, options) {
     height: line.height,
     baseline: y + line.baseline
   };
-}
-
-// Private helper functions
-
-/**
- * Find which line contains the given Y coordinate
- */
-function findLineAtY(y, lines) {
-  var _lines;
-  let currentY = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (y >= currentY && y < currentY + line.height) {
-      return {
-        lineIndex: i,
-        offsetY: y - currentY
-      };
-    }
-    currentY += line.height;
-  }
-
-  // Y is past all lines - return last line
-  return {
-    lineIndex: lines.length - 1,
-    offsetY: ((_lines = lines[lines.length - 1]) === null || _lines === void 0 ? void 0 : _lines.height) || 0
-  };
-}
-
-/**
- * Find character position within a line at given X coordinate
- */
-function findCharAtX(x, line, options) {
-  if (line.bounds.length === 0) {
-    return {
-      charIndex: 0,
-      graphemeIndex: 0,
-      isAtLineEnd: true
-    };
-  }
-
-  // Create visual ordering: sort bounds by visual X position (left-to-right)
-  // This handles mixed LTR/RTL content where visual order != logical order
-  const visualBounds = line.bounds.map((bound, logicalIndex) => ({
-    bound,
-    logicalIndex,
-    visualX: bound.x,
-    visualXEnd: bound.x + bound.kernedWidth
-  })).sort((a, b) => a.visualX - b.visualX);
-
-  // Find leftmost and rightmost visual positions
-  const leftmostX = visualBounds[0].visualX;
-  const rightmostX = visualBounds[visualBounds.length - 1].visualXEnd;
-
-  // Handle clicks before the line starts
-  if (x < leftmostX) {
-    // Find the character that appears visually first
-    const firstVisualBound = visualBounds[0];
-    return {
-      charIndex: firstVisualBound.bound.charIndex,
-      graphemeIndex: firstVisualBound.bound.graphemeIndex,
-      isAtLineEnd: false,
-      closestBound: firstVisualBound.bound
-    };
-  }
-
-  // Handle clicks after the line ends
-  if (x >= rightmostX) {
-    // Find the character that appears visually last
-    const lastVisualBound = visualBounds[visualBounds.length - 1];
-    return {
-      charIndex: lastVisualBound.bound.charIndex + 1,
-      graphemeIndex: lastVisualBound.bound.graphemeIndex + 1,
-      isAtLineEnd: true,
-      closestBound: lastVisualBound.bound
-    };
-  }
-
-  // Find the character containing the X coordinate
-  for (let i = 0; i < visualBounds.length; i++) {
-    const {
-      bound,
-      visualX,
-      visualXEnd
-    } = visualBounds[i];
-    if (x >= visualX && x < visualXEnd) {
-      // Determine if closer to start or end of character
-      const midpoint = visualX + (visualXEnd - visualX) / 2;
-      const insertBeforeChar = x < midpoint;
-      if (insertBeforeChar) {
-        return {
-          charIndex: bound.charIndex,
-          graphemeIndex: bound.graphemeIndex,
-          isAtLineEnd: false,
-          closestBound: bound
-        };
-      } else {
-        // Insert after this character
-        return {
-          charIndex: bound.charIndex + 1,
-          graphemeIndex: bound.graphemeIndex + 1,
-          isAtLineEnd: false,
-          closestBound: bound
-        };
-      }
-    }
-
-    // Check if x is in the gap between this character and the next
-    if (i < visualBounds.length - 1) {
-      const nextVisual = visualBounds[i + 1];
-      if (x >= visualXEnd && x < nextVisual.visualX) {
-        // Click in gap - place cursor after current character
-        return {
-          charIndex: bound.charIndex + 1,
-          graphemeIndex: bound.graphemeIndex + 1,
-          isAtLineEnd: false,
-          closestBound: bound
-        };
-      }
-    }
-  }
-
-  // Fallback - find closest character
-  const closestBound = visualBounds.reduce((closest, current) => {
-    const closestDistance = Math.abs((closest.visualX + closest.visualXEnd) / 2 - x);
-    const currentDistance = Math.abs((current.visualX + current.visualXEnd) / 2 - x);
-    return currentDistance < closestDistance ? current : closest;
-  });
-  return {
-    charIndex: closestBound.bound.charIndex,
-    graphemeIndex: closestBound.bound.graphemeIndex,
-    isAtLineEnd: false,
-    closestBound: closestBound.bound
-  };
-}
-
-/**
- * Calculate total insertion index from line and character indices
- */
-function calculateInsertionIndex(lineIndex, graphemeIndex, layout) {
-  let insertionIndex = 0;
-
-  // Add characters from all previous lines
-  for (let i = 0; i < lineIndex && i < layout.lines.length; i++) {
-    insertionIndex += layout.lines[i].graphemes.length;
-    // Add newline character (except for last line)
-    if (i < layout.lines.length - 1) {
-      insertionIndex += 1; // \n character
-    }
-  }
-
-  // Add characters within current line
-  insertionIndex += graphemeIndex;
-  return insertionIndex;
 }
 
 /**
@@ -26074,6 +26590,20 @@ class IText extends ITextClickBehavior {
       ...IText.ownDefaults,
       ...options
     });
+    /**
+     * Index where text selection starts (or where cursor is when there is no selection)
+     * @type Number
+     */
+    /**
+     * Index where text selection ends
+     * @type Number
+     */
+    /**
+     * Cache for visual positions per line to ensure consistency
+     * during selection operations
+     * @private
+     */
+    _defineProperty(this, "_visualPositionsCache", new Map());
     this.initBehavior();
   }
 
@@ -26197,6 +26727,8 @@ class IText extends ITextClickBehavior {
     // clear the cursorOffsetCache, so we ensure to calculate once per renderCursor
     // the correct position but not at every cursor animation.
     this.cursorOffsetCache = {};
+    // Clear visual positions cache on full render since dimensions may have changed
+    this._clearVisualPositionsCache();
     this.renderCursorOrSelection();
   }
 
@@ -26224,6 +26756,9 @@ class IText extends ITextClickBehavior {
     if (!ctx) {
       return;
     }
+    // Clear cache to ensure fresh cursor position calculation
+    // This is important during selection drag when positions change frequently
+    this.cursorOffsetCache = {};
     const boundaries = this._getCursorBoundaries();
     const ancestors = this.findAncestorsWithClipPath();
     const hasAncestorsWithClipping = ancestors.length > 0;
@@ -26301,12 +26836,8 @@ class IText extends ITextClickBehavior {
   _getCursorBoundaries() {
     let index = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.selectionStart;
     let skipCaching = arguments.length > 1 ? arguments[1] : undefined;
-    // Use advanced cursor positioning if available
-    if (this.enableAdvancedLayout) {
-      return this._getCursorBoundariesAdvanced(index);
-    }
-
-    // Fall back to original method
+    // Always use original method which uses __charBounds directly
+    // and has proper RTL handling built-in
     return this._getCursorBoundariesOriginal(index, skipCaching);
   }
 
@@ -26345,19 +26876,260 @@ class IText extends ITextClickBehavior {
   }
 
   /**
-   * Enhanced selection start from pointer using BiDi-aware hit testing
-   * @override
+   * Override selection to use measureText-based visual positions
+   * This ensures hit testing matches actual browser BiDi rendering
    */
   getSelectionStartFromPointer(e) {
-    if (!this.enableAdvancedLayout || !this._layoutTextAdvanced) {
-      return super.getSelectionStartFromPointer(e);
-    }
-    const mouseOffset = this.canvas.getScenePoint(e).transform(invertTransform(this.calcTransformMatrix())).add(new Point(-this._getLeftOffset(), -this._getTopOffset()));
+    // Get mouse position in object-local coordinates (origin at center)
+    const scenePoint = this.canvas.getScenePoint(e);
+    const localPoint = scenePoint.transform(invertTransform(this.calcTransformMatrix()));
 
-    // Use BiDi-aware hit testing instead of naive RTL coordinate flipping
-    const layout = this._layoutTextAdvanced();
-    const hitResult = hitTest(mouseOffset.x, mouseOffset.y, layout, this._getAdvancedLayoutOptions());
-    return Math.min(hitResult.charIndex, this._text.length);
+    // Convert to top-left origin coordinates
+    const mouseX = localPoint.x + this.width / 2;
+    const mouseY = localPoint.y + this.height / 2;
+
+    // Find the line based on Y position
+    let height = 0,
+      lineIndex = 0;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const lineHeight = this.getHeightOfLine(i);
+      if (mouseY >= height && mouseY < height + lineHeight) {
+        lineIndex = i;
+        break;
+      }
+      height += lineHeight;
+      if (i === this._textLines.length - 1) {
+        lineIndex = i;
+      }
+    }
+
+    // Calculate line start index using ORIGINAL line lengths (without tatweels)
+    // This ensures selection indices refer to the original text, not the display text
+    let lineStartIndex = 0;
+    for (let i = 0; i < lineIndex; i++) {
+      const origLen = this._getOriginalLineLength(i);
+      const newlineOffset = this.missingNewlineOffset(i);
+      console.log(`📍 Line ${i}: origLen=${origLen}, displayLen=${this._textLines[i].length}, tatweels=${this._getTatweelCountForLine(i)}, newlineOffset=${newlineOffset}`);
+      lineStartIndex += origLen + newlineOffset;
+    }
+    console.log(`📍 Click on line ${lineIndex}, lineStartIndex=${lineStartIndex}`);
+    const line = this._textLines[lineIndex];
+    const lineText = line.join('');
+    const displayCharLength = line.length;
+    const originalCharLength = this._getOriginalLineLength(lineIndex);
+    if (displayCharLength === 0) {
+      return lineStartIndex;
+    }
+
+    // Use measureText to get actual visual character positions
+    // This matches exactly how the canvas renders BiDi text
+    const visualPositions = this._measureVisualPositions(lineIndex, lineText);
+
+    // Calculate line offset based on alignment
+    const lineWidth = this.getLineWidth(lineIndex);
+    let lineStartX = 0;
+    if (this.textAlign === 'center' || this.textAlign === 'justify-center') {
+      lineStartX = (this.width - lineWidth) / 2;
+    } else if (this.textAlign === 'right' || this.textAlign === 'justify-right') {
+      lineStartX = this.width - lineWidth;
+    } else if (this.direction === 'rtl' && (this.textAlign === 'justify' || this.textAlign === 'left')) {
+      // For RTL with left/justify, text starts from right
+      lineStartX = this.width - lineWidth;
+    }
+
+    // Find which character was clicked based on visual position
+    const clickX = mouseX - lineStartX;
+
+    // Sort positions by visual X for hit testing
+    const sortedPositions = [...visualPositions].sort((a, b) => a.visualX - b.visualX);
+
+    // Handle click before first character
+    if (sortedPositions.length > 0 && clickX < sortedPositions[0].visualX) {
+      // Before first visual character - cursor at visual left edge
+      // For RTL base direction, this means logical end of line
+      return this.direction === 'rtl' ? lineStartIndex + originalCharLength : lineStartIndex;
+    }
+
+    // Handle click after last character
+    if (sortedPositions.length > 0) {
+      const lastPos = sortedPositions[sortedPositions.length - 1];
+      if (clickX > lastPos.visualX + lastPos.width) {
+        // After last visual character - cursor at visual right edge
+        // For RTL base direction, this means logical start of line
+        return this.direction === 'rtl' ? lineStartIndex : lineStartIndex + originalCharLength;
+      }
+    }
+
+    // Find the character at click position
+    for (let i = 0; i < sortedPositions.length; i++) {
+      const pos = sortedPositions[i];
+      const charEnd = pos.visualX + pos.width;
+      if (clickX >= pos.visualX && clickX <= charEnd) {
+        // Convert display index to original index
+        // This also handles tatweels - they map to the character they extend
+        const originalCharIndex = this._displayToOriginalIndex(lineIndex, pos.logicalIndex);
+
+        // Check if this is a tatweel - if so, treat click as clicking on the extended character
+        const isTatweel = this._isTatweelAtDisplayIndex(lineIndex, pos.logicalIndex);
+        console.log(`📍 Hit char: displayIdx=${pos.logicalIndex}, origIdx=${originalCharIndex}, isTatweel=${isTatweel}, char="${this._textLines[lineIndex][pos.logicalIndex]}"`);
+        const charMiddle = pos.visualX + pos.width / 2;
+        const clickedLeftHalf = clickX <= charMiddle;
+
+        // For tatweels, clicking anywhere on it should place cursor after the extended character
+        if (isTatweel) {
+          // Tatweel extends the character before it, so cursor goes after that character
+          // originalCharIndex from _displayToOriginalIndex already maps tatweel to char+1
+          const result = lineStartIndex + originalCharIndex;
+          console.log(`📍 Tatweel click result: ${result}`);
+          return result;
+        }
+
+        // For RTL characters: left visual half means cursor AFTER (higher logical index)
+        // For LTR characters: left visual half means cursor BEFORE (lower logical index)
+        if (pos.isRtl) {
+          // RTL character
+          const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex + 1 : originalCharIndex);
+          console.log(`📍 RTL char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          return result;
+        } else {
+          // LTR character
+          const result = lineStartIndex + (clickedLeftHalf ? originalCharIndex : originalCharIndex + 1);
+          console.log(`📍 LTR char result: ${result} (clickedLeftHalf=${clickedLeftHalf})`);
+          return result;
+        }
+      }
+    }
+    console.log(`📍 No match, returning end: ${lineStartIndex + originalCharLength}`);
+    return lineStartIndex + originalCharLength;
+  }
+
+  /**
+   * Clear the visual positions cache
+   * Should be called when text content or dimensions change
+   */
+  _clearVisualPositionsCache() {
+    this._visualPositionsCache.clear();
+  }
+
+  /**
+   * Measure visual character positions for hit testing using BiDi analysis
+   * This properly handles mixed RTL/LTR text by analyzing BiDi runs
+   * Results are cached per line for consistency during selection operations
+   */
+  _measureVisualPositions(lineIndex, lineText) {
+    // Check cache first
+    if (this._visualPositionsCache.has(lineIndex)) {
+      return this._visualPositionsCache.get(lineIndex);
+    }
+    const line = this._textLines[lineIndex];
+    const positions = [];
+    const chars = this.__charBounds[lineIndex];
+    if (!chars || chars.length === 0) {
+      this._visualPositionsCache.set(lineIndex, positions);
+      return positions;
+    }
+
+    // For LTR direction, use logical positions directly
+    if (this.direction !== 'rtl') {
+      for (let i = 0; i < line.length; i++) {
+        var _chars$i, _chars$i2;
+        positions.push({
+          logicalIndex: i,
+          visualX: ((_chars$i = chars[i]) === null || _chars$i === void 0 ? void 0 : _chars$i.left) || 0,
+          width: ((_chars$i2 = chars[i]) === null || _chars$i2 === void 0 ? void 0 : _chars$i2.kernedWidth) || 0,
+          isRtl: false
+        });
+      }
+      this._visualPositionsCache.set(lineIndex, positions);
+      return positions;
+    }
+
+    // For RTL, use BiDi analysis to determine visual positions
+    const runs = analyzeBiDi(lineText, 'rtl');
+
+    // Build mapping from string position to grapheme index
+    // This is needed because analyzeBiDi works on string positions (code points)
+    // but we need grapheme indices for charBounds
+    const stringPosToGrapheme = [];
+    let strPos = 0;
+    for (let gi = 0; gi < line.length; gi++) {
+      const grapheme = line[gi];
+      for (let j = 0; j < grapheme.length; j++) {
+        stringPosToGrapheme[strPos + j] = gi;
+      }
+      strPos += grapheme.length;
+    }
+
+    // Calculate width for each run
+
+    const runInfos = [];
+    for (const run of runs) {
+      const runChars = [];
+      let runWidth = 0;
+      const seenGraphemes = new Set();
+
+      // Map string positions in this run to grapheme indices
+      for (let sp = run.start; sp < run.end; sp++) {
+        const gi = stringPosToGrapheme[sp];
+        if (gi !== undefined && !seenGraphemes.has(gi)) {
+          var _chars$gi;
+          seenGraphemes.add(gi);
+          runChars.push(gi);
+          runWidth += ((_chars$gi = chars[gi]) === null || _chars$gi === void 0 ? void 0 : _chars$gi.kernedWidth) || 0;
+        }
+      }
+      runInfos.push({
+        run,
+        width: runWidth,
+        charIndices: runChars
+      });
+    }
+
+    // For RTL base direction, runs are displayed right-to-left
+    // So first run appears on the right, last run on the left
+    const totalWidth = this.getLineWidth(lineIndex);
+    let visualX = totalWidth; // Start from right edge
+
+    for (const runInfo of runInfos) {
+      visualX -= runInfo.width; // Move left by run width
+
+      const isRtlRun = runInfo.run.direction === 'rtl';
+      if (isRtlRun) {
+        // RTL run: characters displayed right-to-left within run
+        // First char of run at visual right of run, last at visual left
+        let charX = visualX + runInfo.width;
+        for (const idx of runInfo.charIndices) {
+          var _chars$idx;
+          const charWidth = ((_chars$idx = chars[idx]) === null || _chars$idx === void 0 ? void 0 : _chars$idx.kernedWidth) || 0;
+          charX -= charWidth;
+          positions.push({
+            logicalIndex: idx,
+            visualX: charX,
+            width: charWidth,
+            isRtl: true
+          });
+        }
+      } else {
+        // LTR run: characters displayed left-to-right within run
+        // First char of run at visual left of run, last at visual right
+        let charX = visualX;
+        for (const idx of runInfo.charIndices) {
+          var _chars$idx2;
+          const charWidth = ((_chars$idx2 = chars[idx]) === null || _chars$idx2 === void 0 ? void 0 : _chars$idx2.kernedWidth) || 0;
+          positions.push({
+            logicalIndex: idx,
+            visualX: charX,
+            width: charWidth,
+            isRtl: false
+          });
+          charX += charWidth;
+        }
+      }
+    }
+
+    // Cache the result
+    this._visualPositionsCache.set(lineIndex, positions);
+    return positions;
   }
 
   /**
@@ -26377,40 +27149,140 @@ class IText extends ITextClickBehavior {
   }
 
   /**
-   * Calculates cursor left/top offset relative to instance's center point
+   * Calculates cursor left/top offset relative to _getLeftOffset()
+   * Uses visual positions for BiDi text support
+   * Handles kashida by converting original indices to display indices
    * @private
-   * @param {number} index index from start
+   * @param {number} index index from start (in original text space, without tatweels)
    */
   __getCursorBoundariesOffsets(index) {
-    let topOffset = 0,
-      leftOffset = 0;
-    const {
-      charIndex,
-      lineIndex
-    } = this.get2DCursorLocation(index);
+    let topOffset = 0;
+
+    // Find line index and original char index using original line lengths
+    let lineIndex = 0;
+    let originalCharIndex = index;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      if (originalCharIndex <= originalLineLength) {
+        lineIndex = i;
+        break;
+      }
+      originalCharIndex -= originalLineLength + this.missingNewlineOffset(i);
+      lineIndex = i + 1;
+    }
+
+    // Clamp lineIndex to valid range
+    if (lineIndex >= this._textLines.length) {
+      lineIndex = this._textLines.length - 1;
+      originalCharIndex = this._getOriginalLineLength(lineIndex);
+    }
     for (let i = 0; i < lineIndex; i++) {
       topOffset += this.getHeightOfLine(i);
     }
-    const lineLeftOffset = this._getLineLeftOffset(lineIndex);
-    const bound = this.__charBounds[lineIndex][charIndex];
-    bound && (leftOffset = bound.left);
-    if (this.charSpacing !== 0 && charIndex === this._textLines[lineIndex].length) {
-      leftOffset -= this._getWidthOfCharSpacing();
+
+    // Convert original char index to display char index for visual lookup
+    const displayCharIndex = this._originalToDisplayIndex(lineIndex, originalCharIndex);
+
+    // Get visual positions for cursor placement
+    const lineText = this._textLines[lineIndex].join('');
+    const visualPositions = this._measureVisualPositions(lineIndex, lineText);
+    const lineWidth = this.getLineWidth(lineIndex);
+    this._textLines[lineIndex].length;
+    const originalLineLength = this._getOriginalLineLength(lineIndex);
+
+    // Find visual X position for cursor (0 to lineWidth, from visual left)
+    let visualX = 0;
+    if (visualPositions.length === 0) {
+      // Fallback for empty line
+      return {
+        top: topOffset,
+        left: 0
+      };
     }
-    const boundaries = {
-      top: topOffset,
-      left: lineLeftOffset + (leftOffset > 0 ? leftOffset : 0)
-    };
-    if (this.direction === 'rtl') {
-      if (this.textAlign === RIGHT || this.textAlign === JUSTIFY || this.textAlign === JUSTIFY_RIGHT) {
-        boundaries.left *= -1;
-      } else if (this.textAlign === LEFT || this.textAlign === JUSTIFY_LEFT) {
-        boundaries.left = lineLeftOffset - (leftOffset > 0 ? leftOffset : 0);
-      } else if (this.textAlign === CENTER || this.textAlign === JUSTIFY_CENTER) {
-        boundaries.left = lineLeftOffset - (leftOffset > 0 ? leftOffset : 0);
+    if (originalCharIndex === 0) {
+      // Cursor at logical start
+      // For RTL base direction, logical start is at visual right
+      if (this.direction === 'rtl') {
+        visualX = lineWidth; // Right edge
+      } else {
+        visualX = 0; // Left edge
+      }
+    } else if (originalCharIndex >= originalLineLength) {
+      // Cursor at logical end
+      // For RTL base direction, logical end is at visual left
+      if (this.direction === 'rtl') {
+        visualX = 0; // Left edge
+      } else {
+        visualX = lineWidth; // Right edge
+      }
+    } else {
+      // Cursor between characters - find visual position of character at displayCharIndex
+      const charPos = visualPositions.find(p => p.logicalIndex === displayCharIndex);
+      if (charPos) {
+        // Use character's direction to determine cursor position
+        // For RTL char: cursor "before" it appears at its right visual edge
+        // For LTR char: cursor "before" it appears at its left visual edge
+        if (charPos.isRtl) {
+          visualX = charPos.visualX + charPos.width;
+        } else {
+          visualX = charPos.visualX;
+        }
+      } else {
+        // Fallback - try the previous character in display space
+        const prevDisplayIndex = displayCharIndex > 0 ? displayCharIndex - 1 : 0;
+        const prevCharPos = visualPositions.find(p => p.logicalIndex === prevDisplayIndex);
+        if (prevCharPos) {
+          // Cursor after previous character
+          if (prevCharPos.isRtl) {
+            visualX = prevCharPos.visualX;
+          } else {
+            visualX = prevCharPos.visualX + prevCharPos.width;
+          }
+        } else {
+          // Ultimate fallback
+          const bound = this.__charBounds[lineIndex][displayCharIndex];
+          visualX = (bound === null || bound === void 0 ? void 0 : bound.left) || 0;
+        }
       }
     }
-    return boundaries;
+
+    // Calculate alignment offset (how much line is shifted from left edge)
+    let alignOffset = 0;
+    if (this.textAlign === 'center' || this.textAlign === 'justify-center') {
+      alignOffset = (this.width - lineWidth) / 2;
+    } else if (this.textAlign === 'right' || this.textAlign === 'justify-right') {
+      alignOffset = this.width - lineWidth;
+    } else if (this.direction === 'rtl' && (this.textAlign === 'justify' || this.textAlign === 'left')) {
+      alignOffset = this.width - lineWidth;
+    }
+
+    // The returned left value is added to _getLeftOffset() in _getCursorBoundaries
+    // _getLeftOffset() returns -width/2 for LTR, +width/2 for RTL
+    // Final cursor X = _getLeftOffset() + leftOffset
+    //
+    // For LTR: cursor X = -width/2 + (alignOffset + visualX)
+    // For RTL: cursor X = +width/2 + leftOffset
+    //          We want cursor at: -width/2 + alignOffset + visualX
+    //          So leftOffset = -width/2 + alignOffset + visualX - width/2 = alignOffset + visualX - width
+
+    let leftOffset;
+    if (this.direction === 'rtl') {
+      // For RTL, _getLeftOffset() = +width/2
+      // We want final X = -width/2 + alignOffset + visualX
+      // So: +width/2 + leftOffset = -width/2 + alignOffset + visualX
+      // leftOffset = -width + alignOffset + visualX
+      leftOffset = -this.width + alignOffset + visualX;
+    } else {
+      // For LTR, _getLeftOffset() = -width/2
+      // We want final X = -width/2 + alignOffset + visualX
+      // So: -width/2 + leftOffset = -width/2 + alignOffset + visualX
+      // leftOffset = alignOffset + visualX
+      leftOffset = alignOffset + visualX;
+    }
+    return {
+      top: topOffset,
+      left: leftOffset
+    };
   }
 
   /**
@@ -26502,66 +27374,125 @@ class IText extends ITextClickBehavior {
   }
 
   /**
-   * Renders text selection
+   * Renders text selection using visual positions for BiDi support
+   * Handles kashida by converting original indices to display indices
    * @private
-   * @param {{ selectionStart: number, selectionEnd: number }} selection
+   * @param {{ selectionStart: number, selectionEnd: number }} selection (in original text space)
    * @param {Object} boundaries Object with left/top/leftOffset/topOffset
    * @param {CanvasRenderingContext2D} ctx transformed context to draw on
    */
   _renderSelection(ctx, selection, boundaries) {
     const selectionStart = selection.selectionStart,
       selectionEnd = selection.selectionEnd,
-      isJustify = this.textAlign.includes(JUSTIFY),
-      start = this.get2DCursorLocation(selectionStart),
-      end = this.get2DCursorLocation(selectionEnd),
-      startLine = start.lineIndex,
-      endLine = end.lineIndex,
-      startChar = start.charIndex < 0 ? 0 : start.charIndex,
-      endChar = end.charIndex < 0 ? 0 : end.charIndex;
-    for (let i = startLine; i <= endLine; i++) {
-      const lineOffset = this._getLineLeftOffset(i) || 0;
-      let lineHeight = this.getHeightOfLine(i),
-        realLineHeight = 0,
-        boxStart = 0,
-        boxEnd = 0;
+      isJustify = this.textAlign.includes(JUSTIFY);
 
-      // Simplified selection rendering that works for both LTR and RTL
-      if (i === startLine) {
-        boxStart = this.__charBounds[startLine][startChar].left;
+    // Convert selection indices to line/char using original text space
+    // This handles kashida properly since selection indices don't include tatweels
+    let startLine = 0,
+      endLine = 0;
+    let originalStartChar = selectionStart,
+      originalEndChar = selectionEnd;
+
+    // Find start line and char
+    let charCount = 0;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      if (charCount + originalLineLength >= selectionStart) {
+        startLine = i;
+        originalStartChar = selectionStart - charCount;
+        break;
       }
-      if (i >= startLine && i < endLine) {
-        boxEnd = isJustify && !this.isEndOfWrapping(i) ? this.width : this.getLineWidth(i) || 5;
-      } else if (i === endLine) {
-        if (endChar === 0) {
-          boxEnd = this.__charBounds[endLine][endChar].left;
+      charCount += originalLineLength + this.missingNewlineOffset(i);
+    }
+
+    // Find end line and char
+    charCount = 0;
+    for (let i = 0; i < this._textLines.length; i++) {
+      const originalLineLength = this._getOriginalLineLength(i);
+      if (charCount + originalLineLength >= selectionEnd) {
+        endLine = i;
+        originalEndChar = selectionEnd - charCount;
+        break;
+      }
+      charCount += originalLineLength + this.missingNewlineOffset(i);
+      if (i === this._textLines.length - 1) {
+        endLine = i;
+        originalEndChar = originalLineLength;
+      }
+    }
+    for (let i = startLine; i <= endLine; i++) {
+      let lineHeight = this.getHeightOfLine(i),
+        realLineHeight = 0;
+
+      // Get visual positions for this line
+      const lineText = this._textLines[i].join('');
+      const visualPositions = this._measureVisualPositions(i, lineText);
+      this._textLines[i].length;
+      const originalLineLength = this._getOriginalLineLength(i);
+
+      // Calculate selection bounds in original space, then convert to display
+      let originalLineStartChar = 0;
+      let originalLineEndChar = originalLineLength;
+      if (i === startLine) {
+        originalLineStartChar = originalStartChar;
+      }
+      if (i === endLine) {
+        originalLineEndChar = originalEndChar;
+      }
+
+      // Convert original char indices to display indices for visual lookup
+      const displayLineStartChar = this._originalToDisplayIndex(i, originalLineStartChar);
+      const displayLineEndChar = this._originalToDisplayIndex(i, originalLineEndChar);
+
+      // Get visual X positions for selection range
+      let minVisualX = Infinity;
+      let maxVisualX = -Infinity;
+      for (const pos of visualPositions) {
+        if (pos.logicalIndex >= displayLineStartChar && pos.logicalIndex < displayLineEndChar) {
+          minVisualX = Math.min(minVisualX, pos.visualX);
+          maxVisualX = Math.max(maxVisualX, pos.visualX + pos.width);
+        }
+      }
+
+      // Handle edge cases
+      if (minVisualX === Infinity || maxVisualX === -Infinity) {
+        if (i >= startLine && i < endLine) {
+          // Full line selection
+          minVisualX = 0;
+          maxVisualX = isJustify && !this.isEndOfWrapping(i) ? this.width : this.getLineWidth(i) || 5;
         } else {
-          const charSpacing = this._getWidthOfCharSpacing();
-          boxEnd = this.__charBounds[endLine][endChar - 1].left + this.__charBounds[endLine][endChar - 1].width - charSpacing;
+          continue; // No selection on this line
         }
       }
       realLineHeight = lineHeight;
       if (this.lineHeight < 1 || i === endLine && this.lineHeight > 1) {
         lineHeight /= this.lineHeight;
       }
-      let drawStart = boundaries.left + lineOffset + boxStart,
-        drawHeight = lineHeight,
-        extraTop = 0;
-      const drawWidth = boxEnd - boxStart;
+
+      // Calculate draw position
+      // Visual positions are relative to line start (0 to lineWidth)
+      // Need to add alignment offset
+      const lineWidth = this.getLineWidth(i);
+      let alignOffset = 0;
+      if (this.textAlign === 'center' || this.textAlign === 'justify-center') {
+        alignOffset = (this.width - lineWidth) / 2;
+      } else if (this.textAlign === 'right' || this.textAlign === 'justify-right') {
+        alignOffset = this.width - lineWidth;
+      } else if (this.direction === 'rtl' && (this.textAlign === 'justify' || this.textAlign === 'left')) {
+        alignOffset = this.width - lineWidth;
+      }
+
+      // Draw from center origin (-width/2 to width/2)
+      const drawStart = -this.width / 2 + alignOffset + minVisualX;
+      const drawWidth = maxVisualX - minVisualX;
+      let drawHeight = lineHeight;
+      let extraTop = 0;
       if (this.inCompositionMode) {
         ctx.fillStyle = this.compositionColor || 'black';
         drawHeight = 1;
         extraTop = lineHeight;
       } else {
         ctx.fillStyle = this.selectionColor;
-      }
-      if (this.direction === 'rtl') {
-        if (this.textAlign === RIGHT || this.textAlign === JUSTIFY || this.textAlign === JUSTIFY_RIGHT) {
-          drawStart = this.width - drawStart - drawWidth;
-        } else if (this.textAlign === LEFT || this.textAlign === JUSTIFY_LEFT) {
-          drawStart = boundaries.left + lineOffset - boxEnd;
-        } else if (this.textAlign === CENTER || this.textAlign === JUSTIFY_CENTER) {
-          drawStart = boundaries.left + lineOffset - boxEnd;
-        }
       }
       ctx.fillRect(drawStart, boundaries.top + boundaries.topOffset + extraTop, drawWidth, drawHeight);
       boundaries.topOffset += realLineHeight;
@@ -26611,53 +27542,6 @@ class IText extends ITextClickBehavior {
     super.dispose();
   }
 }
-/**
- * Index where text selection starts (or where cursor is when there is no selection)
- * @type Number
- */
-/**
- * Index where text selection ends
- * @type Number
- */
-/**
- * Color of text selection
- * @type String
- */
-/**
- * Indicates whether text is in editing mode
- * @type Boolean
- */
-/**
- * Indicates whether a text can be edited
- * @type Boolean
- */
-/**
- * Border color of text object while it's in editing mode
- * @type String
- */
-/**
- * Width of cursor (in px)
- * @type Number
- */
-/**
- * Color of text cursor color in editing mode.
- * if not set (default) will take color from the text.
- * if set to a color value that fabric can understand, it will
- * be used instead of the color of the text at the current position.
- * @type String
- */
-/**
- * Delay between cursor blink (in ms)
- * @type Number
- */
-/**
- * Duration of cursor fade in (in ms)
- * @type Number
- */
-/**
- * Indicates whether internal text char widths can be cached
- * @type Boolean
- */
 _defineProperty(IText, "ownDefaults", iTextDefaultValues);
 _defineProperty(IText, "type", 'IText');
 classRegistry.setClass(IText);
@@ -26728,7 +27612,7 @@ class Textbox extends IText {
     }
 
     // Skip if nothing changed
-    const currentState = `${this.text}|${this.width}|${this.fontSize}|${this.fontFamily}|${this.textAlign}`;
+    const currentState = `${this.text}|${this.width}|${this.fontSize}|${this.fontFamily}|${this.textAlign}|${this.kashida}`;
     if (this._lastDimensionState === currentState && this._textLines && this._textLines.length > 0) {
       return;
     }
@@ -26827,12 +27711,16 @@ class Textbox extends IText {
     }
 
     // Use new layout engine
+    // When kashida is enabled, don't let layout engine apply justify - we'll handle it with kashida
+    const useKashidaJustify = this.kashida !== 'none' && this.textAlign.includes(JUSTIFY);
+    const effectiveAlign = useKashidaJustify ? this.direction === 'rtl' ? 'right' : 'left' // Natural alignment, kashida will justify
+    : this._mapTextAlignToAlign(this.textAlign);
     const layout = layoutText({
       text: this.text,
       width: this.width,
       height: this.height,
       wrap: this.wrap || 'word',
-      align: this._mapTextAlignToAlign(this.textAlign),
+      align: effectiveAlign,
       ellipsis: this.ellipsis || false,
       fontSize: this.fontSize,
       lineHeight: this.lineHeight,
@@ -26870,7 +27758,203 @@ class Textbox extends IText {
 
     // Generate style map for compatibility
     this._styleMap = this._generateStyleMapFromLayout(layout);
+
+    // Apply kashida for justified text in advanced layout mode
+    if (this.textAlign.includes(JUSTIFY) && this.kashida !== 'none') {
+      this._applyKashidaToLayout();
+    }
     this.dirty = true;
+  }
+
+  /**
+   * Apply kashida (tatweel) characters to layout for Arabic text justification.
+   * This method INSERTS actual tatweel characters into the text lines.
+   * @private
+   */
+  _applyKashidaToLayout() {
+    if (!this._textLines || !this.__charBounds) {
+      return;
+    }
+    const kashidaRatios = {
+      none: 0,
+      short: 0.25,
+      medium: 0.5,
+      long: 0.75,
+      stylistic: 1.0
+    };
+    const kashidaRatio = kashidaRatios[this.kashida] || 0;
+    if (kashidaRatio === 0) {
+      return;
+    }
+
+    // Calculate tatweel width once
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+    ctx.font = this._getFontDeclaration();
+    const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
+    if (tatweelWidth <= 0) {
+      return;
+    }
+
+    // Reset kashida info
+    this.__kashidaInfo = [];
+    const totalLines = this._textLines.length;
+    for (let lineIndex = 0; lineIndex < totalLines; lineIndex++) {
+      this.__kashidaInfo[lineIndex] = [];
+      const line = this._textLines[lineIndex];
+      if (!this.__charBounds || !this.__charBounds[lineIndex]) {
+        continue;
+      }
+
+      // Don't apply kashida to the last line
+      const isLastLine = lineIndex === totalLines - 1;
+      if (isLastLine) {
+        continue;
+      }
+      const lineBounds = this.__charBounds[lineIndex];
+      const lastBound = lineBounds[lineBounds.length - 1];
+
+      // Calculate current line width
+      const currentLineWidth = lastBound ? lastBound.left + lastBound.kernedWidth : 0;
+      const totalExtraSpace = this.width - currentLineWidth;
+
+      // Only apply kashida if there's significant extra space to fill
+      if (totalExtraSpace <= 2) {
+        continue;
+      }
+
+      // Find kashida points
+      const kashidaPoints = findKashidaPoints(line);
+      if (kashidaPoints.length === 0) {
+        continue;
+      }
+
+      // Calculate kashida space
+      const kashidaSpace = totalExtraSpace * kashidaRatio;
+
+      // Calculate how many tatweels can fit
+      const totalTatweels = Math.floor(kashidaSpace / tatweelWidth);
+      if (totalTatweels === 0) {
+        continue;
+      }
+
+      // Limit kashida points
+      const maxKashidaPoints = Math.min(kashidaPoints.length, totalTatweels);
+      const usedKashidaPoints = kashidaPoints.slice(0, maxKashidaPoints);
+
+      // Distribute tatweels evenly
+      const tatweelsPerPoint = Math.floor(totalTatweels / maxKashidaPoints);
+      const extraTatweels = totalTatweels % maxKashidaPoints;
+      console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
+      console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
+
+      // Sort by charIndex descending so we insert from the end (prevents index shifting issues)
+      const sortedPoints = [...usedKashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
+
+      // Create new line with tatweels inserted
+      const newLine = [...line];
+      for (let i = 0; i < sortedPoints.length; i++) {
+        const point = sortedPoints[i];
+        const originalIndex = usedKashidaPoints.indexOf(point);
+        const count = tatweelsPerPoint + (originalIndex < extraTatweels ? 1 : 0);
+        if (count > 0) {
+          // Insert tatweels AFTER the character at charIndex
+          const tatweels = Array(count).fill(ARABIC_TATWEEL);
+          newLine.splice(point.charIndex + 1, 0, ...tatweels);
+          console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
+
+          // Store kashida info for index conversion
+          this.__kashidaInfo[lineIndex].push({
+            charIndex: point.charIndex,
+            width: count * tatweelWidth,
+            tatweelCount: count
+          });
+        }
+      }
+
+      // Update _textLines with the new line containing tatweels
+      this._textLines[lineIndex] = newLine;
+
+      // Update textLines (string version)
+      if (this.textLines) {
+        this.textLines[lineIndex] = newLine.join('');
+      }
+
+      // Clear and recalculate charBounds for this line
+      this.__charBounds[lineIndex] = [];
+      this.__lineWidths[lineIndex] = undefined;
+      this._measureLine(lineIndex);
+
+      // Now expand spaces to fill any remaining gap
+      const newLineBounds = this.__charBounds[lineIndex];
+      if (newLineBounds && newLineBounds.length > 0) {
+        const newLastBound = newLineBounds[newLineBounds.length - 1];
+        const newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
+        const remainingGap = this.width - newLineWidth;
+        if (remainingGap > 1) {
+          // Count spaces in the new line
+          let spaceCount = 0;
+          for (let i = 0; i < newLine.length; i++) {
+            if (/\s/.test(newLine[i])) {
+              spaceCount++;
+            }
+          }
+          if (spaceCount > 0) {
+            const extraPerSpace = remainingGap / spaceCount;
+
+            // Just expand space widths - the rendering uses kernedWidth for spacing
+            // Don't modify left positions as this breaks selection for RTL
+            for (let i = 0; i < newLineBounds.length; i++) {
+              const bound = newLineBounds[i];
+              if (!bound) continue;
+
+              // If this is a space, expand it
+              if (/\s/.test(newLine[i])) {
+                bound.width += extraPerSpace;
+                bound.kernedWidth += extraPerSpace;
+              }
+            }
+            console.log(`  Expanded ${spaceCount} spaces by ${extraPerSpace.toFixed(2)}px each`);
+          }
+        }
+      }
+
+      // Set line width to textbox width (for justified lines)
+      this.__lineWidths[lineIndex] = this.width;
+      console.log(`  New line length: ${newLine.length}, text: ${newLine.join('')}`);
+    }
+
+    // Cache line widths for all lines to prevent remeasurement during render
+    for (let i = 0; i < this._textLines.length; i++) {
+      if (this.__lineWidths[i] === undefined && this.__charBounds[i]) {
+        const bounds = this.__charBounds[i];
+        const lastBound = bounds[bounds.length - 1];
+        if (lastBound) {
+          this.__lineWidths[i] = lastBound.left + lastBound.kernedWidth;
+        }
+      }
+    }
+
+    // Update _text to match the new _textLines (required for editing)
+    this._text = this._textLines.flat();
+
+    // DON'T update this.text - keep the original text intact
+    // The tatweels are in _textLines and _text for rendering purposes only
+
+    this._justifyApplied = true;
+
+    // Debug log final kashida state
+    console.log('=== _applyKashidaToLayout END ===');
+    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+      line: i,
+      entries: lineInfo.map(k => ({
+        charIndex: k.charIndex,
+        tatweelCount: k.tatweelCount
+      }))
+    }))));
   }
 
   /**
@@ -27440,39 +28524,48 @@ class Textbox extends IText {
   }
 
   /**
-   * Apply justify space expansion using actual charBounds measurements
+   * Apply justify space expansion using actual charBounds measurements.
+   * Supports Arabic kashida (tatweel) justification when kashida property is set.
    * @private
    */
   _applyBrowserJustifySpaces() {
-    var _this$_textLines, _this$__charBounds;
-    console.log('=== _applyBrowserJustifySpaces START ===');
-    console.log('_textLines:', (_this$_textLines = this._textLines) === null || _this$_textLines === void 0 ? void 0 : _this$_textLines.length, 'lines');
-    console.log('__charBounds:', (_this$__charBounds = this.__charBounds) === null || _this$__charBounds === void 0 ? void 0 : _this$__charBounds.length, 'lines');
-    console.log('textbox width:', this.width);
     if (!this._textLines || !this.__charBounds) {
-      console.log('EARLY RETURN: _textLines or __charBounds missing');
       return;
     }
+
+    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
+    const kashidaRatios = {
+      none: 0,
+      short: 0.25,
+      medium: 0.5,
+      long: 0.75,
+      stylistic: 1.0
+    };
+    const kashidaRatio = kashidaRatios[this.kashida] || 0;
+
+    // Reset kashida info
+    this.__kashidaInfo = [];
     const totalLines = this._textLines.length;
     this._textLines.forEach((line, lineIndex) => {
-      const lineText = line.join('');
-      const isLastLine = lineIndex === totalLines - 1;
-      console.log(`\n--- Line ${lineIndex}: "${lineText}" isLast: ${isLastLine} ---`);
+      // Initialize kashida info for this line
+      this.__kashidaInfo[lineIndex] = [];
       if (!this.__charBounds || !this.__charBounds[lineIndex]) {
-        console.log('  SKIP: No charBounds for this line');
         return;
       }
 
       // Don't justify the last line
+      const isLastLine = lineIndex === totalLines - 1;
       if (isLastLine) {
-        console.log('  SKIP: Last line - no justify');
         return;
       }
       const lineBounds = this.__charBounds[lineIndex];
 
       // Calculate current line width from charBounds
       const currentLineWidth = lineBounds.reduce((sum, b) => sum + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0);
-      console.log('  Current line width from charBounds:', currentLineWidth);
+      const totalExtraSpace = this.width - currentLineWidth;
+      if (totalExtraSpace <= 0) {
+        return;
+      }
 
       // Count spaces and find space indices
       const spaceIndices = [];
@@ -27482,53 +28575,119 @@ class Textbox extends IText {
         }
       }
       const spaceCount = spaceIndices.length;
-      console.log('  Space count:', spaceCount, 'at indices:', spaceIndices);
-      if (spaceCount === 0) {
-        console.log('  SKIP: No spaces to expand');
-        return;
+
+      // Find kashida points if enabled
+      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
+      const hasKashidaPoints = kashidaPoints.length > 0;
+
+      // Calculate space distribution
+      let kashidaSpace = 0;
+      if (hasKashidaPoints && kashidaRatio > 0) {
+        // Distribute between kashida and spaces
+        kashidaSpace = totalExtraSpace * kashidaRatio;
       }
 
-      // Calculate how much extra space we need
-      const remainingSpace = this.width - currentLineWidth;
-      console.log('  Remaining space to fill:', remainingSpace);
-      if (remainingSpace <= 0) {
-        console.log('  SKIP: Line already fills or exceeds width');
-        return;
+      // Calculate per-kashida and per-space widths
+      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
+
+      // If kashida is enabled, insert actual tatweel characters
+      if (hasKashidaPoints && perKashidaWidth > 0) {
+        console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
+
+        // Sort by charIndex descending to insert from end
+        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
+
+        // Calculate tatweel width
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.font = this._getFontDeclaration();
+          const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
+          console.log(`  tatweelWidth: ${tatweelWidth}`);
+          if (tatweelWidth > 0) {
+            const newLine = [...line];
+            for (const point of sortedPoints) {
+              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
+              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+
+              // Insert tatweels after the character
+              for (let t = 0; t < tatweelCount; t++) {
+                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
+              }
+
+              // Store kashida info with tatweelCount for index conversion
+              this.__kashidaInfo[lineIndex].push({
+                charIndex: point.charIndex,
+                width: perKashidaWidth,
+                tatweelCount: tatweelCount
+              });
+            }
+            console.log(`  New line: ${newLine.join('')}`);
+
+            // Update _textLines with kashida
+            this._textLines[lineIndex] = newLine;
+
+            // Update textLines string version
+            if (this.textLines && this.textLines[lineIndex] !== undefined) {
+              this.textLines[lineIndex] = newLine.join('');
+            }
+
+            // Recalculate charBounds
+            this.__charBounds[lineIndex] = [];
+            this.__lineWidths[lineIndex] = undefined;
+            this._measureLine(lineIndex);
+          }
+        }
+      } else {
+        // No kashida - just store info for reference (tatweelCount is 0 since no tatweels inserted)
+        for (const point of kashidaPoints) {
+          this.__kashidaInfo[lineIndex].push({
+            charIndex: point.charIndex,
+            width: perKashidaWidth,
+            tatweelCount: 0
+          });
+        }
       }
-      const extraPerSpace = remainingSpace / spaceCount;
-      console.log('  Extra per space:', extraPerSpace);
 
-      // Apply expansion
-      let accumulated = 0;
-      for (let charIndex = 0; charIndex < line.length; charIndex++) {
-        const bound = lineBounds[charIndex];
-        if (!bound) continue;
+      // Now apply space expansion to remaining extra space
+      const newLineBounds = this.__charBounds[lineIndex];
+      const newLineWidth = newLineBounds.reduce((sum, b) => sum + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0);
+      const remainingSpace = this.width - newLineWidth;
+      if (remainingSpace > 0 && spaceCount > 0) {
+        const extraPerSpace = remainingSpace / spaceCount;
+        let accumulated = 0;
+        for (let charIndex = 0; charIndex < this._textLines[lineIndex].length; charIndex++) {
+          const bound = newLineBounds[charIndex];
+          if (!bound) continue;
+          bound.left += accumulated;
 
-        // Shift this character by accumulated expansion
-        bound.left += accumulated;
-
-        // If this is a space, expand it
-        if (spaceIndices.includes(charIndex)) {
-          const oldWidth = bound.width;
-          const newWidth = oldWidth + extraPerSpace;
-          bound.width = newWidth;
-          bound.kernedWidth = newWidth;
-          accumulated += extraPerSpace;
-          console.log(`  Space at char ${charIndex}: ${oldWidth.toFixed(2)} -> ${newWidth.toFixed(2)} (accumulated: ${accumulated.toFixed(2)})`);
+          // Check if this is a space (need to check against the updated line)
+          if (/\s/.test(this._textLines[lineIndex][charIndex])) {
+            bound.width += extraPerSpace;
+            bound.kernedWidth += extraPerSpace;
+            accumulated += extraPerSpace;
+          }
         }
       }
 
       // Update cached line width
-      const finalLineWidth = lineBounds.reduce((max, b) => Math.max(max, b.left + b.width), 0);
+      const finalLineBounds = this.__charBounds[lineIndex];
+      const finalLineWidth = finalLineBounds.reduce((max, b) => Math.max(max, ((b === null || b === void 0 ? void 0 : b.left) || 0) + ((b === null || b === void 0 ? void 0 : b.width) || 0)), 0);
       this.__lineWidths[lineIndex] = finalLineWidth;
-      console.log('  Final line width:', finalLineWidth.toFixed(2), 'target:', this.width);
     });
-    console.log('=== _applyBrowserJustifySpaces END ===\n');
     this.dirty = true;
     // Mark that justify has been applied - for debugging to detect if measureLine overwrites it
     this._justifyApplied = true;
-    // Don't call requestRenderAll here - it will be called by the caller
-    // and calling it here might trigger another initDimensions that clears justify
+
+    // Debug log final kashida state
+    console.log('=== _applyBrowserJustifySpaces END ===');
+    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+      line: i,
+      entries: lineInfo.map(k => ({
+        charIndex: k.charIndex,
+        tatweelCount: k.tatweelCount
+      }))
+    }))));
   }
 
   /**

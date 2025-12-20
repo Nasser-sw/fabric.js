@@ -22,7 +22,7 @@ import { createCanvasElementFor } from '../../util/misc/dom';
 import { layoutText, type LayoutResult, type TextLayoutOptions } from '../../text/layout';
 import { measureGrapheme, measureGraphemeWithKerning } from '../../text/measure';
 import { applyEllipsis } from '../../text/ellipsis';
-import { segmentGraphemes } from '../../text/unicode';
+import { segmentGraphemes, findKashidaPoints, ARABIC_TATWEEL, type KashidaPoint } from '../../text/unicode';
 import type { TextStyleArray } from '../../util/misc/textStyles';
 import {
   hasStyleChanged,
@@ -121,11 +121,12 @@ interface UniqueTextProps {
   enableAdvancedLayout: boolean;
   verticalAlign: 'top' | 'middle' | 'bottom';
   useOverlayEditing: boolean;
+  kashida: 'none' | 'short' | 'medium' | 'long' | 'stylistic';
 }
 
 export interface SerializedTextProps
   extends SerializedObjectProps,
-    UniqueTextProps {
+  UniqueTextProps {
   styles: TextStyleArray | TextStyle;
 }
 
@@ -138,13 +139,12 @@ export interface TextProps extends FabricObjectProps, UniqueTextProps {
  * @see {@link http://fabricjs.com/fabric-intro-part-2#text}
  */
 export class FabricText<
-    Props extends TOptions<TextProps> = Partial<TextProps>,
-    SProps extends SerializedTextProps = SerializedTextProps,
-    EventSpec extends ObjectEvents = ObjectEvents,
-  >
+  Props extends TOptions<TextProps> = Partial<TextProps>,
+  SProps extends SerializedTextProps = SerializedTextProps,
+  EventSpec extends ObjectEvents = ObjectEvents,
+>
   extends StyledText<Props, SProps, EventSpec>
-  implements UniqueTextProps
-{
+  implements UniqueTextProps {
   /**
    * Properties that requires a text layout recalculation when changed
    * @type string[]
@@ -340,6 +340,19 @@ export class FabricText<
   declare useOverlayEditing: boolean;
 
   /**
+   * Arabic kashida (tatweel) justification level.
+   * Distributes extra space using kashida extensions for justified Arabic text.
+   * - 'none': No kashida (default), uses only space expansion
+   * - 'short': 25% kashida, 75% space expansion
+   * - 'medium': 50% kashida, 50% space expansion
+   * - 'long': 75% kashida, 25% space expansion
+   * - 'stylistic': 100% kashida, no space expansion
+   * @type string
+   * @default 'none'
+   */
+  declare kashida: 'none' | 'short' | 'medium' | 'long' | 'stylistic';
+
+  /**
    * The text decoration tickness for underline, overline and strikethrough
    * The tickness is expressed in thousandths of fontSize ( em ).
    * The original value was 1/15 that translates to 66.6667 thousandths.
@@ -425,6 +438,13 @@ export class FabricText<
   __charBounds: GraphemeBBox[][] = [];
 
   /**
+   * contains kashida extension info for each line.
+   * Each entry contains { charIndex, width } for characters that have kashida extensions.
+   * @protected
+   */
+  __kashidaInfo: Array<Array<{ charIndex: number; width: number; tatweelCount?: number }>> = [];
+
+  /**
    * use this size when measuring text. To avoid IE11 rounding errors
    * @type {Number}
    * @readonly
@@ -506,7 +526,7 @@ export class FabricText<
     if (browserLines && this.useOverlayEditing) {
       return this._splitTextFromBrowserLines(browserLines);
     }
-    
+
     const newLines = this._splitTextIntoLines(this.text);
     this.textLines = newLines.lines;
     this._textLines = newLines.graphemeLines;
@@ -531,7 +551,7 @@ export class FabricText<
       graphemeLines.push(lineGraphemes);
       unwrappedLines.push(lineGraphemes);
       graphemeText = graphemeText.concat(lineGraphemes);
-      
+
       // Add newline separator between lines (except for the last line)
       if (browserLine !== browserLines[browserLines.length - 1]) {
         graphemeText.push('\n');
@@ -568,12 +588,12 @@ export class FabricText<
       this._scheduleInitAfterFontLoad();
       // Continue with fallback measurements for now
     }
-    
+
     // Use advanced layout if enabled
     if (this.enableAdvancedLayout && !this.path) {
       return this.initDimensionsAdvanced();
     }
-    
+
     this._splitText();
     this._clearCache();
     this.dirty = true;
@@ -594,18 +614,32 @@ export class FabricText<
   }
 
   /**
-   * Enlarge space boxes and shift the others for justify alignment
+   * Enlarge space boxes and shift the others for justify alignment.
+   * Supports Arabic kashida (tatweel) justification when kashida property is set.
+   * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    let diffSpace,
-      currentLineWidth,
-      numberOfSpaces,
-      accumulatedSpace,
-      line,
-      charBound,
-      spaces;
+    console.log('=== enlargeSpaces START ===');
+    console.log('this.kashida:', this.kashida);
+
+    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
+    const kashidaRatios: Record<string, number> = {
+      none: 0,
+      short: 0.25,
+      medium: 0.5,
+      long: 0.75,
+      stylistic: 1.0,
+    };
+    const kashidaRatio = kashidaRatios[this.kashida] || 0;
+    console.log('kashidaRatio:', kashidaRatio);
+
+    // Reset kashida info
+    this.__kashidaInfo = [];
 
     for (let i = 0, len = this._textLines.length; i < len; i++) {
+      // Initialize kashida info for this line
+      this.__kashidaInfo[i] = [];
+
       // Check if this line should be justified
       const hasTextAfter = this._textLines
         .slice(i + 1)
@@ -620,38 +654,133 @@ export class FabricText<
         this.textAlign.includes('justify') && !isLastLine;
 
       if (!shouldJustifyLine) {
+        console.log(`  Line ${i}: skipped (not justified)`);
         continue;
       }
 
-      accumulatedSpace = 0;
-      line = this._textLines[i];
-      currentLineWidth = this.getLineWidth(i);
+      const line = this._textLines[i];
+      const currentLineWidth = this.getLineWidth(i);
+      const totalExtraSpace = this.width - currentLineWidth;
+      console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
 
-      if (
-        currentLineWidth < this.width &&
-        (spaces = this.textLines[i].match(this._reSpacesAndTabs))
-      ) {
-        numberOfSpaces = spaces.length;
-        diffSpace = (this.width - currentLineWidth) / numberOfSpaces;
+      if (totalExtraSpace <= 0) {
+        console.log(`  Line ${i}: skipped (no extra space)`);
+        continue;
+      }
 
-        // Same logic for both LTR and RTL:
-        // Expand space widths and shift subsequent characters
-        // The rendering handles direction via ctx.direction
-        for (let j = 0; j <= line.length; j++) {
-          charBound = this.__charBounds[i][j];
-          if (charBound) {
-            if (this._reSpaceAndTab.test(line[j])) {
-              charBound.width += diffSpace;
-              charBound.kernedWidth += diffSpace;
-              charBound.left += accumulatedSpace;
-              accumulatedSpace += diffSpace;
-            } else {
-              charBound.left += accumulatedSpace;
+      // Find spaces for space expansion
+      const spaces = this.textLines[i].match(this._reSpacesAndTabs);
+      const numberOfSpaces = spaces ? spaces.length : 0;
+
+      // Find kashida points if enabled
+      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
+      const hasKashidaPoints = kashidaPoints.length > 0;
+
+      // Calculate space distribution
+      let kashidaSpace = 0;
+      let spaceExpansion = totalExtraSpace;
+
+      if (hasKashidaPoints && kashidaRatio > 0) {
+        // Distribute between kashida and spaces
+        kashidaSpace = totalExtraSpace * kashidaRatio;
+        spaceExpansion = totalExtraSpace * (1 - kashidaRatio);
+      }
+
+      // Calculate per-kashida and per-space widths
+      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
+      const perSpaceWidth = numberOfSpaces > 0 ? spaceExpansion / numberOfSpaces : 0;
+
+      // If kashida is enabled, insert tatweel characters into the text
+      if (hasKashidaPoints && perKashidaWidth > 0) {
+        console.log(`=== Inserting kashida for line ${i} ===`);
+        console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
+
+        // Sort by charIndex descending to insert from end (so indices stay valid)
+        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
+
+        // Calculate how many tatweels to insert per point
+        // Measure tatweel width to determine count
+        const ctx = getMeasuringContext();
+        console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
+
+        if (ctx) {
+          ctx.font = this._getFontDeclaration();
+          const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
+          console.log(`  tatweelWidth: ${tatweelWidth}`);
+
+          if (tatweelWidth > 0) {
+            const newLine = [...line];
+            let insertedCount = 0;
+
+            for (const point of sortedPoints) {
+              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
+              console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
+
+              // Insert tatweels after the character
+              for (let t = 0; t < tatweelCount; t++) {
+                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
+                insertedCount++;
+              }
+
+              // Store kashida info with updated indices and tatweel count
+              this.__kashidaInfo[i].push({
+                charIndex: point.charIndex,
+                width: perKashidaWidth,
+                tatweelCount: tatweelCount,
+              });
             }
+
+            console.log(`  Total inserted: ${insertedCount} tatweels`);
+            console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
+            console.log(`  New line: ${newLine.join('')}`);
+
+            // Update _textLines with the new line containing tatweels
+            this._textLines[i] = newLine;
+
+            // Update textLines string version
+            if (this.textLines && this.textLines[i] !== undefined) {
+              (this as any).textLines[i] = newLine.join('');
+            }
+
+            // Recalculate charBounds for this line since text changed
+            this.__charBounds[i] = [];
+            this.__lineWidths[i] = undefined as any;
+            this._measureLine(i);
+
+            console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
+          }
+        }
+      }
+
+      // Now apply space expansion to remaining extra space
+      const newLineWidth = this.getLineWidth(i);
+      const remainingSpace = this.width - newLineWidth;
+
+      if (remainingSpace > 0 && numberOfSpaces > 0) {
+        const extraPerSpace = remainingSpace / numberOfSpaces;
+        let accumulatedOffset = 0;
+
+        for (let j = 0; j < this._textLines[i].length; j++) {
+          const charBound = this.__charBounds[i][j];
+          if (!charBound) continue;
+
+          charBound.left += accumulatedOffset;
+
+          if (this._reSpaceAndTab.test(this._textLines[i][j])) {
+            charBound.width += extraPerSpace;
+            charBound.kernedWidth += extraPerSpace;
+            accumulatedOffset += extraPerSpace;
           }
         }
       }
     }
+
+    // Final debug log showing kashida state
+    console.log('=== enlargeSpaces END ===');
+    console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
+      line: i,
+      entries: lineInfo.map(k => ({ charIndex: k.charIndex, tatweelCount: k.tatweelCount }))
+    }))));
   }
 
   /**
@@ -719,17 +848,22 @@ export class FabricText<
     }
 
     const layout = this._layoutTextAdvanced();
-    
+
     // Update dimensions from layout
     this.width = layout.totalWidth || this.MIN_TEXT_WIDTH;
     this.height = layout.totalHeight;
-    
+
     // Convert layout to legacy format for compatibility
     this._convertLayoutToLegacyFormat(layout);
-    
-    // Ensure justify alignment is properly applied for compatibility with legacy rendering
-    // Skip legacy enlargeSpaces when using advanced layout; Konva layout already distributes spaces.
-    
+
+    // Apply kashida if enabled for justify alignment
+    // This must be called after _convertLayoutToLegacyFormat to ensure __charBounds exists
+    if (this.textAlign.includes(JUSTIFY) && this.kashida && this.kashida !== 'none') {
+      if (this.__charBounds && this.__charBounds.length > 0) {
+        this.enlargeSpaces();
+      }
+    }
+
     this.dirty = true;
   }
 
@@ -740,9 +874,16 @@ export class FabricText<
   _convertLayoutToLegacyFormat(layout: LayoutResult): void {
     this._textLines = layout.lines.map(line => line.graphemes);
     (this as any).textLines = layout.lines.map(line => line.text);
-    
+
+    // Set _text as flat array of all graphemes (required for editing)
+    this._text = layout.lines.flatMap(line => line.graphemes);
+
     // Convert bounds to legacy format
-    this.__charBounds = layout.lines.map(line => 
+    // IMPORTANT: Preserve both logical (left) and visual (renderLeft) positions
+    // - left: cumulative logical offset (for text editing operations)
+    // - renderLeft: actual visual X position after BiDi reordering and alignment
+    // The renderLeft is critical for correct cursor/selection hit testing in mixed RTL/LTR text
+    this.__charBounds = layout.lines.map(line =>
       line.bounds.map(bound => ({
         left: bound.left,
         top: bound.y,
@@ -750,9 +891,13 @@ export class FabricText<
         height: bound.height,
         kernedWidth: bound.kernedWidth,
         deltaY: bound.deltaY || 0,
+        renderLeft: bound.x, // Visual X position for hit testing
       }))
     );
-    
+
+    // Populate line widths cache to prevent getLineWidth from triggering legacy measurement
+    this.__lineWidths = layout.lines.map(line => line.width);
+
     // Update grapheme info for compatibility
     if (layout.lines.length > 0) {
       (this as any)._unwrappedTextLines = layout.lines.map(line => line.graphemes);
@@ -811,9 +956,8 @@ export class FabricText<
    * @return {String} String representation of text object
    */
   toString(): string {
-    return `#<Text (${this.complexity()}): { "text": "${
-      this.text
-    }", "fontFamily": "${this.fontFamily}" }>`;
+    return `#<Text (${this.complexity()}): { "text": "${this.text
+      }", "fontFamily": "${this.fontFamily}" }>`;
   }
 
   /**
@@ -936,6 +1080,50 @@ export class FabricText<
     lineIndex: number,
   ) {
     this._renderChars(method, ctx, line, left, top, lineIndex);
+  }
+
+  /**
+   * Build display text lines with kashida characters inserted.
+   * This creates a version of _textLines with tatweel characters added at kashida points.
+   * @private
+   */
+  _buildKashidaDisplayLines(): string[][] {
+    if (this.kashida === 'none' || !this.__kashidaInfo) {
+      return this._textLines;
+    }
+
+    const displayLines: string[][] = [];
+
+    for (let lineIndex = 0; lineIndex < this._textLines.length; lineIndex++) {
+      const line = this._textLines[lineIndex];
+      const kashidaInfo = this.__kashidaInfo[lineIndex];
+
+      if (!kashidaInfo || kashidaInfo.length === 0) {
+        displayLines.push([...line]);
+        continue;
+      }
+
+      // Sort kashida points by charIndex descending so we can insert from the end
+      const sortedKashida = [...kashidaInfo].sort((a, b) => b.charIndex - a.charIndex);
+
+      // Calculate how many tatweels to insert based on width
+      const newLine = [...line];
+      for (const { charIndex, width } of sortedKashida) {
+        if (width <= 0 || charIndex >= newLine.length) continue;
+
+        // Calculate number of tatweel characters based on width
+        // Each tatweel is approximately 5px at font size 24
+        const tatweelCount = Math.max(1, Math.round(width / 3));
+        const tatweels = ARABIC_TATWEEL.repeat(tatweelCount);
+
+        // Insert tatweels after the character at charIndex
+        newLine.splice(charIndex + 1, 0, tatweels);
+      }
+
+      displayLines.push(newLine);
+    }
+
+    return displayLines;
   }
 
   /**
@@ -1409,16 +1597,26 @@ export class FabricText<
     const lineHeight = this.getHeightOfLine(lineIndex),
       isJustify = this.textAlign.includes(JUSTIFY),
       path = this.path,
-      shortCut =
-        !isJustify &&
-        this.charSpacing === 0 &&
-        this.isEmptyStyles(lineIndex) &&
-        !path,
       isLtr = this.direction === 'ltr',
       sign = this.direction === 'ltr' ? 1 : -1,
       // this was changed in the PR #7674
       // currentDirection = ctx.canvas.getAttribute('dir');
       currentDirection = ctx.direction;
+
+    // Check if we should use BiDi-aware rendering with pre-calculated positions
+    // This is needed for advanced layout with RTL or mixed BiDi text
+    const chars = this.__charBounds[lineIndex];
+    const hasRenderLeft = this.enableAdvancedLayout && chars?.length > 0 && chars[0].renderLeft !== undefined;
+    // Disable individual char rendering for now as it breaks Arabic shaping (ligatures)
+    // We still need hasRenderLeft to remain true for hit-testing logic in IText
+    const useBiDiRendering = false; // hasRenderLeft && !isLtr;
+
+    const shortCut =
+      !useBiDiRendering &&
+      !isJustify &&
+      this.charSpacing === 0 &&
+      this.isEmptyStyles(lineIndex) &&
+      !path;
 
     let actualStyle,
       nextStyle,
@@ -1429,16 +1627,42 @@ export class FabricText<
       drawingLeft;
 
     ctx.save();
-    if (currentDirection !== this.direction) {
+
+    // For BiDi rendering with pre-calculated positions, disable browser BiDi
+    // and render each character at its calculated visual position
+    if (useBiDiRendering) {
+      ctx.canvas.setAttribute('dir', 'ltr');
+      ctx.direction = 'ltr';
+      ctx.textAlign = LEFT;
+    } else if (currentDirection !== this.direction) {
       ctx.canvas.setAttribute('dir', isLtr ? 'ltr' : 'rtl');
       ctx.direction = isLtr ? 'ltr' : 'rtl';
-      
+
       // Set text alignment based on direction
       // For RTL, use RIGHT alignment so x-coordinate specifies the right edge (where RTL text starts)
       // For LTR, use LEFT alignment so x-coordinate specifies the left edge (where LTR text starts)
       ctx.textAlign = isLtr ? LEFT : RIGHT;
     }
     top -= (lineHeight * this._fontSizeFraction) / this.lineHeight;
+
+    // BiDi rendering: render each character at its pre-calculated visual position
+    // renderLeft is relative to line start (0 to lineWidth), and 'left' already includes
+    // the line left offset from _renderTextLine, so just add renderLeft to left
+    // Note: This renders chars individually which may affect Arabic contextual shaping
+    // A more sophisticated approach would group consecutive chars into runs
+    if (useBiDiRendering) {
+      for (let i = 0; i < line.length; i++) {
+        charBox = chars[i] as Required<GraphemeBBox>;
+        const renderX = charBox.renderLeft !== undefined ? charBox.renderLeft : charBox.left;
+        // Render each character at its visual position
+        // layoutText provides renderLeft relative to the visual left edge of the bounding box
+        // So we start from -this.width / 2 (visual left) and add renderLeft
+        this._renderChar(method, ctx, lineIndex, i, line[i], -this.width / 2 + renderX, top);
+      }
+      ctx.restore();
+      return;
+    }
+
     if (shortCut) {
       // render all the line in one pass without checking
       // drawingLeft = isLtr ? left : left - this.getLineWidth(lineIndex);
@@ -1811,12 +2035,163 @@ export class FabricText<
    * @private
    */
   _clearCache() {
+    console.log('🗑️ _clearCache called');
+    console.trace('🗑️ _clearCache stack trace');
     this._forceClearCache = false;
     this.__lineWidths = [];
     this.__lineHeights = [];
     this.__charBounds = [];
+    this.__kashidaInfo = [];
     // Reset justify applied flag
     (this as any)._justifyApplied = false;
+    // Reset dimension state to force recalculation
+    (this as any)._lastDimensionState = null;
+  }
+
+  /**
+   * Convert a display character index (in _textLines with tatweels) to original text index.
+   * When kashida is applied, _textLines contains extra tatweel characters that don't exist
+   * in the original text. This method maps back to the original index.
+   * @param lineIndex - The line index
+   * @param displayCharIndex - Character index in the display text (with tatweels)
+   * @returns Original character index (without tatweels)
+   */
+  _displayToOriginalIndex(lineIndex: number, displayCharIndex: number): number {
+    console.log(`🔄 _displayToOriginalIndex called: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    console.log(`🔄 __kashidaInfo exists: ${!!this.__kashidaInfo}, length: ${this.__kashidaInfo?.length}`);
+    console.log(`🔄 __kashidaInfo raw:`, JSON.stringify(this.__kashidaInfo));
+
+    const kashidaInfo = this.__kashidaInfo?.[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      // No kashida on this line, indices are the same
+      console.log(`🔄 No kashida info for line ${lineIndex}, returning same index`);
+      return displayCharIndex;
+    }
+
+    // Sort kashida info by charIndex ascending for proper traversal
+    const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
+
+    console.log(`🔄 _displayToOriginalIndex: line=${lineIndex}, displayIdx=${displayCharIndex}`);
+    console.log(`🔄 kashidaInfo:`, sortedKashida.map(k => `{charIdx:${k.charIndex}, cnt:${k.tatweelCount}}`).join(', '));
+
+    let tatweelsBeforeIndex = 0;
+
+    for (const k of sortedKashida) {
+      const tatweelCount = k.tatweelCount || 0;
+      // Position where tatweels start (after the original character)
+      const tatweelStartPos = k.charIndex + 1 + tatweelsBeforeIndex;
+      const tatweelEndPos = tatweelStartPos + tatweelCount;
+
+      console.log(`🔄   k.charIndex=${k.charIndex}, tatweelStartPos=${tatweelStartPos}, tatweelEndPos=${tatweelEndPos}, tatweelsBeforeIndex=${tatweelsBeforeIndex}`);
+
+      if (displayCharIndex < tatweelStartPos) {
+        // Before this kashida point
+        console.log(`🔄   displayIdx < tatweelStartPos, break`);
+        break;
+      } else if (displayCharIndex < tatweelEndPos) {
+        // Within tatweel characters - map to the character before tatweels
+        console.log(`🔄   Within tatweel, return ${k.charIndex + 1}`);
+        return k.charIndex + 1;
+      } else {
+        // After this kashida point
+        tatweelsBeforeIndex += tatweelCount;
+        console.log(`🔄   After this kashida, tatweelsBeforeIndex now=${tatweelsBeforeIndex}`);
+      }
+    }
+
+    // Subtract all tatweels that come before this position
+    const result = displayCharIndex - tatweelsBeforeIndex;
+    console.log(`🔄 Final result: ${displayCharIndex} - ${tatweelsBeforeIndex} = ${result}`);
+    return result;
+  }
+
+  /**
+   * Convert an original text character index to display index (in _textLines with tatweels).
+   * @param lineIndex - The line index
+   * @param originalCharIndex - Character index in the original text (without tatweels)
+   * @returns Display character index (with tatweels)
+   */
+  _originalToDisplayIndex(lineIndex: number, originalCharIndex: number): number {
+    const kashidaInfo = this.__kashidaInfo?.[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      // No kashida on this line, indices are the same
+      return originalCharIndex;
+    }
+
+    // Sort kashida info by charIndex ascending
+    const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
+
+    let tatweelsBeforeIndex = 0;
+
+    for (const k of sortedKashida) {
+      const tatweelCount = k.tatweelCount || 0;
+      // If the original char index is after this kashida insertion point,
+      // add the tatweels to the offset
+      if (originalCharIndex > k.charIndex) {
+        tatweelsBeforeIndex += tatweelCount;
+      } else {
+        break;
+      }
+    }
+
+    return originalCharIndex + tatweelsBeforeIndex;
+  }
+
+  /**
+   * Check if a display character index points to a tatweel character.
+   * @param lineIndex - The line index
+   * @param displayCharIndex - Character index in the display text
+   * @returns True if the character at this index is a tatweel
+   */
+  _isTatweelAtDisplayIndex(lineIndex: number, displayCharIndex: number): boolean {
+    const kashidaInfo = this.__kashidaInfo?.[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      return false;
+    }
+
+    // Sort kashida info by charIndex ascending
+    const sortedKashida = [...kashidaInfo].sort((a, b) => a.charIndex - b.charIndex);
+
+    let tatweelsBeforeIndex = 0;
+
+    for (const k of sortedKashida) {
+      const tatweelCount = k.tatweelCount || 0;
+      const tatweelStartPos = k.charIndex + 1 + tatweelsBeforeIndex;
+      const tatweelEndPos = tatweelStartPos + tatweelCount;
+
+      if (displayCharIndex >= tatweelStartPos && displayCharIndex < tatweelEndPos) {
+        return true;
+      }
+
+      tatweelsBeforeIndex += tatweelCount;
+    }
+
+    return false;
+  }
+
+  /**
+   * Get the total number of tatweel characters inserted in a line.
+   * @param lineIndex - The line index
+   * @returns Total number of tatweels in this line
+   */
+  _getTatweelCountForLine(lineIndex: number): number {
+    const kashidaInfo = this.__kashidaInfo?.[lineIndex];
+    if (!kashidaInfo || kashidaInfo.length === 0) {
+      return 0;
+    }
+    return kashidaInfo.reduce((sum, k) => sum + (k.tatweelCount || 0), 0);
+  }
+
+  /**
+   * Get the original line length (without tatweels).
+   * When kashida is applied, _textLines contains extra tatweel characters.
+   * This returns the length as it would be in the original text.
+   * @param lineIndex - The line index
+   * @returns Original line length without tatweels
+   */
+  _getOriginalLineLength(lineIndex: number): number {
+    const displayLength = this._textLines[lineIndex]?.length || 0;
+    return displayLength - this._getTatweelCountForLine(lineIndex);
   }
 
   /**
@@ -2003,25 +2378,25 @@ export class FabricText<
   ): string {
     let parsedFontFamily =
       fontFamily.includes("'") ||
-      fontFamily.includes('"') ||
-      fontFamily.includes(',') ||
-      FabricText.genericFonts.includes(fontFamily.toLowerCase())
+        fontFamily.includes('"') ||
+        fontFamily.includes(',') ||
+        FabricText.genericFonts.includes(fontFamily.toLowerCase())
         ? fontFamily
         : `"${fontFamily}"`;
-    
+
     // For fonts like STV that don't support English/Latin characters,
     // add fallback fonts for consistent rendering of unsupported characters
     // Only add fallbacks during actual rendering, not for measurements
     if (!forMeasuring && // Only during rendering, not measuring
-        !fontFamily.includes(',') && // Don't add fallbacks if already has them
-        (fontFamily.toLowerCase().includes('stv') || 
-         fontFamily.toLowerCase().includes('arabic') ||
-         fontFamily.toLowerCase().includes('naskh') ||
-         fontFamily.toLowerCase().includes('kufi'))) {
+      !fontFamily.includes(',') && // Don't add fallbacks if already has them
+      (fontFamily.toLowerCase().includes('stv') ||
+        fontFamily.toLowerCase().includes('arabic') ||
+        fontFamily.toLowerCase().includes('naskh') ||
+        fontFamily.toLowerCase().includes('kufi'))) {
       // Add fallback fonts for unsupported characters (spaces, punctuation, etc.)
       parsedFontFamily = `${parsedFontFamily}, "Arial Unicode MS", Arial, sans-serif`;
     }
-    
+
     return [
       fontStyle,
       fontWeight,
@@ -2091,7 +2466,7 @@ export class FabricText<
       graphemeLines: newLines,
     };
   }
-  
+
   /**
    * Check if text contains Arabic characters
    * @private
@@ -2229,16 +2604,16 @@ export class FabricText<
     // this can later looked at again and probably removed.
 
     const text = new this(textContent, {
-        left: left + dx,
-        top: top + dy,
-        underline: textDecoration.includes('underline'),
-        overline: textDecoration.includes('overline'),
-        linethrough: textDecoration.includes('line-through'),
-        // we initialize this as 0
-        strokeWidth: 0,
-        fontSize,
-        ...restOfOptions,
-      }),
+      left: left + dx,
+      top: top + dy,
+      underline: textDecoration.includes('underline'),
+      overline: textDecoration.includes('overline'),
+      linethrough: textDecoration.includes('line-through'),
+      // we initialize this as 0
+      strokeWidth: 0,
+      fontSize,
+      ...restOfOptions,
+    }),
       textHeightScaleFactor = text.getScaledHeight() / text.height,
       lineHeightDiff =
         (text.height + text.strokeWidth) * text.lineHeight - text.height,
@@ -2262,7 +2637,7 @@ export class FabricText<
       top:
         text.top -
         (textHeight - text.fontSize * (0.07 + text._fontSizeFraction)) /
-          text.lineHeight,
+        text.lineHeight,
       strokeWidth,
     });
     return text;
@@ -2278,7 +2653,7 @@ export class FabricText<
     if (typeof document === 'undefined' || !('fonts' in document)) {
       return true; // Assume ready in non-browser environments
     }
-    
+
     try {
       return document.fonts.check(`${this.fontSize}px ${this.fontFamily}`);
     } catch (e) {
@@ -2294,19 +2669,19 @@ export class FabricText<
     if (typeof document === 'undefined' || !('fonts' in document)) {
       return;
     }
-    
+
     // Only schedule if not already waiting
     if ((this as any)._fontLoadScheduled) {
       return;
     }
     (this as any)._fontLoadScheduled = true;
-    
+
     const fontSpec = `${this.fontSize}px ${this.fontFamily}`;
     document.fonts.load(fontSpec).then(() => {
       (this as any)._fontLoadScheduled = false;
       // Re-initialize dimensions with proper font metrics
       this.initDimensions();
-      
+
       // Extra step for justify alignment after font loading
       if (this.textAlign && this.textAlign.includes(JUSTIFY)) {
         setTimeout(() => {

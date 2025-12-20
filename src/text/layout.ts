@@ -249,60 +249,63 @@ function layoutSingleLine(text: string, options: TextLayoutOptions, textOffset: 
   const graphemes = segmentGraphemes(text);
   const bounds: GraphemeBounds[] = [];
   const measurementOptions = createMeasurementOptions(options);
-  
+
   let x = 0;
   let lineWidth = 0;
   let lineHeight = 0;
   let charIndex = textOffset; // Track character position in original text
-  
-  // Measure each grapheme
+
+  // Measure each grapheme in logical order
   for (let i = 0; i < graphemes.length; i++) {
     const grapheme = graphemes[i];
     const prevGrapheme = i > 0 ? graphemes[i - 1] : undefined;
-    
+
     // Measure with kerning
     const measurement = measureGraphemeWithKerning(
       grapheme,
       prevGrapheme,
       measurementOptions
     );
-    
+
     // Apply letter spacing (Konva style - applied to ALL characters including last)
     const letterSpacing = options.letterSpacing || 0;
-    const charSpacing = options.charSpacing ? 
+    const charSpacing = options.charSpacing ?
       (options.fontSize * options.charSpacing) / 1000 : 0;
-    
+
     const totalSpacing = letterSpacing + charSpacing;
     const effectiveWidth = measurement.kernedWidth + totalSpacing;
-    
+
     bounds.push({
       grapheme,
-      x,
+      x, // Will be updated by BiDi reordering
       y: 0, // Will be adjusted later
       width: measurement.width,
       height: measurement.height,
       kernedWidth: measurement.kernedWidth,
-      left: x,
+      left: x, // Logical position (cumulative)
       baseline: measurement.baseline,
       charIndex: charIndex, // Character position in original text
       graphemeIndex: textOffset + i, // Grapheme index in original text
     });
-    
+
     // Update character index for next iteration
     charIndex += grapheme.length;
-    
+
     x += effectiveWidth;
     lineWidth += effectiveWidth;
     lineHeight = Math.max(lineHeight, measurement.height);
   }
 
+  // Note: BiDi visual reordering is handled by the browser's canvas fillText
+  // The layout stores positions in logical order; hit testing handles the visual mapping
+
   // Remove trailing spacing from total width (but keep in bounds for rendering)
   if (bounds.length > 0) {
     const letterSpacing = options.letterSpacing || 0;
-    const charSpacing = options.charSpacing ? 
+    const charSpacing = options.charSpacing ?
       (options.fontSize * options.charSpacing) / 1000 : 0;
     const totalSpacing = letterSpacing + charSpacing;
-    
+
     // Konva applies letterSpacing to all chars, so we don't remove it
     // lineWidth -= totalSpacing;
   }
@@ -391,17 +394,137 @@ function wrapByCharacters(text: string, maxWidth: number, options: TextLayoutOpt
 }
 
 /**
+ * Apply BiDi visual reordering to calculate correct visual X positions
+ * This implements the Unicode Bidirectional Algorithm for character placement
+ */
+function applyBiDiVisualReordering(
+  line: LayoutLine,
+  options: TextLayoutOptions
+): LayoutLine {
+  const baseDirection = options.direction === 'inherit' ? 'ltr' : options.direction;
+
+  // Quick check: if all characters are same direction as base, no reordering needed
+  const runs = analyzeBiDi(line.text, baseDirection);
+  const hasMixedBiDi = runs.length > 1 || (runs.length === 1 && runs[0].direction !== baseDirection);
+
+  if (!hasMixedBiDi) {
+    // For pure LTR or pure RTL, just set visual x = logical left
+    // For RTL base direction, we need to flip positions
+    if (baseDirection === 'rtl') {
+      // RTL: rightmost character should be at x=0, leftmost at x=lineWidth
+      line.bounds.forEach(bound => {
+        bound.x = line.width - bound.left - bound.kernedWidth;
+      });
+    }
+    // For LTR, x is already correct (same as left)
+    return line;
+  }
+
+  // Mixed BiDi text - need to reorder runs visually
+  // 1. Build mapping from grapheme index to run
+  const graphemeToRun: number[] = [];
+  let runGraphemeStart = 0;
+
+  for (let runIdx = 0; runIdx < runs.length; runIdx++) {
+    const run = runs[runIdx];
+    const runGraphemes = segmentGraphemes(run.text);
+    for (let i = 0; i < runGraphemes.length; i++) {
+      graphemeToRun.push(runIdx);
+    }
+    runGraphemeStart += runGraphemes.length;
+  }
+
+  // 2. Calculate run widths and positions
+  const runWidths: number[] = [];
+  const runStartIndices: number[] = [];
+  let currentIdx = 0;
+
+  for (const run of runs) {
+    runStartIndices.push(currentIdx);
+    const runGraphemes = segmentGraphemes(run.text);
+    let runWidth = 0;
+    for (let i = 0; i < runGraphemes.length; i++) {
+      if (currentIdx + i < line.bounds.length) {
+        const letterSpacing = options.letterSpacing || 0;
+        const charSpacing = options.charSpacing ?
+          (options.fontSize * options.charSpacing) / 1000 : 0;
+        runWidth += line.bounds[currentIdx + i].kernedWidth + letterSpacing + charSpacing;
+      }
+    }
+    runWidths.push(runWidth);
+    currentIdx += runGraphemes.length;
+  }
+
+  // 3. Determine visual order of runs based on base direction
+  // RTL base: runs display right-to-left (first run on right)
+  // LTR base: runs display left-to-right (first run on left)
+  const visualRunOrder = runs.map((_, i) => i);
+  if (baseDirection === 'rtl') {
+    visualRunOrder.reverse();
+  }
+
+  // 4. Calculate visual X position for each run
+  const runVisualX: number[] = new Array(runs.length);
+  let currentX = 0;
+
+  for (const runIdx of visualRunOrder) {
+    runVisualX[runIdx] = currentX;
+    currentX += runWidths[runIdx];
+  }
+
+  // 5. Assign visual X positions to each grapheme
+  for (let i = 0; i < line.bounds.length; i++) {
+    const runIdx = graphemeToRun[i];
+    if (runIdx === undefined) continue;
+
+    const run = runs[runIdx];
+    const runStart = runStartIndices[runIdx];
+
+    // Calculate spacing once
+    const letterSpacing = options.letterSpacing || 0;
+    const charSpacing = options.charSpacing ?
+      (options.fontSize * options.charSpacing) / 1000 : 0;
+    const totalSpacing = letterSpacing + charSpacing;
+
+    // Calculate offset within run (sum of widths of chars before this one)
+    let offsetInRun = 0;
+    for (let j = runStart; j < i; j++) {
+      offsetInRun += line.bounds[j].kernedWidth + totalSpacing;
+    }
+
+    // Character width including spacing
+    const charWidth = line.bounds[i].kernedWidth + totalSpacing;
+
+    // For RTL runs, characters within the run are reversed visually
+    // First logical char appears on the right, last on the left
+    if (run.direction === 'rtl') {
+      // Visual X = run right edge - cumulative width including this char
+      // This places first char at right side of run, last char at left side
+      line.bounds[i].x = runVisualX[runIdx] + runWidths[runIdx] - offsetInRun - charWidth;
+    } else {
+      // LTR run: visual position is run start + offset within run
+      line.bounds[i].x = runVisualX[runIdx] + offsetInRun;
+    }
+  }
+
+  return line;
+}
+
+/**
  * Apply text alignment to lines
  */
 function applyAlignment(
-  lines: LayoutLine[], 
-  align: string, 
+  lines: LayoutLine[],
+  align: string,
   containerWidth: number,
   options: TextLayoutOptions
 ): LayoutLine[] {
   return lines.map(line => {
+    // First apply BiDi reordering to get correct visual X positions
+    applyBiDiVisualReordering(line, options);
+
     let offsetX = 0;
-    
+
     switch (align) {
       case 'center':
         offsetX = (containerWidth - line.width) / 2;
@@ -419,15 +542,15 @@ function applyAlignment(
         offsetX = 0;
         break;
     }
-    
-    // Apply offset to all bounds
+
+    // Apply offset to all bounds (both visual x and logical left for alignment)
     if (offsetX !== 0) {
       line.bounds.forEach(bound => {
         bound.x += offsetX;
         bound.left += offsetX;
       });
     }
-    
+
     return line;
   });
 }
