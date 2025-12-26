@@ -87,6 +87,8 @@ export { Textbox } from './src/shapes/Textbox';
 export type { CompleteTextStyleDeclaration, TextStyleDeclaration, TextStyle, } from './src/shapes/Text/StyledText';
 export type { GroupEvents, GroupProps, GroupOwnProps, SerializedGroupProps, } from './src/shapes/Group';
 export { Group } from './src/shapes/Group';
+export type { FrameProps, FrameOwnProps, FrameMeta, FrameShapeType, SerializedFrameProps, } from './src/shapes/Frame';
+export { Frame } from './src/shapes/Frame';
 export * from './src/LayoutManager';
 export type { SerializedLayoutManager } from './src/LayoutManager';
 export type { ActiveSelectionOptions, MultiSelectionStacking, } from './src/shapes/ActiveSelection';

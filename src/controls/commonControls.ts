@@ -2,6 +2,10 @@ import { RESIZING, ROTATE } from '../constants';
 import { changeWidth } from './changeWidth';
 import { changeHeight } from './changeHeight';
 import { Control } from './Control';
+import {
+  renderHorizontalPillControl,
+  renderVerticalPillControl,
+} from './controlRendering';
 import { rotationStyleHandler, rotationWithSnapping } from './rotate';
 import { scaleCursorStyleHandler, scalingEqually } from './scale';
 import {
@@ -19,6 +23,9 @@ export const createObjectDefaultControls = () => ({
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingXOrSkewingY,
     getActionName: scaleOrSkewActionName,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20,
   }),
 
   mr: new Control({
@@ -27,6 +34,9 @@ export const createObjectDefaultControls = () => ({
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingXOrSkewingY,
     getActionName: scaleOrSkewActionName,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20,
   }),
 
   mb: new Control({
@@ -35,6 +45,9 @@ export const createObjectDefaultControls = () => ({
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingYOrSkewingX,
     getActionName: scaleOrSkewActionName,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6,
   }),
 
   mt: new Control({
@@ -43,6 +56,9 @@ export const createObjectDefaultControls = () => ({
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingYOrSkewingX,
     getActionName: scaleOrSkewActionName,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6,
   }),
 
   tl: new Control({
@@ -91,6 +107,9 @@ export const createResizeControls = () => ({
     actionHandler: changeWidth,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20,
   }),
   ml: new Control({
     x: -0.5,
@@ -98,6 +117,9 @@ export const createResizeControls = () => ({
     actionHandler: changeWidth,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20,
   }),
 });
 

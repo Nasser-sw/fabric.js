@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta16";
+var version = "7.0.1-beta17";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -5125,17 +5125,18 @@ const interactiveObjectDefaultValues = {
   lockSkewingX: false,
   lockSkewingY: false,
   lockScalingFlip: false,
-  cornerSize: 13,
+  // Modern Canva-style controls
+  cornerSize: 10,
   touchCornerSize: 24,
-  transparentCorners: true,
-  cornerColor: 'rgb(178,204,255)',
-  cornerStrokeColor: '',
-  cornerStyle: 'rect',
+  transparentCorners: false,
+  cornerColor: '#ffffff',
+  cornerStrokeColor: '#0d99ff',
+  cornerStyle: 'circle',
   cornerDashArray: null,
   hasControls: true,
-  borderColor: 'rgb(178,204,255)',
+  borderColor: '#0d99ff',
   borderDashArray: null,
-  borderOpacityWhenMoving: 0.4,
+  borderOpacityWhenMoving: 0.6,
   borderScaleFactor: 1,
   hasBorders: true,
   selectionBackgroundColor: '',
@@ -8213,6 +8214,12 @@ const changeObjectWidth = (eventData, transform, x, y) => {
 const changeWidth = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(changeObjectWidth));
 
 /**
+ * Pill dimensions for side controls (Canva-style)
+ */
+const PILL_WIDTH = 6;
+const PILL_HEIGHT = 20;
+const PILL_RADIUS = 3;
+/**
  * Render a round control, as per fabric features.
  * This function is written to respect object properties like transparentCorners, cornerSize
  * cornerColor, cornerStrokeColor
@@ -8291,6 +8298,62 @@ function renderSquareControl(ctx, left, top, styleOverride, fabricObject) {
   if (stroke) {
     ctx.strokeRect(-xSizeBy2, -ySizeBy2, xSize, ySize);
   }
+  ctx.restore();
+}
+
+/**
+ * Render a horizontal pill control (for left/right side handles).
+ * Modern Canva-style appearance.
+ * @param {CanvasRenderingContext2D} ctx context to render on
+ * @param {Number} left x coordinate where the control center should be
+ * @param {Number} top y coordinate where the control center should be
+ * @param {Object} styleOverride override for FabricObject controls style
+ * @param {FabricObject} fabricObject the fabric object for which we are rendering controls
+ */
+function renderHorizontalPillControl(ctx, left, top, styleOverride, fabricObject) {
+  styleOverride = styleOverride || {};
+  const width = PILL_WIDTH;
+  const height = PILL_HEIGHT;
+  const radius = PILL_RADIUS;
+  ctx.save();
+  ctx.translate(left, top);
+  const angle = fabricObject.getTotalAngle();
+  ctx.rotate(degreesToRadians(angle));
+  ctx.fillStyle = styleOverride.cornerColor || fabricObject.cornerColor || '#ffffff';
+  ctx.strokeStyle = styleOverride.cornerStrokeColor || fabricObject.cornerStrokeColor || '#0d99ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(-width / 2, -height / 2, width, height, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Render a vertical pill control (for top/bottom side handles).
+ * Modern Canva-style appearance.
+ * @param {CanvasRenderingContext2D} ctx context to render on
+ * @param {Number} left x coordinate where the control center should be
+ * @param {Number} top y coordinate where the control center should be
+ * @param {Object} styleOverride override for FabricObject controls style
+ * @param {FabricObject} fabricObject the fabric object for which we are rendering controls
+ */
+function renderVerticalPillControl(ctx, left, top, styleOverride, fabricObject) {
+  styleOverride = styleOverride || {};
+  const width = PILL_HEIGHT; // Swapped for vertical
+  const height = PILL_WIDTH;
+  const radius = PILL_RADIUS;
+  ctx.save();
+  ctx.translate(left, top);
+  const angle = fabricObject.getTotalAngle();
+  ctx.rotate(degreesToRadians(angle));
+  ctx.fillStyle = styleOverride.cornerColor || fabricObject.cornerColor || '#ffffff';
+  ctx.strokeStyle = styleOverride.cornerStrokeColor || fabricObject.cornerStrokeColor || '#0d99ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(-width / 2, -height / 2, width, height, radius);
+  ctx.fill();
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -9077,28 +9140,40 @@ const createObjectDefaultControls = () => ({
     y: 0,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingXOrSkewingY,
-    getActionName: scaleOrSkewActionName
+    getActionName: scaleOrSkewActionName,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
   }),
   mr: new Control({
     x: 0.5,
     y: 0,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingXOrSkewingY,
-    getActionName: scaleOrSkewActionName
+    getActionName: scaleOrSkewActionName,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
   }),
   mb: new Control({
     x: 0,
     y: 0.5,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingYOrSkewingX,
-    getActionName: scaleOrSkewActionName
+    getActionName: scaleOrSkewActionName,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6
   }),
   mt: new Control({
     x: 0,
     y: -0.5,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
     actionHandler: scalingYOrSkewingX,
-    getActionName: scaleOrSkewActionName
+    getActionName: scaleOrSkewActionName,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6
   }),
   tl: new Control({
     x: -0.5,
@@ -9140,14 +9215,20 @@ const createResizeControls = () => ({
     y: 0,
     actionHandler: changeWidth,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
-    actionName: RESIZING
+    actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
   }),
   ml: new Control({
     x: -0.5,
     y: 0,
     actionHandler: changeWidth,
     cursorStyleHandler: scaleSkewCursorStyleHandler,
-    actionName: RESIZING
+    actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
   })
 });
 const createTextboxDefaultControls = () => {
@@ -29044,360 +29125,6 @@ _defineProperty(Textbox, "ownDefaults", textboxDefaultValues);
 classRegistry.setClass(Textbox);
 
 /**
- * Layout will adjust the bounding box to match the clip path bounding box.
- */
-class ClipPathLayout extends LayoutStrategy {
-  shouldPerformLayout(context) {
-    return !!context.target.clipPath && super.shouldPerformLayout(context);
-  }
-  shouldLayoutClipPath() {
-    return false;
-  }
-  calcLayoutResult(context, objects) {
-    const {
-      target
-    } = context;
-    const {
-      clipPath,
-      group
-    } = target;
-    if (!clipPath || !this.shouldPerformLayout(context)) {
-      return;
-    }
-    // TODO: remove stroke calculation from this case
-    const {
-      width,
-      height
-    } = makeBoundingBoxFromPoints(getObjectBounds(target, clipPath));
-    const size = new Point(width, height);
-    if (clipPath.absolutePositioned) {
-      //  we want the center point to exist in group's containing plane
-      const clipPathCenter = sendPointToPlane(clipPath.getRelativeCenterPoint(), undefined, group ? group.calcTransformMatrix() : undefined);
-      return {
-        center: clipPathCenter,
-        size
-      };
-    } else {
-      //  we want the center point to exist in group's containing plane, so we send it upwards
-      const clipPathCenter = clipPath.getRelativeCenterPoint().transform(target.calcOwnMatrix(), true);
-      if (this.shouldPerformLayout(context)) {
-        // the clip path is positioned relative to the group's center which is affected by the bbox
-        // so we first calculate the bbox
-        const {
-          center = new Point(),
-          correction = new Point()
-        } = this.calcBoundingBox(objects, context) || {};
-        return {
-          center: center.add(clipPathCenter),
-          correction: correction.subtract(clipPathCenter),
-          size
-        };
-      } else {
-        return {
-          center: target.getRelativeCenterPoint().add(clipPathCenter),
-          size
-        };
-      }
-    }
-  }
-}
-_defineProperty(ClipPathLayout, "type", 'clip-path');
-classRegistry.setClass(ClipPathLayout);
-
-/**
- * Layout will keep target's initial size.
- */
-class FixedLayout extends LayoutStrategy {
-  /**
-   * @override respect target's initial size
-   */
-  getInitialSize(_ref, _ref2) {
-    let {
-      target
-    } = _ref;
-    let {
-      size
-    } = _ref2;
-    return new Point(target.width || size.x, target.height || size.y);
-  }
-}
-_defineProperty(FixedLayout, "type", 'fixed');
-classRegistry.setClass(FixedLayout);
-
-/**
- * Today the LayoutManager class also takes care of subscribing event handlers
- * to update the group layout when the group is interactive and a transform is applied
- * to a child object.
- * The ActiveSelection is never interactive, but it could contain objects from
- * groups that are.
- * The standard LayoutManager would subscribe the children of the activeSelection to
- * perform layout changes to the active selection itself, what we need instead is that
- * the transformation applied to the active selection will trigger changes to the
- * original group of the children ( the one referenced under the parent property )
- * This subclass of the LayoutManager has a single duty to fill the gap of this difference.`
- */
-class ActiveSelectionLayoutManager extends LayoutManager {
-  subscribeTargets(context) {
-    const activeSelection = context.target;
-    const parents = context.targets.reduce((parents, target) => {
-      target.parent && parents.add(target.parent);
-      return parents;
-    }, new Set());
-    parents.forEach(parent => {
-      parent.layoutManager.subscribeTargets({
-        target: parent,
-        targets: [activeSelection]
-      });
-    });
-  }
-
-  /**
-   * unsubscribe from parent only if all its children were deselected
-   */
-  unsubscribeTargets(context) {
-    const activeSelection = context.target;
-    const selectedObjects = activeSelection.getObjects();
-    const parents = context.targets.reduce((parents, target) => {
-      target.parent && parents.add(target.parent);
-      return parents;
-    }, new Set());
-    parents.forEach(parent => {
-      !selectedObjects.some(object => object.parent === parent) && parent.layoutManager.unsubscribeTargets({
-        target: parent,
-        targets: [activeSelection]
-      });
-    });
-  }
-}
-
-const activeSelectionDefaultValues = {
-  multiSelectionStacking: 'canvas-stacking'
-};
-
-/**
- * Used by Canvas to manage selection.
- *
- * @example
- * class MyActiveSelection extends ActiveSelection {
- *   ...
- * }
- *
- * // override the default `ActiveSelection` class
- * classRegistry.setClass(MyActiveSelection)
- */
-class ActiveSelection extends Group {
-  static getDefaults() {
-    return {
-      ...super.getDefaults(),
-      ...ActiveSelection.ownDefaults
-    };
-  }
-
-  /**
-   * The ActiveSelection needs to use the ActiveSelectionLayoutManager
-   * or selections on interactive groups may be broken
-   */
-
-  /**
-   * controls how selected objects are added during a multiselection event
-   * - `canvas-stacking` adds the selected object to the active selection while respecting canvas object stacking order
-   * - `selection-order` adds the selected object to the top of the stack,
-   * meaning that the stack is ordered by the order in which objects were selected
-   * @default `canvas-stacking`
-   */
-
-  constructor() {
-    let objects = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    super();
-    Object.assign(this, ActiveSelection.ownDefaults);
-    this.setOptions(options);
-    const {
-      left,
-      top,
-      layoutManager
-    } = options;
-    this.groupInit(objects, {
-      left,
-      top,
-      layoutManager: layoutManager !== null && layoutManager !== void 0 ? layoutManager : new ActiveSelectionLayoutManager()
-    });
-  }
-
-  /**
-   * @private
-   */
-  _shouldSetNestedCoords() {
-    return true;
-  }
-
-  /**
-   * @private
-   * @override we don't want the selection monitor to be active
-   */
-  __objectSelectionMonitor() {
-    //  noop
-  }
-
-  /**
-   * Adds objects with respect to {@link multiSelectionStacking}
-   * @param targets object to add to selection
-   */
-  multiSelectAdd() {
-    for (var _len = arguments.length, targets = new Array(_len), _key = 0; _key < _len; _key++) {
-      targets[_key] = arguments[_key];
-    }
-    if (this.multiSelectionStacking === 'selection-order') {
-      this.add(...targets);
-    } else {
-      //  respect object stacking as it is on canvas
-      //  perf enhancement for large ActiveSelection: consider a binary search of `isInFrontOf`
-      targets.forEach(target => {
-        const index = this._objects.findIndex(obj => obj.isInFrontOf(target));
-        const insertAt = index === -1 ?
-        //  `target` is in front of all other objects
-        this.size() : index;
-        this.insertAt(insertAt, target);
-      });
-    }
-  }
-
-  /**
-   * @override block ancestors/descendants of selected objects from being selected to prevent a circular object tree
-   */
-  canEnterGroup(object) {
-    if (this.getObjects().some(o => o.isDescendantOf(object) || object.isDescendantOf(o))) {
-      //  prevent circular object tree
-      log('error', 'ActiveSelection: circular object trees are not supported, this call has no effect');
-      return false;
-    }
-    return super.canEnterGroup(object);
-  }
-
-  /**
-   * Change an object so that it can be part of an active selection.
-   * this method is called by multiselectAdd from canvas code.
-   * @private
-   * @param {FabricObject} object
-   * @param {boolean} [removeParentTransform] true if object is in canvas coordinate plane
-   */
-  enterGroup(object, removeParentTransform) {
-    // This condition check that the object has currently a group, and the group
-    // is also its parent, meaning that is not in an active selection, but is
-    // in a normal group.
-    if (object.parent && object.parent === object.group) {
-      // Disconnect the object from the group functionalities, but keep the ref parent intact
-      // for later re-enter
-      object.parent._exitGroup(object);
-      // in this case the object is probably inside an active selection.
-    } else if (object.group && object.parent !== object.group) {
-      // in this case group.remove will also clear the old parent reference.
-      object.group.remove(object);
-    }
-    // enter the active selection from a render perspective
-    // the object will be in the objects array of both the ActiveSelection and the Group
-    // but referenced in the group's _activeObjects so that it won't be rendered twice.
-    this._enterGroup(object, removeParentTransform);
-  }
-
-  /**
-   * we want objects to retain their canvas ref when exiting instance
-   * @private
-   * @param {FabricObject} object
-   * @param {boolean} [removeParentTransform] true if object should exit group without applying group's transform to it
-   */
-  exitGroup(object, removeParentTransform) {
-    this._exitGroup(object, removeParentTransform);
-    // return to parent
-    object.parent && object.parent._enterGroup(object, true);
-  }
-
-  /**
-   * @private
-   * @param {'added'|'removed'} type
-   * @param {FabricObject[]} targets
-   */
-  _onAfterObjectsChange(type, targets) {
-    super._onAfterObjectsChange(type, targets);
-    const groups = new Set();
-    targets.forEach(object => {
-      const {
-        parent
-      } = object;
-      parent && groups.add(parent);
-    });
-    if (type === LAYOUT_TYPE_REMOVED) {
-      //  invalidate groups' layout and mark as dirty
-      groups.forEach(group => {
-        group._onAfterObjectsChange(LAYOUT_TYPE_ADDED, targets);
-      });
-    } else {
-      //  mark groups as dirty
-      groups.forEach(group => {
-        group._set('dirty', true);
-      });
-    }
-  }
-
-  /**
-   * @override remove all objects
-   */
-  onDeselect() {
-    this.removeAll();
-    return false;
-  }
-
-  /**
-   * Returns string representation of a group
-   * @return {String}
-   */
-  toString() {
-    return `#<ActiveSelection: (${this.complexity()})>`;
-  }
-
-  /**
-   * Decide if the object should cache or not. The Active selection never caches
-   * @return {Boolean}
-   */
-  shouldCache() {
-    return false;
-  }
-
-  /**
-   * Check if this group or its parent group are caching, recursively up
-   * @return {Boolean}
-   */
-  isOnACache() {
-    return false;
-  }
-
-  /**
-   * Renders controls and borders for the object
-   * @param {CanvasRenderingContext2D} ctx Context to render on
-   * @param {Object} [styleOverride] properties to override the object style
-   * @param {Object} [childrenOverride] properties to override the children overrides
-   */
-  _renderControls(ctx, styleOverride, childrenOverride) {
-    ctx.save();
-    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
-    const options = {
-      hasControls: false,
-      ...childrenOverride,
-      forActiveSelection: true
-    };
-    for (let i = 0; i < this._objects.length; i++) {
-      this._objects[i]._renderControls(ctx, options);
-    }
-    super._renderControls(ctx, styleOverride);
-    ctx.restore();
-  }
-}
-_defineProperty(ActiveSelection, "type", 'ActiveSelection');
-_defineProperty(ActiveSelection, "ownDefaults", activeSelectionDefaultValues);
-classRegistry.setClass(ActiveSelection);
-classRegistry.setClass(ActiveSelection, 'activeSelection');
-
-/**
  * Canvas 2D filter backend.
  */
 
@@ -30439,6 +30166,1651 @@ _defineProperty(FabricImage, "ownDefaults", imageDefaultValues);
 _defineProperty(FabricImage, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES, 'x', 'y', 'width', 'height', 'preserveAspectRatio', 'xlink:href', 'href', 'crossOrigin', 'image-rendering']);
 classRegistry.setClass(FabricImage);
 classRegistry.setSVGClass(FabricImage);
+
+/**
+ * FrameLayout is a layout strategy that maintains fixed dimensions
+ * regardless of the content inside the group.
+ *
+ * This is essential for Frame objects where:
+ * - The frame size should never change when images are added/removed
+ * - Content is clipped to the frame boundaries
+ * - The frame acts as a container with fixed dimensions
+ */
+class FrameLayout extends LayoutStrategy {
+  /**
+   * Override to prevent layout recalculation on content changes.
+   * Only perform layout during initialization or imperative calls.
+   */
+  shouldPerformLayout(_ref) {
+    let {
+      type
+    } = _ref;
+    // Only perform layout during initialization
+    // After that, the frame maintains its fixed size
+    return type === LAYOUT_TYPE_INITIALIZATION;
+  }
+
+  /**
+   * Calculate the bounding box for frame objects.
+   * Returns the fixed frame dimensions instead of calculating from contents.
+   */
+  calcBoundingBox(objects, context) {
+    var _ref2, _frameWidth, _ref3, _frameHeight;
+    const {
+      type,
+      target
+    } = context;
+
+    // Get fixed dimensions from frame properties
+    const frameWidth = (_ref2 = (_frameWidth = target.frameWidth) !== null && _frameWidth !== void 0 ? _frameWidth : target.width) !== null && _ref2 !== void 0 ? _ref2 : 200;
+    const frameHeight = (_ref3 = (_frameHeight = target.frameHeight) !== null && _frameHeight !== void 0 ? _frameHeight : target.height) !== null && _ref3 !== void 0 ? _ref3 : 200;
+    const size = new Point(frameWidth, frameHeight);
+    if (type === LAYOUT_TYPE_INITIALIZATION) {
+      // During initialization, use the frame's position or calculate center
+      const center = new Point(0, 0);
+      return {
+        center,
+        size,
+        relativeCorrection: new Point(0, 0)
+      };
+    }
+
+    // For any other layout triggers, return the fixed size
+    // This shouldn't normally be called due to shouldPerformLayout override
+    const center = target.getRelativeCenterPoint();
+    return {
+      center,
+      size
+    };
+  }
+
+  /**
+   * Override to always return fixed frame dimensions during initialization.
+   */
+  getInitialSize(context, result) {
+    var _ref4, _frameWidth2, _ref5, _frameHeight2;
+    const {
+      target
+    } = context;
+    const frameWidth = (_ref4 = (_frameWidth2 = target.frameWidth) !== null && _frameWidth2 !== void 0 ? _frameWidth2 : target.width) !== null && _ref4 !== void 0 ? _ref4 : 200;
+    const frameHeight = (_ref5 = (_frameHeight2 = target.frameHeight) !== null && _frameHeight2 !== void 0 ? _frameHeight2 : target.height) !== null && _ref5 !== void 0 ? _ref5 : 200;
+    return new Point(frameWidth, frameHeight);
+  }
+}
+_defineProperty(FrameLayout, "type", 'frame-layout');
+classRegistry.setClass(FrameLayout);
+
+/**
+ * Frame shape types supported out of the box
+ */
+
+/**
+ * Frame metadata for persistence and state management
+ */
+
+/**
+ * Frame-specific properties
+ */
+
+const frameDefaultValues = {
+  frameWidth: 200,
+  frameHeight: 200,
+  frameShape: 'rect',
+  frameBorderRadius: 0,
+  isEditMode: false,
+  placeholderText: 'Drop image here',
+  placeholderColor: '#d0d0d0',
+  frameMeta: {
+    contentScale: 1,
+    contentOffsetX: 0,
+    contentOffsetY: 0
+  }
+};
+
+/**
+ * Frame class - A Canva-like frame container for images
+ *
+ * Features:
+ * - Fixed dimensions that don't change when content is added/removed
+ * - Multiple shape types (rect, circle, rounded-rect, custom SVG path)
+ * - Cover scaling: images fill the frame completely, overflow is clipped
+ * - Double-click edit mode: reposition/zoom content within frame
+ * - Drag & drop support for replacing images
+ * - Full serialization/deserialization support
+ *
+ * @example
+ * ```ts
+ * // Create a rectangular frame
+ * const frame = new Frame([], {
+ *   frameWidth: 300,
+ *   frameHeight: 200,
+ *   frameShape: 'rect',
+ *   left: 100,
+ *   top: 100,
+ * });
+ *
+ * // Add image with cover scaling
+ * await frame.setImage('https://example.com/image.jpg');
+ *
+ * canvas.add(frame);
+ * ```
+ */
+class Frame extends Group {
+  static getDefaults() {
+    return {
+      ...super.getDefaults(),
+      ...Frame.ownDefaults
+    };
+  }
+
+  /**
+   * Constructor
+   * @param objects - Initial objects (typically empty for frames)
+   * @param options - Frame configuration options
+   */
+  constructor() {
+    var _defaultMeta$contentS, _defaultMeta$contentO, _defaultMeta$contentO2;
+    let objects = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    // Set up the frame layout manager before calling super
+    const frameLayoutManager = new LayoutManager(new FrameLayout());
+    super(objects, {
+      ...options,
+      layoutManager: frameLayoutManager
+    });
+
+    // Apply defaults
+    /**
+     * Reference to the content image
+     * @private
+     */
+    _defineProperty(this, "_contentImage", null);
+    /**
+     * Reference to the placeholder object
+     * @private
+     */
+    _defineProperty(this, "_placeholder", null);
+    /**
+     * Bound constraint handler references for cleanup
+     * @private
+     */
+    _defineProperty(this, "_boundConstrainMove", void 0);
+    _defineProperty(this, "_boundConstrainScale", void 0);
+    /**
+     * Stored clip path before edit mode
+     * @private
+     */
+    _defineProperty(this, "_editModeClipPath", void 0);
+    Object.assign(this, Frame.ownDefaults);
+
+    // Apply user options
+    this.setOptions(options);
+
+    // Ensure frameMeta is properly initialized with defaults
+    const defaultMeta = frameDefaultValues.frameMeta || {};
+    this.frameMeta = {
+      contentScale: (_defaultMeta$contentS = defaultMeta.contentScale) !== null && _defaultMeta$contentS !== void 0 ? _defaultMeta$contentS : 1,
+      contentOffsetX: (_defaultMeta$contentO = defaultMeta.contentOffsetX) !== null && _defaultMeta$contentO !== void 0 ? _defaultMeta$contentO : 0,
+      contentOffsetY: (_defaultMeta$contentO2 = defaultMeta.contentOffsetY) !== null && _defaultMeta$contentO2 !== void 0 ? _defaultMeta$contentO2 : 0,
+      ...options.frameMeta
+    };
+
+    // Set fixed dimensions
+    this.set({
+      width: this.frameWidth,
+      height: this.frameHeight
+    });
+
+    // Create clip path based on shape
+    this._updateClipPath();
+
+    // Create placeholder if no content
+    if (objects.length === 0) {
+      this._createPlaceholder();
+    }
+
+    // Set up custom resize controls (instead of scale controls)
+    this._setupResizeControls();
+  }
+
+  /**
+   * Sets up custom controls that resize instead of scale
+   * This is the key to Canva-like behavior - corners resize the frame dimensions
+   * instead of scaling the entire group (which would stretch the image)
+   * @private
+   */
+  _setupResizeControls() {
+    // Helper to change width (like changeObjectWidth but for frames)
+    // Note: wrapWithFixedAnchor sets origin to opposite corner, so localPoint.x IS the new width
+    const changeFrameWidth = (eventData, transform, x, y) => {
+      const target = transform.target;
+      const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+      const oldWidth = target.frameWidth;
+      // localPoint.x is distance from anchor (opposite side) to mouse = new width
+      const newWidth = Math.max(20, Math.abs(localPoint.x));
+      if (Math.abs(oldWidth - newWidth) < 1) return false;
+      target.frameWidth = newWidth;
+      target.width = newWidth;
+      target._updateClipPath();
+      target._adjustContentAfterResize();
+      return true;
+    };
+
+    // Helper to change height
+    const changeFrameHeight = (eventData, transform, x, y) => {
+      const target = transform.target;
+      const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+      const oldHeight = target.frameHeight;
+      const newHeight = Math.max(20, Math.abs(localPoint.y));
+      if (Math.abs(oldHeight - newHeight) < 1) return false;
+      target.frameHeight = newHeight;
+      target.height = newHeight;
+      target._updateClipPath();
+      target._adjustContentAfterResize();
+      return true;
+    };
+
+    // Helper to change both width and height (corners)
+    const changeFrameSize = (eventData, transform, x, y) => {
+      const target = transform.target;
+      const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+      const oldWidth = target.frameWidth;
+      const oldHeight = target.frameHeight;
+      const newWidth = Math.max(20, Math.abs(localPoint.x));
+      const newHeight = Math.max(20, Math.abs(localPoint.y));
+      if (Math.abs(oldWidth - newWidth) < 1 && Math.abs(oldHeight - newHeight) < 1) return false;
+      target.frameWidth = newWidth;
+      target.frameHeight = newHeight;
+      target.width = newWidth;
+      target.height = newHeight;
+      target._updateClipPath();
+      target._adjustContentAfterResize();
+      return true;
+    };
+
+    // Create wrapped handlers
+    const resizeFromCorner = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(changeFrameSize));
+    const resizeX = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(changeFrameWidth));
+    const resizeY = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(changeFrameHeight));
+
+    // Guard: ensure controls exist
+    if (!this.controls) {
+      console.warn('Frame: controls not initialized yet');
+      return;
+    }
+
+    // Override corner controls - use resize instead of scale
+    const cornerControls = ['tl', 'tr', 'bl', 'br'];
+    cornerControls.forEach(corner => {
+      const existing = this.controls[corner];
+      if (existing) {
+        this.controls[corner] = new Control({
+          x: existing.x,
+          y: existing.y,
+          cursorStyleHandler: existing.cursorStyleHandler,
+          actionHandler: resizeFromCorner,
+          actionName: 'resizing'
+        });
+      }
+    });
+
+    // Override side controls for horizontal resize
+    const horizontalControls = ['ml', 'mr'];
+    horizontalControls.forEach(corner => {
+      const existing = this.controls[corner];
+      if (existing) {
+        this.controls[corner] = new Control({
+          x: existing.x,
+          y: existing.y,
+          cursorStyleHandler: existing.cursorStyleHandler,
+          actionHandler: resizeX,
+          actionName: 'resizing',
+          render: existing.render,
+          // Keep the global pill renderer
+          sizeX: existing.sizeX,
+          sizeY: existing.sizeY
+        });
+      }
+    });
+
+    // Override side controls for vertical resize
+    const verticalControls = ['mt', 'mb'];
+    verticalControls.forEach(corner => {
+      const existing = this.controls[corner];
+      if (existing) {
+        this.controls[corner] = new Control({
+          x: existing.x,
+          y: existing.y,
+          cursorStyleHandler: existing.cursorStyleHandler,
+          actionHandler: resizeY,
+          actionName: 'resizing',
+          render: existing.render,
+          // Keep the global pill renderer
+          sizeX: existing.sizeX,
+          sizeY: existing.sizeY
+        });
+      }
+    });
+  }
+
+  /**
+   * Adjusts content after a resize operation (called from set override)
+   * @private
+   */
+  _adjustContentAfterResize() {
+    // Update placeholder if present (simple rect)
+    if (this._placeholder) {
+      this._placeholder.set({
+        width: this.frameWidth,
+        height: this.frameHeight
+      });
+    }
+
+    // Adjust content image (Canva-like behavior)
+    if (this._contentImage) {
+      var _ref, _this$frameMeta$origi, _ref2, _this$frameMeta$origi2, _img$scaleX, _img$left, _img$top;
+      const img = this._contentImage;
+      const originalWidth = (_ref = (_this$frameMeta$origi = this.frameMeta.originalWidth) !== null && _this$frameMeta$origi !== void 0 ? _this$frameMeta$origi : img.width) !== null && _ref !== void 0 ? _ref : 100;
+      const originalHeight = (_ref2 = (_this$frameMeta$origi2 = this.frameMeta.originalHeight) !== null && _this$frameMeta$origi2 !== void 0 ? _this$frameMeta$origi2 : img.height) !== null && _ref2 !== void 0 ? _ref2 : 100;
+
+      // Current image scale and position - preserve user's position
+      let currentScale = (_img$scaleX = img.scaleX) !== null && _img$scaleX !== void 0 ? _img$scaleX : 1;
+      let imgCenterX = (_img$left = img.left) !== null && _img$left !== void 0 ? _img$left : 0;
+      let imgCenterY = (_img$top = img.top) !== null && _img$top !== void 0 ? _img$top : 0;
+
+      // Check if current scale still covers the frame
+      const minScaleForCover = this._calculateCoverScale(originalWidth, originalHeight);
+      if (currentScale < minScaleForCover) {
+        // Image is too small to cover frame - scale up proportionally
+        // But try to keep the same visual center point
+        const scaleRatio = minScaleForCover / currentScale;
+
+        // Scale position proportionally to maintain visual anchor
+        imgCenterX = imgCenterX * scaleRatio;
+        imgCenterY = imgCenterY * scaleRatio;
+        currentScale = minScaleForCover;
+        img.set({
+          scaleX: currentScale,
+          scaleY: currentScale
+        });
+        this.frameMeta = {
+          ...this.frameMeta,
+          contentScale: currentScale
+        };
+      }
+
+      // Now constrain position only if needed to prevent empty space
+      const scaledImgHalfW = originalWidth * currentScale / 2;
+      const scaledImgHalfH = originalHeight * currentScale / 2;
+      const frameHalfW = this.frameWidth / 2;
+      const frameHalfH = this.frameHeight / 2;
+
+      // Calculate how much the image can move while still covering the frame
+      const maxOffsetX = Math.max(0, scaledImgHalfW - frameHalfW);
+      const maxOffsetY = Math.max(0, scaledImgHalfH - frameHalfH);
+
+      // Only constrain if position would show empty space
+      const needsConstraintX = Math.abs(imgCenterX) > maxOffsetX;
+      const needsConstraintY = Math.abs(imgCenterY) > maxOffsetY;
+      if (needsConstraintX) {
+        imgCenterX = Math.max(-maxOffsetX, Math.min(maxOffsetX, imgCenterX));
+      }
+      if (needsConstraintY) {
+        imgCenterY = Math.max(-maxOffsetY, Math.min(maxOffsetY, imgCenterY));
+      }
+      if (needsConstraintX || needsConstraintY) {
+        img.set({
+          left: imgCenterX,
+          top: imgCenterY
+        });
+        this.frameMeta = {
+          ...this.frameMeta,
+          contentOffsetX: imgCenterX,
+          contentOffsetY: imgCenterY
+        };
+      }
+      img.setCoords();
+    }
+    this.setCoords();
+  }
+
+  /**
+   * Updates the clip path based on the current frame shape
+   * @private
+   */
+  _updateClipPath() {
+    let clipPath;
+    switch (this.frameShape) {
+      case 'circle':
+        {
+          const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
+          clipPath = new Circle({
+            radius,
+            originX: 'center',
+            originY: 'center',
+            left: 0,
+            top: 0
+          });
+          break;
+        }
+      case 'rounded-rect':
+        {
+          clipPath = new Rect({
+            width: this.frameWidth,
+            height: this.frameHeight,
+            rx: this.frameBorderRadius,
+            ry: this.frameBorderRadius,
+            originX: 'center',
+            originY: 'center',
+            left: 0,
+            top: 0
+          });
+          break;
+        }
+      case 'custom':
+        {
+          if (this.frameCustomPath) {
+            clipPath = new Path(this.frameCustomPath, {
+              originX: 'center',
+              originY: 'center',
+              left: 0,
+              top: 0
+            });
+            // Scale custom path to fit frame
+            const pathBounds = clipPath.getBoundingRect();
+            const scaleX = this.frameWidth / pathBounds.width;
+            const scaleY = this.frameHeight / pathBounds.height;
+            clipPath.set({
+              scaleX,
+              scaleY
+            });
+          } else {
+            // Fallback to rect if no custom path
+            clipPath = new Rect({
+              width: this.frameWidth,
+              height: this.frameHeight,
+              originX: 'center',
+              originY: 'center',
+              left: 0,
+              top: 0
+            });
+          }
+          break;
+        }
+      case 'rect':
+      default:
+        {
+          clipPath = new Rect({
+            width: this.frameWidth,
+            height: this.frameHeight,
+            originX: 'center',
+            originY: 'center',
+            left: 0,
+            top: 0
+          });
+          break;
+        }
+    }
+    this.clipPath = clipPath;
+    this.set('dirty', true);
+  }
+
+  /**
+   * Creates a placeholder element for empty frames
+   * Shows a colored rectangle - users can customize via placeholderColor
+   * @private
+   */
+  _createPlaceholder() {
+    // Remove existing placeholder if any
+    if (this._placeholder) {
+      super.remove(this._placeholder);
+      this._placeholder = null;
+    }
+
+    // Create placeholder background
+    const placeholder = new Rect({
+      width: this.frameWidth,
+      height: this.frameHeight,
+      fill: this.placeholderColor,
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      selectable: false,
+      evented: false
+    });
+    this._placeholder = placeholder;
+    super.add(placeholder);
+
+    // Ensure dimensions remain fixed
+    this._restoreFixedDimensions();
+  }
+
+  /**
+   * Removes the placeholder element
+   * @private
+   */
+  _removePlaceholder() {
+    if (this._placeholder) {
+      super.remove(this._placeholder);
+      this._placeholder = null;
+    }
+  }
+
+  /**
+   * Restores the fixed frame dimensions
+   * @private
+   */
+  _restoreFixedDimensions() {
+    this.set({
+      width: this.frameWidth,
+      height: this.frameHeight
+    });
+  }
+
+  /**
+   * Sets an image in the frame with cover scaling
+   *
+   * @param src - Image source URL
+   * @param options - Optional loading options
+   * @returns Promise that resolves when the image is loaded and set
+   *
+   * @example
+   * ```ts
+   * await frame.setImage('https://example.com/photo.jpg');
+   * canvas.renderAll();
+   * ```
+   */
+  async setImage(src) {
+    var _image$width, _image$height;
+    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    const {
+      crossOrigin = 'anonymous',
+      signal
+    } = options;
+
+    // Load the image
+    const image = await FabricImage.fromURL(src, {
+      crossOrigin,
+      signal
+    });
+
+    // Get original dimensions
+    const originalWidth = (_image$width = image.width) !== null && _image$width !== void 0 ? _image$width : 100;
+    const originalHeight = (_image$height = image.height) !== null && _image$height !== void 0 ? _image$height : 100;
+
+    // Calculate cover scale
+    const scale = this._calculateCoverScale(originalWidth, originalHeight);
+
+    // Configure image for frame
+    image.set({
+      scaleX: scale,
+      scaleY: scale,
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      selectable: false,
+      evented: false
+    });
+
+    // Remove existing content
+    this._clearContent();
+
+    // Add new image
+    this._contentImage = image;
+    super.add(image);
+
+    // Force re-center the image after adding (layout might have moved it)
+    this._contentImage.set({
+      left: 0,
+      top: 0
+    });
+
+    // Update metadata
+    this.frameMeta = {
+      ...this.frameMeta,
+      contentScale: scale,
+      contentOffsetX: 0,
+      contentOffsetY: 0,
+      imageSrc: src,
+      originalWidth,
+      originalHeight
+    };
+
+    // Restore dimensions (in case Group recalculated them)
+    this._restoreFixedDimensions();
+
+    // Force recalculation of coordinates
+    this.setCoords();
+    this._contentImage.setCoords();
+    this.set('dirty', true);
+  }
+
+  /**
+   * Sets an image from an existing FabricImage object
+   *
+   * @param image - FabricImage instance
+   */
+  setImageObject(image) {
+    var _image$width2, _image$height2;
+    const originalWidth = (_image$width2 = image.width) !== null && _image$width2 !== void 0 ? _image$width2 : 100;
+    const originalHeight = (_image$height2 = image.height) !== null && _image$height2 !== void 0 ? _image$height2 : 100;
+
+    // Calculate cover scale
+    const scale = this._calculateCoverScale(originalWidth, originalHeight);
+
+    // Configure image for frame
+    image.set({
+      scaleX: scale,
+      scaleY: scale,
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      selectable: false,
+      evented: false
+    });
+
+    // Remove existing content
+    this._clearContent();
+
+    // Add new image
+    this._contentImage = image;
+    super.add(image);
+
+    // Update metadata
+    this.frameMeta = {
+      ...this.frameMeta,
+      contentScale: scale,
+      contentOffsetX: 0,
+      contentOffsetY: 0,
+      imageSrc: image.getSrc(),
+      originalWidth,
+      originalHeight
+    };
+
+    // Restore dimensions
+    this._restoreFixedDimensions();
+    this.set('dirty', true);
+  }
+
+  /**
+   * Calculates the cover scale factor for an image
+   * Cover scaling ensures the image fills the frame completely
+   *
+   * @param imageWidth - Original image width
+   * @param imageHeight - Original image height
+   * @returns Scale factor to apply
+   * @private
+   */
+  _calculateCoverScale(imageWidth, imageHeight) {
+    const scaleX = this.frameWidth / imageWidth;
+    const scaleY = this.frameHeight / imageHeight;
+    return Math.max(scaleX, scaleY);
+  }
+
+  /**
+   * Clears all content from the frame
+   * @private
+   */
+  _clearContent() {
+    // Remove placeholder
+    this._removePlaceholder();
+
+    // Remove content image
+    if (this._contentImage) {
+      super.remove(this._contentImage);
+      this._contentImage = null;
+    }
+
+    // Clear any other objects
+    const objects = this.getObjects();
+    objects.forEach(obj => super.remove(obj));
+  }
+
+  /**
+   * Clears the frame content and shows placeholder
+   */
+  clearContent() {
+    this._clearContent();
+    this._createPlaceholder();
+
+    // Reset metadata
+    this.frameMeta = {
+      contentScale: 1,
+      contentOffsetX: 0,
+      contentOffsetY: 0
+    };
+    this.set('dirty', true);
+  }
+
+  /**
+   * Checks if the frame has image content
+   */
+  hasContent() {
+    return this._contentImage !== null;
+  }
+
+  /**
+   * Gets the current content image
+   */
+  getContentImage() {
+    return this._contentImage;
+  }
+
+  /**
+   * Enters edit mode for repositioning content within the frame
+   * In edit mode, the content image can be dragged and scaled
+   */
+  enterEditMode() {
+    var _ref3, _this$frameMeta$origi3, _ref4, _this$frameMeta$origi4;
+    if (!this._contentImage || this.isEditMode) {
+      return;
+    }
+    this.isEditMode = true;
+
+    // Enable sub-target interaction so clicks go through to content
+    this.subTargetCheck = true;
+    this.interactive = true;
+
+    // Calculate minimum scale to cover frame
+    const originalWidth = (_ref3 = (_this$frameMeta$origi3 = this.frameMeta.originalWidth) !== null && _this$frameMeta$origi3 !== void 0 ? _this$frameMeta$origi3 : this._contentImage.width) !== null && _ref3 !== void 0 ? _ref3 : 100;
+    const originalHeight = (_ref4 = (_this$frameMeta$origi4 = this.frameMeta.originalHeight) !== null && _this$frameMeta$origi4 !== void 0 ? _this$frameMeta$origi4 : this._contentImage.height) !== null && _ref4 !== void 0 ? _ref4 : 100;
+    const minScale = this._calculateCoverScale(originalWidth, originalHeight);
+
+    // Make content image interactive with scale constraint
+    this._contentImage.set({
+      selectable: true,
+      evented: true,
+      hasControls: true,
+      hasBorders: true,
+      minScaleLimit: minScale,
+      lockScalingFlip: true
+    });
+
+    // Store clip path but keep rendering it for the overlay effect
+    if (this.clipPath) {
+      this._editModeClipPath = this.clipPath;
+      this.clipPath = undefined;
+    }
+
+    // Add constraint handlers for moving/scaling
+    this._setupEditModeConstraints();
+    this.set('dirty', true);
+
+    // Select the content image on the canvas
+    if (this.canvas) {
+      this.canvas.setActiveObject(this._contentImage);
+      this.canvas.renderAll();
+    }
+
+    // Fire custom event
+    this.fire('frame:editmode:enter', {
+      target: this
+    });
+  }
+  /**
+   * Sets up constraints for edit mode - prevents gaps
+   * @private
+   */
+  _setupEditModeConstraints() {
+    if (!this._contentImage || !this.canvas) return;
+    const frame = this;
+    const img = this._contentImage;
+
+    // Constrain movement to prevent gaps
+    this._boundConstrainMove = e => {
+      var _ref5, _frame$frameMeta$orig, _ref6, _frame$frameMeta$orig2, _img$scaleX2, _img$left2, _img$top2;
+      if (e.target !== img || !frame.isEditMode) return;
+      const originalWidth = (_ref5 = (_frame$frameMeta$orig = frame.frameMeta.originalWidth) !== null && _frame$frameMeta$orig !== void 0 ? _frame$frameMeta$orig : img.width) !== null && _ref5 !== void 0 ? _ref5 : 100;
+      const originalHeight = (_ref6 = (_frame$frameMeta$orig2 = frame.frameMeta.originalHeight) !== null && _frame$frameMeta$orig2 !== void 0 ? _frame$frameMeta$orig2 : img.height) !== null && _ref6 !== void 0 ? _ref6 : 100;
+      const currentScale = (_img$scaleX2 = img.scaleX) !== null && _img$scaleX2 !== void 0 ? _img$scaleX2 : 1;
+      const scaledImgHalfW = originalWidth * currentScale / 2;
+      const scaledImgHalfH = originalHeight * currentScale / 2;
+      const frameHalfW = frame.frameWidth / 2;
+      const frameHalfH = frame.frameHeight / 2;
+      const maxOffsetX = Math.max(0, scaledImgHalfW - frameHalfW);
+      const maxOffsetY = Math.max(0, scaledImgHalfH - frameHalfH);
+      let left = (_img$left2 = img.left) !== null && _img$left2 !== void 0 ? _img$left2 : 0;
+      let top = (_img$top2 = img.top) !== null && _img$top2 !== void 0 ? _img$top2 : 0;
+
+      // Constrain position
+      left = Math.max(-maxOffsetX, Math.min(maxOffsetX, left));
+      top = Math.max(-maxOffsetY, Math.min(maxOffsetY, top));
+      img.set({
+        left,
+        top
+      });
+    };
+
+    // Constrain scaling to prevent gaps
+    this._boundConstrainScale = e => {
+      var _ref7, _frame$frameMeta$orig3, _ref8, _frame$frameMeta$orig4, _img$scaleX3, _img$scaleY, _frame$_boundConstrai;
+      if (e.target !== img || !frame.isEditMode) return;
+      const originalWidth = (_ref7 = (_frame$frameMeta$orig3 = frame.frameMeta.originalWidth) !== null && _frame$frameMeta$orig3 !== void 0 ? _frame$frameMeta$orig3 : img.width) !== null && _ref7 !== void 0 ? _ref7 : 100;
+      const originalHeight = (_ref8 = (_frame$frameMeta$orig4 = frame.frameMeta.originalHeight) !== null && _frame$frameMeta$orig4 !== void 0 ? _frame$frameMeta$orig4 : img.height) !== null && _ref8 !== void 0 ? _ref8 : 100;
+      const minScale = frame._calculateCoverScale(originalWidth, originalHeight);
+      let scaleX = (_img$scaleX3 = img.scaleX) !== null && _img$scaleX3 !== void 0 ? _img$scaleX3 : 1;
+      let scaleY = (_img$scaleY = img.scaleY) !== null && _img$scaleY !== void 0 ? _img$scaleY : 1;
+
+      // Ensure uniform scaling and minimum scale
+      const scale = Math.max(minScale, Math.max(scaleX, scaleY));
+      img.set({
+        scaleX: scale,
+        scaleY: scale
+      });
+
+      // Also constrain position after scale
+      (_frame$_boundConstrai = frame._boundConstrainMove) === null || _frame$_boundConstrai === void 0 || _frame$_boundConstrai.call(frame, e);
+    };
+    this.canvas.on('object:moving', this._boundConstrainMove);
+    this.canvas.on('object:scaling', this._boundConstrainScale);
+  }
+
+  /**
+   * Removes edit mode constraint handlers
+   * @private
+   */
+  _removeEditModeConstraints() {
+    if (!this.canvas) return;
+    if (this._boundConstrainMove) {
+      this.canvas.off('object:moving', this._boundConstrainMove);
+      this._boundConstrainMove = undefined;
+    }
+    if (this._boundConstrainScale) {
+      this.canvas.off('object:scaling', this._boundConstrainScale);
+      this._boundConstrainScale = undefined;
+    }
+  }
+  /**
+   * Custom render to show edit mode overlay
+   * @override
+   */
+  render(ctx) {
+    super.render(ctx);
+
+    // Draw edit mode overlay if in edit mode
+    if (this.isEditMode && this._editModeClipPath) {
+      this._renderEditModeOverlay(ctx);
+    }
+  }
+
+  /**
+   * Renders the edit mode overlay - dims area outside frame, shows frame border
+   * @private
+   */
+  _renderEditModeOverlay(ctx) {
+    ctx.save();
+
+    // Apply the group's transform
+    const m = this.calcTransformMatrix();
+    ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+
+    // Draw semi-transparent overlay on the OUTSIDE of the frame
+    // We do this by drawing a large rect and cutting out the frame shape
+    ctx.beginPath();
+
+    // Large outer rectangle (covers the whole image area)
+    const padding = 2000; // Large enough to cover any overflow
+    ctx.rect(-padding, -padding, padding * 2, padding * 2);
+
+    // Cut out the frame shape (counter-clockwise to create hole)
+    if (this.frameShape === 'circle') {
+      const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
+      ctx.moveTo(radius, 0);
+      ctx.arc(0, 0, radius, 0, Math.PI * 2, true);
+    } else if (this.frameShape === 'rounded-rect') {
+      const w = this.frameWidth / 2;
+      const h = this.frameHeight / 2;
+      const r = Math.min(this.frameBorderRadius, w, h);
+      ctx.moveTo(w, h - r);
+      ctx.arcTo(w, -h, w - r, -h, r);
+      ctx.arcTo(-w, -h, -w, -h + r, r);
+      ctx.arcTo(-w, h, -w + r, h, r);
+      ctx.arcTo(w, h, w, h - r, r);
+      ctx.closePath();
+    } else {
+      // Rectangle
+      const w = this.frameWidth / 2;
+      const h = this.frameHeight / 2;
+      ctx.moveTo(w, -h);
+      ctx.lineTo(-w, -h);
+      ctx.lineTo(-w, h);
+      ctx.lineTo(w, h);
+      ctx.closePath();
+    }
+
+    // Fill with semi-transparent dark overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fill('evenodd');
+
+    // Draw frame border
+    ctx.beginPath();
+    if (this.frameShape === 'circle') {
+      const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    } else if (this.frameShape === 'rounded-rect') {
+      const w = this.frameWidth / 2;
+      const h = this.frameHeight / 2;
+      const r = Math.min(this.frameBorderRadius, w, h);
+      ctx.moveTo(w - r, -h);
+      ctx.arcTo(w, -h, w, -h + r, r);
+      ctx.arcTo(w, h, w - r, h, r);
+      ctx.arcTo(-w, h, -w, h - r, r);
+      ctx.arcTo(-w, -h, -w + r, -h, r);
+      ctx.closePath();
+    } else {
+      const w = this.frameWidth / 2;
+      const h = this.frameHeight / 2;
+      ctx.rect(-w, -h, this.frameWidth, this.frameHeight);
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw subtle dashed line for frame boundary
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = 'rgba(0, 150, 255, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Exits edit mode and saves the content position
+   */
+  exitEditMode() {
+    var _this$_contentImage$l, _this$_contentImage$t, _this$_contentImage$s, _this$_contentImage$s2, _ref9, _this$frameMeta$origi5, _ref0, _this$frameMeta$origi6;
+    if (!this._contentImage || !this.isEditMode) {
+      return;
+    }
+    this.isEditMode = false;
+
+    // Remove constraint handlers
+    this._removeEditModeConstraints();
+
+    // Disable sub-target interaction
+    this.subTargetCheck = false;
+    this.interactive = false;
+
+    // Get the current position of the content
+    const contentLeft = (_this$_contentImage$l = this._contentImage.left) !== null && _this$_contentImage$l !== void 0 ? _this$_contentImage$l : 0;
+    const contentTop = (_this$_contentImage$t = this._contentImage.top) !== null && _this$_contentImage$t !== void 0 ? _this$_contentImage$t : 0;
+    const contentScaleX = (_this$_contentImage$s = this._contentImage.scaleX) !== null && _this$_contentImage$s !== void 0 ? _this$_contentImage$s : 1;
+    const contentScaleY = (_this$_contentImage$s2 = this._contentImage.scaleY) !== null && _this$_contentImage$s2 !== void 0 ? _this$_contentImage$s2 : 1;
+
+    // Constrain position so image always covers the frame
+    const originalWidth = (_ref9 = (_this$frameMeta$origi5 = this.frameMeta.originalWidth) !== null && _this$frameMeta$origi5 !== void 0 ? _this$frameMeta$origi5 : this._contentImage.width) !== null && _ref9 !== void 0 ? _ref9 : 100;
+    const originalHeight = (_ref0 = (_this$frameMeta$origi6 = this.frameMeta.originalHeight) !== null && _this$frameMeta$origi6 !== void 0 ? _this$frameMeta$origi6 : this._contentImage.height) !== null && _ref0 !== void 0 ? _ref0 : 100;
+    const currentScale = Math.max(contentScaleX, contentScaleY);
+    const scaledImgHalfW = originalWidth * currentScale / 2;
+    const scaledImgHalfH = originalHeight * currentScale / 2;
+    const frameHalfW = this.frameWidth / 2;
+    const frameHalfH = this.frameHeight / 2;
+
+    // Ensure image covers frame (constrain position)
+    const maxOffsetX = Math.max(0, scaledImgHalfW - frameHalfW);
+    const maxOffsetY = Math.max(0, scaledImgHalfH - frameHalfH);
+    const constrainedLeft = Math.max(-maxOffsetX, Math.min(maxOffsetX, contentLeft));
+    const constrainedTop = Math.max(-maxOffsetY, Math.min(maxOffsetY, contentTop));
+
+    // Apply constrained position
+    this._contentImage.set({
+      left: constrainedLeft,
+      top: constrainedTop
+    });
+
+    // Update metadata with new offsets and scale
+    this.frameMeta = {
+      ...this.frameMeta,
+      contentOffsetX: constrainedLeft,
+      contentOffsetY: constrainedTop,
+      contentScale: currentScale
+    };
+
+    // Make content non-interactive again
+    this._contentImage.set({
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false
+    });
+
+    // Restore clip path
+    if (this._editModeClipPath) {
+      this.clipPath = this._editModeClipPath;
+      this._editModeClipPath = undefined;
+    } else {
+      this._updateClipPath();
+    }
+    this.set('dirty', true);
+
+    // Re-select the frame itself
+    if (this.canvas) {
+      this.canvas.setActiveObject(this);
+      this.canvas.renderAll();
+    }
+
+    // Fire custom event
+    this.fire('frame:editmode:exit', {
+      target: this
+    });
+  }
+
+  /**
+   * Toggles edit mode
+   */
+  toggleEditMode() {
+    if (this.isEditMode) {
+      this.exitEditMode();
+    } else {
+      this.enterEditMode();
+    }
+  }
+
+  /**
+   * Resizes the frame to new dimensions (Canva-like behavior)
+   *
+   * Canva behavior:
+   * - When frame shrinks: crops more of image (no scale change)
+   * - When frame grows: uncrops to show more, preserving position
+   * - Only scales up when image can't cover the frame anymore
+   *
+   * @param width - New frame width
+   * @param height - New frame height
+   * @param options - Resize options
+   */
+  resizeFrame(width, height) {
+    let options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+    const {
+      maintainAspect = false
+    } = options;
+    if (maintainAspect) {
+      const currentAspect = this.frameWidth / this.frameHeight;
+      const newAspect = width / height;
+      if (newAspect > currentAspect) {
+        height = width / currentAspect;
+      } else {
+        width = height * currentAspect;
+      }
+    }
+    this.frameWidth = width;
+    this.frameHeight = height;
+
+    // Update dimensions using super.set to avoid re-triggering conversion
+    super.set({
+      width: this.frameWidth,
+      height: this.frameHeight
+    });
+
+    // Update clip path
+    this._updateClipPath();
+
+    // Canva-like content adjustment
+    this._adjustContentAfterResize();
+    this.set('dirty', true);
+    this.setCoords();
+  }
+
+  /**
+   * Sets the frame shape
+   *
+   * @param shape - Shape type
+   * @param customPath - Custom SVG path for 'custom' shape type
+   */
+  setFrameShape(shape, customPath) {
+    this.frameShape = shape;
+    if (customPath) {
+      this.frameCustomPath = customPath;
+    }
+    this._updateClipPath();
+    this.set('dirty', true);
+  }
+
+  /**
+   * Sets the border radius for rounded-rect shape
+   *
+   * @param radius - Border radius in pixels
+   */
+  setBorderRadius(radius) {
+    this.frameBorderRadius = radius;
+    if (this.frameShape === 'rounded-rect') {
+      this._updateClipPath();
+      this.set('dirty', true);
+    }
+  }
+
+  /**
+   * Override add to maintain fixed dimensions
+   */
+  add() {
+    const size = super.add(...arguments);
+    this._restoreFixedDimensions();
+    return size;
+  }
+
+  /**
+   * Override remove to maintain fixed dimensions
+   */
+  remove() {
+    const removed = super.remove(...arguments);
+    this._restoreFixedDimensions();
+    return removed;
+  }
+
+  /**
+   * Override insertAt to maintain fixed dimensions
+   */
+  insertAt(index) {
+    for (var _len = arguments.length, objects = new Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+      objects[_key - 1] = arguments[_key];
+    }
+    const size = super.insertAt(index, ...objects);
+    this._restoreFixedDimensions();
+    return size;
+  }
+
+  /**
+   * Serializes the frame to a plain object
+   */
+  // @ts-ignore - Frame extends Group's toObject with additional properties
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return {
+      ...super.toObject(propertiesToInclude),
+      frameWidth: this.frameWidth,
+      frameHeight: this.frameHeight,
+      frameShape: this.frameShape,
+      frameBorderRadius: this.frameBorderRadius,
+      frameCustomPath: this.frameCustomPath,
+      frameMeta: {
+        ...this.frameMeta
+      },
+      isEditMode: false,
+      // Always serialize as not in edit mode
+      placeholderText: this.placeholderText,
+      placeholderColor: this.placeholderColor
+    };
+  }
+
+  /**
+   * Creates a Frame instance from a serialized object
+   */
+  static fromObject(object, abortable) {
+    const {
+      objects = [],
+      layoutManager,
+      frameWidth,
+      frameHeight,
+      frameShape,
+      frameBorderRadius,
+      frameCustomPath,
+      frameMeta,
+      placeholderText,
+      placeholderColor,
+      ...groupOptions
+    } = object;
+    return Promise.all([enlivenObjects(objects, abortable), enlivenObjectEnlivables(groupOptions, abortable)]).then(_ref1 => {
+      var _frameMeta$contentSca, _frameMeta$contentOff, _frameMeta$contentOff2;
+      let [enlivenedObjects, hydratedOptions] = _ref1;
+      // Create frame with restored options
+      const frame = new Frame([], {
+        ...groupOptions,
+        ...hydratedOptions,
+        frameWidth,
+        frameHeight,
+        frameShape,
+        frameBorderRadius,
+        frameCustomPath,
+        frameMeta: frameMeta ? {
+          contentScale: (_frameMeta$contentSca = frameMeta.contentScale) !== null && _frameMeta$contentSca !== void 0 ? _frameMeta$contentSca : 1,
+          contentOffsetX: (_frameMeta$contentOff = frameMeta.contentOffsetX) !== null && _frameMeta$contentOff !== void 0 ? _frameMeta$contentOff : 0,
+          contentOffsetY: (_frameMeta$contentOff2 = frameMeta.contentOffsetY) !== null && _frameMeta$contentOff2 !== void 0 ? _frameMeta$contentOff2 : 0,
+          ...frameMeta
+        } : undefined,
+        placeholderText,
+        placeholderColor
+      });
+
+      // If there was an image, restore it
+      if (frameMeta !== null && frameMeta !== void 0 && frameMeta.imageSrc) {
+        // Async restoration of image - caller should wait if needed
+        frame.setImage(frameMeta.imageSrc).then(() => {
+          // Restore content position from metadata
+          if (frame._contentImage) {
+            var _frameMeta$contentOff3, _frameMeta$contentOff4, _frameMeta$contentSca2, _frameMeta$contentSca3;
+            frame._contentImage.set({
+              left: (_frameMeta$contentOff3 = frameMeta.contentOffsetX) !== null && _frameMeta$contentOff3 !== void 0 ? _frameMeta$contentOff3 : 0,
+              top: (_frameMeta$contentOff4 = frameMeta.contentOffsetY) !== null && _frameMeta$contentOff4 !== void 0 ? _frameMeta$contentOff4 : 0,
+              scaleX: (_frameMeta$contentSca2 = frameMeta.contentScale) !== null && _frameMeta$contentSca2 !== void 0 ? _frameMeta$contentSca2 : 1,
+              scaleY: (_frameMeta$contentSca3 = frameMeta.contentScale) !== null && _frameMeta$contentSca3 !== void 0 ? _frameMeta$contentSca3 : 1
+            });
+          }
+          frame.set('dirty', true);
+        }).catch(err => {
+          console.warn('Failed to restore frame image:', err);
+        });
+      }
+      return frame;
+    });
+  }
+
+  /**
+   * Creates a Frame with a specific aspect ratio preset
+   *
+   * @param aspect - Aspect ratio preset (e.g., '16:9', '1:1', '4:5', '9:16')
+   * @param size - Base size in pixels
+   * @param options - Additional frame options
+   */
+  static createWithAspect(aspect) {
+    var _defaultMeta$contentS2, _defaultMeta$contentO3, _defaultMeta$contentO4;
+    let size = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 200;
+    let options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+    let width;
+    let height;
+    switch (aspect) {
+      case '16:9':
+        width = size;
+        height = size * (9 / 16);
+        break;
+      case '9:16':
+        width = size * (9 / 16);
+        height = size;
+        break;
+      case '4:5':
+        width = size * (4 / 5);
+        height = size;
+        break;
+      case '4:3':
+        width = size;
+        height = size * (3 / 4);
+        break;
+      case '3:4':
+        width = size * (3 / 4);
+        height = size;
+        break;
+      case '1:1':
+      default:
+        width = size;
+        height = size;
+        break;
+    }
+    const defaultMeta = frameDefaultValues.frameMeta || {};
+    return new Frame([], {
+      ...options,
+      frameWidth: width,
+      frameHeight: height,
+      frameMeta: {
+        contentScale: (_defaultMeta$contentS2 = defaultMeta.contentScale) !== null && _defaultMeta$contentS2 !== void 0 ? _defaultMeta$contentS2 : 1,
+        contentOffsetX: (_defaultMeta$contentO3 = defaultMeta.contentOffsetX) !== null && _defaultMeta$contentO3 !== void 0 ? _defaultMeta$contentO3 : 0,
+        contentOffsetY: (_defaultMeta$contentO4 = defaultMeta.contentOffsetY) !== null && _defaultMeta$contentO4 !== void 0 ? _defaultMeta$contentO4 : 0,
+        aspect,
+        ...options.frameMeta
+      }
+    });
+  }
+}
+
+// Register the Frame class with the class registry
+_defineProperty(Frame, "type", 'Frame');
+_defineProperty(Frame, "ownDefaults", frameDefaultValues);
+classRegistry.setClass(Frame);
+classRegistry.setClass(Frame, 'frame');
+
+/**
+ * Layout will adjust the bounding box to match the clip path bounding box.
+ */
+class ClipPathLayout extends LayoutStrategy {
+  shouldPerformLayout(context) {
+    return !!context.target.clipPath && super.shouldPerformLayout(context);
+  }
+  shouldLayoutClipPath() {
+    return false;
+  }
+  calcLayoutResult(context, objects) {
+    const {
+      target
+    } = context;
+    const {
+      clipPath,
+      group
+    } = target;
+    if (!clipPath || !this.shouldPerformLayout(context)) {
+      return;
+    }
+    // TODO: remove stroke calculation from this case
+    const {
+      width,
+      height
+    } = makeBoundingBoxFromPoints(getObjectBounds(target, clipPath));
+    const size = new Point(width, height);
+    if (clipPath.absolutePositioned) {
+      //  we want the center point to exist in group's containing plane
+      const clipPathCenter = sendPointToPlane(clipPath.getRelativeCenterPoint(), undefined, group ? group.calcTransformMatrix() : undefined);
+      return {
+        center: clipPathCenter,
+        size
+      };
+    } else {
+      //  we want the center point to exist in group's containing plane, so we send it upwards
+      const clipPathCenter = clipPath.getRelativeCenterPoint().transform(target.calcOwnMatrix(), true);
+      if (this.shouldPerformLayout(context)) {
+        // the clip path is positioned relative to the group's center which is affected by the bbox
+        // so we first calculate the bbox
+        const {
+          center = new Point(),
+          correction = new Point()
+        } = this.calcBoundingBox(objects, context) || {};
+        return {
+          center: center.add(clipPathCenter),
+          correction: correction.subtract(clipPathCenter),
+          size
+        };
+      } else {
+        return {
+          center: target.getRelativeCenterPoint().add(clipPathCenter),
+          size
+        };
+      }
+    }
+  }
+}
+_defineProperty(ClipPathLayout, "type", 'clip-path');
+classRegistry.setClass(ClipPathLayout);
+
+/**
+ * Layout will keep target's initial size.
+ */
+class FixedLayout extends LayoutStrategy {
+  /**
+   * @override respect target's initial size
+   */
+  getInitialSize(_ref, _ref2) {
+    let {
+      target
+    } = _ref;
+    let {
+      size
+    } = _ref2;
+    return new Point(target.width || size.x, target.height || size.y);
+  }
+}
+_defineProperty(FixedLayout, "type", 'fixed');
+classRegistry.setClass(FixedLayout);
+
+/**
+ * Today the LayoutManager class also takes care of subscribing event handlers
+ * to update the group layout when the group is interactive and a transform is applied
+ * to a child object.
+ * The ActiveSelection is never interactive, but it could contain objects from
+ * groups that are.
+ * The standard LayoutManager would subscribe the children of the activeSelection to
+ * perform layout changes to the active selection itself, what we need instead is that
+ * the transformation applied to the active selection will trigger changes to the
+ * original group of the children ( the one referenced under the parent property )
+ * This subclass of the LayoutManager has a single duty to fill the gap of this difference.`
+ */
+class ActiveSelectionLayoutManager extends LayoutManager {
+  subscribeTargets(context) {
+    const activeSelection = context.target;
+    const parents = context.targets.reduce((parents, target) => {
+      target.parent && parents.add(target.parent);
+      return parents;
+    }, new Set());
+    parents.forEach(parent => {
+      parent.layoutManager.subscribeTargets({
+        target: parent,
+        targets: [activeSelection]
+      });
+    });
+  }
+
+  /**
+   * unsubscribe from parent only if all its children were deselected
+   */
+  unsubscribeTargets(context) {
+    const activeSelection = context.target;
+    const selectedObjects = activeSelection.getObjects();
+    const parents = context.targets.reduce((parents, target) => {
+      target.parent && parents.add(target.parent);
+      return parents;
+    }, new Set());
+    parents.forEach(parent => {
+      !selectedObjects.some(object => object.parent === parent) && parent.layoutManager.unsubscribeTargets({
+        target: parent,
+        targets: [activeSelection]
+      });
+    });
+  }
+}
+
+const activeSelectionDefaultValues = {
+  multiSelectionStacking: 'canvas-stacking'
+};
+
+/**
+ * Used by Canvas to manage selection.
+ *
+ * @example
+ * class MyActiveSelection extends ActiveSelection {
+ *   ...
+ * }
+ *
+ * // override the default `ActiveSelection` class
+ * classRegistry.setClass(MyActiveSelection)
+ */
+class ActiveSelection extends Group {
+  static getDefaults() {
+    return {
+      ...super.getDefaults(),
+      ...ActiveSelection.ownDefaults
+    };
+  }
+
+  /**
+   * The ActiveSelection needs to use the ActiveSelectionLayoutManager
+   * or selections on interactive groups may be broken
+   */
+
+  /**
+   * controls how selected objects are added during a multiselection event
+   * - `canvas-stacking` adds the selected object to the active selection while respecting canvas object stacking order
+   * - `selection-order` adds the selected object to the top of the stack,
+   * meaning that the stack is ordered by the order in which objects were selected
+   * @default `canvas-stacking`
+   */
+
+  constructor() {
+    let objects = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    super();
+    Object.assign(this, ActiveSelection.ownDefaults);
+    this.setOptions(options);
+    const {
+      left,
+      top,
+      layoutManager
+    } = options;
+    this.groupInit(objects, {
+      left,
+      top,
+      layoutManager: layoutManager !== null && layoutManager !== void 0 ? layoutManager : new ActiveSelectionLayoutManager()
+    });
+  }
+
+  /**
+   * @private
+   */
+  _shouldSetNestedCoords() {
+    return true;
+  }
+
+  /**
+   * @private
+   * @override we don't want the selection monitor to be active
+   */
+  __objectSelectionMonitor() {
+    //  noop
+  }
+
+  /**
+   * Adds objects with respect to {@link multiSelectionStacking}
+   * @param targets object to add to selection
+   */
+  multiSelectAdd() {
+    for (var _len = arguments.length, targets = new Array(_len), _key = 0; _key < _len; _key++) {
+      targets[_key] = arguments[_key];
+    }
+    if (this.multiSelectionStacking === 'selection-order') {
+      this.add(...targets);
+    } else {
+      //  respect object stacking as it is on canvas
+      //  perf enhancement for large ActiveSelection: consider a binary search of `isInFrontOf`
+      targets.forEach(target => {
+        const index = this._objects.findIndex(obj => obj.isInFrontOf(target));
+        const insertAt = index === -1 ?
+        //  `target` is in front of all other objects
+        this.size() : index;
+        this.insertAt(insertAt, target);
+      });
+    }
+  }
+
+  /**
+   * @override block ancestors/descendants of selected objects from being selected to prevent a circular object tree
+   */
+  canEnterGroup(object) {
+    if (this.getObjects().some(o => o.isDescendantOf(object) || object.isDescendantOf(o))) {
+      //  prevent circular object tree
+      log('error', 'ActiveSelection: circular object trees are not supported, this call has no effect');
+      return false;
+    }
+    return super.canEnterGroup(object);
+  }
+
+  /**
+   * Change an object so that it can be part of an active selection.
+   * this method is called by multiselectAdd from canvas code.
+   * @private
+   * @param {FabricObject} object
+   * @param {boolean} [removeParentTransform] true if object is in canvas coordinate plane
+   */
+  enterGroup(object, removeParentTransform) {
+    // This condition check that the object has currently a group, and the group
+    // is also its parent, meaning that is not in an active selection, but is
+    // in a normal group.
+    if (object.parent && object.parent === object.group) {
+      // Disconnect the object from the group functionalities, but keep the ref parent intact
+      // for later re-enter
+      object.parent._exitGroup(object);
+      // in this case the object is probably inside an active selection.
+    } else if (object.group && object.parent !== object.group) {
+      // in this case group.remove will also clear the old parent reference.
+      object.group.remove(object);
+    }
+    // enter the active selection from a render perspective
+    // the object will be in the objects array of both the ActiveSelection and the Group
+    // but referenced in the group's _activeObjects so that it won't be rendered twice.
+    this._enterGroup(object, removeParentTransform);
+  }
+
+  /**
+   * we want objects to retain their canvas ref when exiting instance
+   * @private
+   * @param {FabricObject} object
+   * @param {boolean} [removeParentTransform] true if object should exit group without applying group's transform to it
+   */
+  exitGroup(object, removeParentTransform) {
+    this._exitGroup(object, removeParentTransform);
+    // return to parent
+    object.parent && object.parent._enterGroup(object, true);
+  }
+
+  /**
+   * @private
+   * @param {'added'|'removed'} type
+   * @param {FabricObject[]} targets
+   */
+  _onAfterObjectsChange(type, targets) {
+    super._onAfterObjectsChange(type, targets);
+    const groups = new Set();
+    targets.forEach(object => {
+      const {
+        parent
+      } = object;
+      parent && groups.add(parent);
+    });
+    if (type === LAYOUT_TYPE_REMOVED) {
+      //  invalidate groups' layout and mark as dirty
+      groups.forEach(group => {
+        group._onAfterObjectsChange(LAYOUT_TYPE_ADDED, targets);
+      });
+    } else {
+      //  mark groups as dirty
+      groups.forEach(group => {
+        group._set('dirty', true);
+      });
+    }
+  }
+
+  /**
+   * @override remove all objects
+   */
+  onDeselect() {
+    this.removeAll();
+    return false;
+  }
+
+  /**
+   * Returns string representation of a group
+   * @return {String}
+   */
+  toString() {
+    return `#<ActiveSelection: (${this.complexity()})>`;
+  }
+
+  /**
+   * Decide if the object should cache or not. The Active selection never caches
+   * @return {Boolean}
+   */
+  shouldCache() {
+    return false;
+  }
+
+  /**
+   * Check if this group or its parent group are caching, recursively up
+   * @return {Boolean}
+   */
+  isOnACache() {
+    return false;
+  }
+
+  /**
+   * Renders controls and borders for the object
+   * @param {CanvasRenderingContext2D} ctx Context to render on
+   * @param {Object} [styleOverride] properties to override the object style
+   * @param {Object} [childrenOverride] properties to override the children overrides
+   */
+  _renderControls(ctx, styleOverride, childrenOverride) {
+    ctx.save();
+    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
+    const options = {
+      hasControls: false,
+      ...childrenOverride,
+      forActiveSelection: true
+    };
+    for (let i = 0; i < this._objects.length; i++) {
+      this._objects[i]._renderControls(ctx, options);
+    }
+    super._renderControls(ctx, styleOverride);
+    ctx.restore();
+  }
+}
+_defineProperty(ActiveSelection, "type", 'ActiveSelection');
+_defineProperty(ActiveSelection, "ownDefaults", activeSelectionDefaultValues);
+classRegistry.setClass(ActiveSelection);
+classRegistry.setClass(ActiveSelection, 'activeSelection');
 
 /**
  * Add a <g> element that envelop all child elements and makes the viewbox transformMatrix descend on all elements
@@ -34164,5 +35536,5 @@ var filters = /*#__PURE__*/Object.freeze({
   Vintage: Vintage
 });
 
-export { ActiveSelection, BaseBrush, FabricObject$1 as BaseFabricObject, Canvas, Canvas2dFilterBackend, CanvasDOMManager, Circle, CircleBrush, ClipPathLayout, Color, Control, Ellipse, FabricImage, FabricObject, FabricText, FitContentLayout, FixedLayout, Gradient, Group, IText, FabricImage as Image, InteractiveFabricObject, Intersection, LayoutManager, LayoutStrategy, Line, FabricObject as Object, Observable, Path, Pattern, PatternBrush, PencilBrush, Point, Polygon, Polyline, Rect, Shadow, SprayBrush, StaticCanvas, StaticCanvasDOMManager, FabricText as Text, Textbox, Triangle, WebGLFilterBackend, cache, classRegistry, config, index as controlsUtils, createCollectionMixin, filters, getEnv, getFabricDocument, getFabricWindow, getFilterBackend, iMatrix, initFilterBackend, isPutImageFaster, isWebGLPipelineState, loadSVGFromString, loadSVGFromURL, parseSVGDocument, runningAnimations, setEnv, setFilterBackend, index$1 as util, VERSION as version };
+export { ActiveSelection, BaseBrush, FabricObject$1 as BaseFabricObject, Canvas, Canvas2dFilterBackend, CanvasDOMManager, Circle, CircleBrush, ClipPathLayout, Color, Control, Ellipse, FabricImage, FabricObject, FabricText, FitContentLayout, FixedLayout, Frame, FrameLayout, Gradient, Group, IText, FabricImage as Image, InteractiveFabricObject, Intersection, LayoutManager, LayoutStrategy, Line, FabricObject as Object, Observable, Path, Pattern, PatternBrush, PencilBrush, Point, Polygon, Polyline, Rect, Shadow, SprayBrush, StaticCanvas, StaticCanvasDOMManager, FabricText as Text, Textbox, Triangle, WebGLFilterBackend, cache, classRegistry, config, index as controlsUtils, createCollectionMixin, filters, getEnv, getFabricDocument, getFabricWindow, getFilterBackend, iMatrix, initFilterBackend, isPutImageFaster, isWebGLPipelineState, loadSVGFromString, loadSVGFromURL, parseSVGDocument, runningAnimations, setEnv, setFilterBackend, index$1 as util, VERSION as version };
 //# sourceMappingURL=index.mjs.map

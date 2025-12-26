@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fabric.js Frame Test - Canva-like Frames</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 280px;
+      background: #16213e;
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid #0f3460;
+    }
+
+    .sidebar h2 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      margin-bottom: 15px;
+    }
+
+    .sidebar h3 {
+      font-size: 12px;
+      color: #666;
+      margin: 20px 0 10px;
+    }
+
+    /* Frame Presets */
+    .frame-presets {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .frame-preset {
+      aspect-ratio: 1;
+      background: #0f3460;
+      border: 2px dashed #1e5f74;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .frame-preset:hover {
+      background: #1e5f74;
+      border-color: #4da8da;
+    }
+
+    .frame-preset .icon {
+      width: 40px;
+      height: 40px;
+      background: #1e5f74;
+      border-radius: 4px;
+    }
+
+    .frame-preset.square .icon { aspect-ratio: 1; }
+    .frame-preset.landscape .icon { aspect-ratio: 16/9; width: 50px; height: auto; }
+    .frame-preset.portrait .icon { aspect-ratio: 9/16; width: 25px; height: auto; }
+    .frame-preset.circle .icon { border-radius: 50%; }
+
+    .frame-preset span {
+      font-size: 11px;
+      color: #aaa;
+    }
+
+    /* Shape buttons */
+    .shape-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .shape-btn {
+      padding: 8px 12px;
+      background: #0f3460;
+      border: 1px solid #1e5f74;
+      border-radius: 6px;
+      color: #eee;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+    }
+
+    .shape-btn:hover {
+      background: #1e5f74;
+    }
+
+    .shape-btn.active {
+      background: #4da8da;
+      border-color: #4da8da;
+    }
+
+    /* Image Gallery */
+    .image-gallery {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .image-thumb {
+      aspect-ratio: 1;
+      background-size: cover;
+      background-position: center;
+      border-radius: 6px;
+      cursor: grab;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .image-thumb:hover {
+      border-color: #4da8da;
+    }
+
+    .image-thumb.dragging {
+      opacity: 0.5;
+    }
+
+    /* Canvas Area */
+    .canvas-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toolbar {
+      background: #16213e;
+      padding: 10px 20px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    .toolbar button {
+      padding: 8px 16px;
+      background: #0f3460;
+      border: 1px solid #1e5f74;
+      border-radius: 6px;
+      color: #eee;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .toolbar button:hover {
+      background: #1e5f74;
+    }
+
+    .toolbar button.primary {
+      background: #4da8da;
+      border-color: #4da8da;
+    }
+
+    .toolbar button.danger {
+      background: #e94560;
+      border-color: #e94560;
+    }
+
+    .toolbar .spacer {
+      flex: 1;
+    }
+
+    .toolbar .status {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .canvas-wrapper {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: #0f0f23;
+    }
+
+    #canvas-container {
+      background: #2a2a3e;
+      border-radius: 8px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      overflow: visible;
+    }
+
+    #canvas-container canvas {
+      border-radius: 8px;
+    }
+
+    /* Work area is the white rectangle in center */
+
+    /* Info Panel */
+    .info-panel {
+      width: 260px;
+      background: #16213e;
+      padding: 20px;
+      border-left: 1px solid #0f3460;
+      overflow-y: auto;
+    }
+
+    .info-panel h2 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      margin-bottom: 15px;
+    }
+
+    .info-group {
+      margin-bottom: 20px;
+    }
+
+    .info-group label {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+    }
+
+    .info-group input,
+    .info-group select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0f3460;
+      border: 1px solid #1e5f74;
+      border-radius: 4px;
+      color: #eee;
+      font-size: 13px;
+    }
+
+    .info-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .info-row .info-group {
+      flex: 1;
+    }
+
+    .json-output {
+      background: #0f3460;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11px;
+      max-height: 200px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Drop Zone Highlight */
+    .drop-highlight {
+      position: fixed;
+      pointer-events: none;
+      border: 3px dashed #4da8da;
+      border-radius: 8px;
+      background: rgba(77, 168, 218, 0.1);
+      z-index: 1000;
+      display: none;
+    }
+
+    /* Instructions */
+    .instructions {
+      background: #0f3460;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+
+    .instructions h4 {
+      font-size: 12px;
+      margin-bottom: 8px;
+      color: #4da8da;
+    }
+
+    .instructions ul {
+      font-size: 11px;
+      color: #aaa;
+      padding-left: 15px;
+    }
+
+    .instructions li {
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Left Sidebar -->
+    <div class="sidebar">
+      <div class="instructions">
+        <h4>How to Use</h4>
+        <ul>
+          <li>Click a frame preset to add it to canvas</li>
+          <li>Drag images onto frames to fill them</li>
+          <li>Double-click a frame to edit image position</li>
+          <li>Click outside to exit edit mode</li>
+        </ul>
+      </div>
+
+      <h2>Frame Presets</h2>
+      <div class="frame-presets">
+        <div class="frame-preset square" data-aspect="1:1" title="Square 1:1">
+          <div class="icon"></div>
+          <span>1:1</span>
+        </div>
+        <div class="frame-preset landscape" data-aspect="16:9" title="Landscape 16:9">
+          <div class="icon"></div>
+          <span>16:9</span>
+        </div>
+        <div class="frame-preset portrait" data-aspect="9:16" title="Portrait 9:16">
+          <div class="icon"></div>
+          <span>9:16</span>
+        </div>
+        <div class="frame-preset" data-aspect="4:5" title="Portrait 4:5">
+          <div class="icon" style="aspect-ratio: 4/5; width: 32px;"></div>
+          <span>4:5</span>
+        </div>
+        <div class="frame-preset circle" data-aspect="1:1" data-shape="circle" title="Circle">
+          <div class="icon"></div>
+          <span>Circle</span>
+        </div>
+        <div class="frame-preset" data-aspect="4:3" title="Classic 4:3">
+          <div class="icon" style="aspect-ratio: 4/3; width: 45px;"></div>
+          <span>4:3</span>
+        </div>
+      </div>
+
+      <h2>Frame Shape</h2>
+      <div class="shape-buttons">
+        <button class="shape-btn active" data-shape="rect">Rectangle</button>
+        <button class="shape-btn" data-shape="rounded-rect">Rounded</button>
+        <button class="shape-btn" data-shape="circle">Circle</button>
+        <button class="shape-btn" data-shape="custom" data-path="heart">Heart</button>
+        <button class="shape-btn" data-shape="custom" data-path="star">Star</button>
+        <button class="shape-btn" data-shape="custom" data-path="hexagon">Hexagon</button>
+        <button class="shape-btn" data-shape="custom" data-path="arrow">Arrow</button>
+      </div>
+
+      <h2>Sample Images</h2>
+      <h3>Drag to Frame</h3>
+      <div class="image-gallery">
+        <div class="image-thumb"
+             draggable="true"
+             data-src="https://picsum.photos/800/600?random=1"
+             style="background-image: url('https://picsum.photos/200/200?random=1')">
+        </div>
+        <div class="image-thumb"
+             draggable="true"
+             data-src="https://picsum.photos/600/800?random=2"
+             style="background-image: url('https://picsum.photos/200/200?random=2')">
+        </div>
+        <div class="image-thumb"
+             draggable="true"
+             data-src="https://picsum.photos/800/800?random=3"
+             style="background-image: url('https://picsum.photos/200/200?random=3')">
+        </div>
+        <div class="image-thumb"
+             draggable="true"
+             data-src="https://picsum.photos/900/600?random=4"
+             style="background-image: url('https://picsum.photos/200/200?random=4')">
+        </div>
+        <div class="image-thumb"
+             draggable="true"
+             data-src="https://picsum.photos/600/900?random=5"
+             style="background-image: url('https://picsum.photos/200/200?random=5')">
+        </div>
+        <div class="image-thumb"
+             draggable="true"
+             data-src="https://picsum.photos/1200/800?random=6"
+             style="background-image: url('https://picsum.photos/200/200?random=6')">
+        </div>
+      </div>
+    </div>
+
+    <!-- Canvas Area -->
+    <div class="canvas-area">
+      <div class="toolbar">
+        <button onclick="addFrame()">Add Frame</button>
+        <button onclick="clearCanvas()" class="danger">Clear Canvas</button>
+        <button onclick="exportJSON()">Export JSON</button>
+        <button onclick="loadJSON()">Load JSON</button>
+        <div class="spacer"></div>
+        <span class="status" id="status">Ready</span>
+      </div>
+      <div class="canvas-wrapper">
+        <div id="canvas-container">
+          <canvas id="canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Info Panel -->
+    <div class="info-panel">
+      <h2>Selected Frame</h2>
+      <div id="frame-properties" style="display: none;">
+        <div class="info-row">
+          <div class="info-group">
+            <label>Width</label>
+            <input type="number" id="prop-width" onchange="updateFrameSize()">
+          </div>
+          <div class="info-group">
+            <label>Height</label>
+            <input type="number" id="prop-height" onchange="updateFrameSize()">
+          </div>
+        </div>
+
+        <div class="info-group">
+          <label>Shape</label>
+          <select id="prop-shape" onchange="updateFrameShape()">
+            <option value="rect">Rectangle</option>
+            <option value="rounded-rect">Rounded Rectangle</option>
+            <option value="circle">Circle</option>
+          </select>
+        </div>
+
+        <div class="info-group" id="radius-group">
+          <label>Border Radius</label>
+          <input type="number" id="prop-radius" value="20" onchange="updateBorderRadius()">
+        </div>
+
+        <div class="info-group">
+          <label>Has Content</label>
+          <input type="text" id="prop-hasContent" readonly>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <button onclick="enterEditMode()" class="shape-btn" style="width: 100%;">
+            Edit Image Position
+          </button>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button onclick="clearFrameContent()" class="shape-btn" style="width: 100%; background: #e94560;">
+            Clear Frame Content
+          </button>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button onclick="loadTestImage()" class="shape-btn" style="width: 100%; background: #27ae60;">
+            Load Test Image (Network)
+          </button>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button onclick="loadTestRect()" class="shape-btn" style="width: 100%; background: #9b59b6;">
+            Add Test Rect (No Network)
+          </button>
+        </div>
+      </div>
+
+      <div id="no-selection" style="color: #666; font-size: 13px;">
+        Select a frame to see its properties
+      </div>
+
+      <h2 style="margin-top: 30px;">Canvas JSON</h2>
+      <div class="json-output" id="json-output">
+        Click "Export JSON" to see canvas data
+      </div>
+    </div>
+  </div>
+
+  <div class="drop-highlight" id="drop-highlight"></div>
+
+  <!-- Load Fabric.js from built dist -->
+  <script src="./dist/index.js"></script>
+  <script>
+    // fabric is now available globally from the bundle
+    console.log('Fabric loaded:', typeof fabric);
+    console.log('Frame class:', typeof fabric.Frame);
+
+    // Custom SVG paths for frame shapes (normalized to ~100x100 viewBox)
+    const customPaths = {
+      heart: 'M50,88 C20,65 0,45 0,28 C0,10 15,0 30,0 C40,0 50,10 50,20 C50,10 60,0 70,0 C85,0 100,10 100,28 C100,45 80,65 50,88 Z',
+      star: 'M50,0 L61,35 L98,35 L68,57 L79,91 L50,70 L21,91 L32,57 L2,35 L39,35 Z',
+      hexagon: 'M50,0 L93,25 L93,75 L50,100 L7,75 L7,25 Z',
+      arrow: 'M50,0 L100,40 L75,40 L75,100 L25,100 L25,40 L0,40 Z',
+      diamond: 'M50,0 L100,50 L50,100 L0,50 Z',
+      triangle: 'M50,0 L100,100 L0,100 Z',
+      cross: 'M35,0 L65,0 L65,35 L100,35 L100,65 L65,65 L65,100 L35,100 L35,65 L0,65 L0,35 L35,35 Z',
+      blob: 'M50,5 C75,0 95,15 95,40 C100,60 85,80 70,90 C55,100 35,95 20,80 C5,65 0,45 10,25 C20,10 35,5 50,5 Z',
+    };
+
+    // Canvas setup - larger canvas with work area in center
+    const workAreaWidth = 800;
+    const workAreaHeight = 600;
+    const canvasPadding = 100; // Extra space for controls to show outside work area
+
+    const canvas = new fabric.Canvas('canvas', {
+      width: workAreaWidth + canvasPadding * 2,
+      height: workAreaHeight + canvasPadding * 2,
+      backgroundColor: '#2a2a3e', // Outer area - subtle dark color
+      selection: true,
+      controlsAboveOverlay: true,
+    });
+    window.canvas = canvas;
+
+    // Draw the white "work area" in the center
+    const workArea = new fabric.Rect({
+      left: canvasPadding,
+      top: canvasPadding,
+      width: workAreaWidth,
+      height: workAreaHeight,
+      fill: '#f5f5f5',
+      selectable: false,
+      evented: false,
+      excludeFromExport: true,
+    });
+    canvas.add(workArea);
+    canvas.sendObjectToBack(workArea);
+
+    // Create clipPath for the canvas to hide content outside work area
+    const canvasClipPath = new fabric.Rect({
+      left: canvasPadding,
+      top: canvasPadding,
+      width: workAreaWidth,
+      height: workAreaHeight,
+      absolutePositioned: true,
+    });
+    canvas.clipPath = canvasClipPath;
+
+    // Track selected frame for property panel
+    let selectedFrame = null;
+
+    // Update status
+    function setStatus(text) {
+      document.getElementById('status').textContent = text;
+    }
+
+    // Default placeholder image URL (local file)
+    const PLACEHOLDER_IMAGE_URL = './placeholder.jpg';
+
+    // Add a new frame to the canvas
+    window.addFrame = async function(aspect = '1:1', shape = 'rect') {
+      const frame = fabric.Frame.createWithAspect(aspect, 200, {
+        left: canvasPadding + 100 + Math.random() * 400,
+        top: canvasPadding + 100 + Math.random() * 300,
+        frameShape: shape,
+        frameBorderRadius: shape === 'rounded-rect' ? 20 : 0,
+      });
+
+      console.log('Created frame:', frame);
+      console.log('Frame type:', frame.type);
+      console.log('Frame constructor:', frame.constructor.name);
+
+      canvas.add(frame);
+      canvas.setActiveObject(frame);
+
+      // Load placeholder image (use crossOrigin: null for local files)
+      try {
+        await frame.setImage(PLACEHOLDER_IMAGE_URL, { crossOrigin: null });
+        console.log('Placeholder image loaded');
+      } catch (err) {
+        console.warn('Could not load placeholder image:', err);
+      }
+
+      canvas.renderAll();
+
+      // Debug: list all objects on canvas
+      console.log('All canvas objects:', canvas.getObjects().map(o => ({ type: o.type, constructor: o.constructor.name })));
+
+      setStatus(`Added ${aspect} ${shape} frame`);
+    };
+
+    // Clear the canvas
+    window.clearCanvas = function() {
+      canvas.clear();
+      canvas.backgroundColor = '#f5f5f5';
+      canvas.renderAll();
+      setStatus('Canvas cleared');
+    };
+
+    // Export canvas to JSON
+    window.exportJSON = function() {
+      const json = JSON.stringify(canvas.toJSON(), null, 2);
+      document.getElementById('json-output').textContent = json;
+      setStatus('Exported to JSON');
+    };
+
+    // Load canvas from JSON
+    window.loadJSON = function() {
+      const json = document.getElementById('json-output').textContent;
+      try {
+        canvas.loadFromJSON(json).then(() => {
+          canvas.renderAll();
+          setStatus('Loaded from JSON');
+        });
+      } catch (e) {
+        setStatus('Error loading JSON: ' + e.message);
+      }
+    };
+
+    // Update frame size from properties panel
+    window.updateFrameSize = function() {
+      if (!selectedFrame) return;
+      const width = parseInt(document.getElementById('prop-width').value);
+      const height = parseInt(document.getElementById('prop-height').value);
+      selectedFrame.resizeFrame(width, height);
+      canvas.renderAll();
+    };
+
+    // Update frame shape from properties panel
+    window.updateFrameShape = function(customPathName) {
+      if (!selectedFrame) return;
+      const shape = document.getElementById('prop-shape').value;
+      const radius = parseInt(document.getElementById('prop-radius').value) || 20;
+
+      if (shape === 'custom' && customPathName && customPaths[customPathName]) {
+        selectedFrame.setFrameShape('custom', customPaths[customPathName]);
+      } else {
+        selectedFrame.setFrameShape(shape);
+        if (shape === 'rounded-rect') {
+          selectedFrame.setBorderRadius(radius);
+        }
+      }
+      document.getElementById('radius-group').style.display =
+        shape === 'rounded-rect' ? 'block' : 'none';
+      canvas.renderAll();
+    };
+
+    // Update border radius
+    window.updateBorderRadius = function() {
+      if (!selectedFrame) return;
+      const radius = parseInt(document.getElementById('prop-radius').value) || 0;
+      selectedFrame.setBorderRadius(radius);
+      canvas.renderAll();
+    };
+
+    // Enter edit mode for selected frame
+    window.enterEditMode = function() {
+      if (!selectedFrame || !selectedFrame.hasContent()) return;
+      selectedFrame.enterEditMode();
+      canvas.renderAll();
+      setStatus('Edit mode - drag image to reposition');
+    };
+
+    // Clear frame content
+    window.clearFrameContent = function() {
+      if (!selectedFrame) return;
+      selectedFrame.clearContent();
+      canvas.renderAll();
+      updatePropertiesPanel(selectedFrame);
+      setStatus('Frame content cleared');
+    };
+
+    // Load test image into selected frame
+    window.loadTestImage = async function() {
+      if (!selectedFrame) {
+        setStatus('Please select a frame first');
+        return;
+      }
+      setStatus('Loading test image...');
+      try {
+        const testUrl = 'https://picsum.photos/800/600?random=' + Date.now();
+        console.log('Loading image:', testUrl);
+        await selectedFrame.setImage(testUrl);
+        canvas.renderAll();
+        updatePropertiesPanel(selectedFrame);
+        setStatus('Test image loaded!');
+      } catch (err) {
+        setStatus('Error: ' + err.message);
+        console.error('Load error:', err);
+      }
+    };
+
+    // Load a colored rectangle as test content (works without network)
+    window.loadTestRect = function() {
+      if (!selectedFrame) {
+        setStatus('Please select a frame first');
+        return;
+      }
+
+      // Create a large colored rectangle
+      const testRect = new fabric.Rect({
+        width: 400,
+        height: 300,
+        fill: new fabric.Gradient({
+          type: 'linear',
+          coords: { x1: 0, y1: 0, x2: 400, y2: 300 },
+          colorStops: [
+            { offset: 0, color: '#e74c3c' },
+            { offset: 0.5, color: '#9b59b6' },
+            { offset: 1, color: '#3498db' }
+          ]
+        }),
+        originX: 'center',
+        originY: 'center',
+        left: 0,
+        top: 0,
+      });
+
+      // Calculate cover scale
+      const scaleX = selectedFrame.frameWidth / 400;
+      const scaleY = selectedFrame.frameHeight / 300;
+      const scale = Math.max(scaleX, scaleY);
+
+      testRect.set({
+        scaleX: scale,
+        scaleY: scale,
+        selectable: false,
+        evented: false,
+      });
+
+      // Clear and add
+      selectedFrame._clearContent();
+      selectedFrame._contentImage = testRect;
+      selectedFrame.add(testRect);
+      selectedFrame._restoreFixedDimensions();
+
+      // Update metadata
+      selectedFrame.frameMeta = {
+        ...selectedFrame.frameMeta,
+        contentScale: scale,
+        contentOffsetX: 0,
+        contentOffsetY: 0,
+        originalWidth: 400,
+        originalHeight: 300,
+      };
+
+      canvas.renderAll();
+      updatePropertiesPanel(selectedFrame);
+      setStatus('Test rect added! Try resizing the frame.');
+    };
+
+    // Update properties panel
+    function updatePropertiesPanel(frame) {
+      if (frame && (frame.type === 'Frame' || frame.type === 'frame')) {
+        selectedFrame = frame;
+        document.getElementById('frame-properties').style.display = 'block';
+        document.getElementById('no-selection').style.display = 'none';
+
+        document.getElementById('prop-width').value = Math.round(frame.frameWidth);
+        document.getElementById('prop-height').value = Math.round(frame.frameHeight);
+        document.getElementById('prop-shape').value = frame.frameShape;
+        document.getElementById('prop-hasContent').value = frame.hasContent() ? 'Yes' : 'No';
+        document.getElementById('radius-group').style.display =
+          frame.frameShape === 'rounded-rect' ? 'block' : 'none';
+      } else {
+        selectedFrame = null;
+        document.getElementById('frame-properties').style.display = 'none';
+        document.getElementById('no-selection').style.display = 'block';
+      }
+    }
+
+    // Canvas selection events
+    canvas.on('selection:created', (e) => {
+      updatePropertiesPanel(e.selected[0]);
+    });
+
+    canvas.on('selection:updated', (e) => {
+      updatePropertiesPanel(e.selected[0]);
+    });
+
+    canvas.on('selection:cleared', () => {
+      // Exit edit mode if active
+      if (selectedFrame && selectedFrame.isEditMode) {
+        selectedFrame.exitEditMode();
+        canvas.renderAll();
+      }
+      updatePropertiesPanel(null);
+    });
+
+    // Track which frame is in edit mode
+    let editingFrame = null;
+
+    // Double-click to enter edit mode
+    canvas.on('mouse:dblclick', (e) => {
+      if (e.target && (e.target.type === 'Frame' || e.target.type === 'frame') && e.target.hasContent()) {
+        e.target.enterEditMode();
+        editingFrame = e.target;
+        // Disable canvas clip during edit mode so we can see full image
+        canvas.clipPath = null;
+        canvas.renderAll();
+        setStatus('Edit mode - drag image to reposition, click outside to exit');
+      }
+    });
+
+    // Helper to exit edit mode and restore canvas clip
+    function exitEditModeAndRestoreClip() {
+      if (editingFrame) {
+        editingFrame.exitEditMode();
+        editingFrame = null;
+        // Restore canvas clip
+        canvas.clipPath = canvasClipPath;
+        canvas.renderAll();
+        setStatus('Exited edit mode');
+      }
+    }
+
+    // Click on canvas background to exit edit mode
+    canvas.on('mouse:down', (e) => {
+      if (editingFrame) {
+        // Check if clicking on the content image or the frame itself
+        const target = e.target;
+        const isContentImage = target === editingFrame._contentImage || target === editingFrame.getContentImage();
+        const isFrame = target === editingFrame;
+
+        if (!isContentImage && !isFrame) {
+          exitEditModeAndRestoreClip();
+        }
+      }
+    });
+
+    // ESC key to exit edit mode
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && editingFrame) {
+        exitEditModeAndRestoreClip();
+      }
+    });
+
+    // Update properties panel during resize
+    canvas.on('object:resizing', (e) => {
+      if (e.target && (e.target.type === 'Frame' || e.target.type === 'frame')) {
+        document.getElementById('prop-width').value = Math.round(e.target.frameWidth);
+        document.getElementById('prop-height').value = Math.round(e.target.frameHeight);
+      }
+    });
+
+    // Handle object modified to update panel after resize
+    canvas.on('object:modified', (e) => {
+      if (e.target && (e.target.type === 'Frame' || e.target.type === 'frame')) {
+        updatePropertiesPanel(e.target);
+      }
+    });
+
+    // Frame preset clicks
+    document.querySelectorAll('.frame-preset').forEach(preset => {
+      preset.addEventListener('click', () => {
+        const aspect = preset.dataset.aspect;
+        const shape = preset.dataset.shape || 'rect';
+        addFrame(aspect, shape);
+      });
+    });
+
+    // Shape button clicks
+    document.querySelectorAll('.shape-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (selectedFrame) {
+          const shape = btn.dataset.shape;
+          const pathName = btn.dataset.path;
+          document.getElementById('prop-shape').value = shape;
+          if (shape === 'custom' && pathName) {
+            selectedFrame.setFrameShape('custom', customPaths[pathName]);
+          } else {
+            selectedFrame.setFrameShape(shape);
+          }
+          document.getElementById('radius-group').style.display =
+            shape === 'rounded-rect' ? 'block' : 'none';
+          canvas.renderAll();
+        }
+      });
+    });
+
+    // Drag and drop handling
+    const imageThumbs = document.querySelectorAll('.image-thumb');
+    let draggedImageSrc = null;
+
+    imageThumbs.forEach(thumb => {
+      thumb.addEventListener('dragstart', (e) => {
+        draggedImageSrc = thumb.dataset.src;
+        thumb.classList.add('dragging');
+        e.dataTransfer.setData('text/plain', draggedImageSrc);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+
+      thumb.addEventListener('dragend', () => {
+        thumb.classList.remove('dragging');
+        draggedImageSrc = null;
+      });
+    });
+
+    // Canvas drop handling
+    const canvasContainer = document.getElementById('canvas-container');
+    const canvasEl = document.getElementById('canvas');
+
+    // Helper to find frame at canvas coordinates
+    function findFrameAtPoint(clientX, clientY) {
+      const rect = canvasEl.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+
+      console.log('Looking for frame at canvas coords:', x, y);
+
+      // Check all frames to see if point is inside using bounding rect
+      const frames = canvas.getObjects().filter(obj => obj.type === 'Frame' || obj.type === 'frame');
+      console.log('Found frames:', frames.length);
+
+      for (let i = frames.length - 1; i >= 0; i--) {
+        const frame = frames[i];
+        const bounds = frame.getBoundingRect();
+        console.log('Frame bounds:', bounds);
+
+        // Check if point is inside the bounding rect
+        if (x >= bounds.left && x <= bounds.left + bounds.width &&
+            y >= bounds.top && y <= bounds.top + bounds.height) {
+          console.log('Point is inside frame!');
+          return frame;
+        }
+      }
+      return null;
+    }
+
+    canvasContainer.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+
+      // Find frame under cursor
+      const target = findFrameAtPoint(e.clientX, e.clientY);
+
+      // Clear all highlights first
+      canvas.getObjects().forEach(obj => {
+        if (obj.type === 'Frame' || obj.type === 'frame') {
+          obj.set('stroke', null);
+          obj.set('strokeWidth', 0);
+        }
+      });
+
+      if (target) {
+        // Highlight the frame
+        target.set('stroke', '#4da8da');
+        target.set('strokeWidth', 3);
+      }
+      canvas.renderAll();
+    });
+
+    canvasContainer.addEventListener('dragleave', (e) => {
+      // Remove highlights from all frames
+      canvas.getObjects().forEach(obj => {
+        if (obj.type === 'Frame' || obj.type === 'frame') {
+          obj.set('stroke', null);
+          obj.set('strokeWidth', 0);
+        }
+      });
+      canvas.renderAll();
+    });
+
+    canvasContainer.addEventListener('drop', async (e) => {
+      e.preventDefault();
+
+      const imageSrc = e.dataTransfer.getData('text/plain') || draggedImageSrc;
+      if (!imageSrc) {
+        console.log('No image source found');
+        return;
+      }
+
+      console.log('Dropping image:', imageSrc);
+
+      // Find frame under cursor
+      const target = findFrameAtPoint(e.clientX, e.clientY);
+      console.log('Target frame:', target);
+
+      // Remove all highlights
+      canvas.getObjects().forEach(obj => {
+        if (obj.type === 'Frame' || obj.type === 'frame') {
+          obj.set('stroke', null);
+          obj.set('strokeWidth', 0);
+        }
+      });
+
+      if (target) {
+        setStatus('Loading image...');
+        try {
+          await target.setImage(imageSrc);
+          canvas.renderAll();
+          updatePropertiesPanel(target);
+          setStatus('Image added to frame');
+        } catch (err) {
+          setStatus('Error loading image: ' + err.message);
+          console.error('Error loading image:', err);
+        }
+      } else {
+        // Add as standalone image if not dropped on frame
+        setStatus('Loading image...');
+        try {
+          const rect = canvasEl.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          const img = await fabric.FabricImage.fromURL(imageSrc, { crossOrigin: 'anonymous' });
+          img.set({
+            left: Math.max(canvasPadding, x),
+            top: Math.max(canvasPadding, y),
+            scaleX: 0.3,
+            scaleY: 0.3,
+          });
+          canvas.add(img);
+          canvas.renderAll();
+          setStatus('Image added to canvas');
+        } catch (err) {
+          setStatus('Error loading image: ' + err.message);
+          console.error('Error:', err);
+        }
+      }
+    });
+
+    // Add initial demo frame
+    setTimeout(() => {
+      addFrame('16:9', 'rect');
+      setStatus('Ready - drag images onto the frame!');
+
+      // Debug: check if controls are properly set up
+      const frames = canvas.getObjects().filter(o => o.type === 'Frame' || o.type === 'frame');
+      if (frames[0]) {
+        console.log('Frame controls:', Object.keys(frames[0].controls || {}));
+        console.log('br control actionName:', frames[0].controls?.br?.actionName);
+      }
+    }, 500);
+
+    console.log('Fabric.js Frame Test loaded');
+    console.log('Available: fabric.Frame, canvas');
+
+    // Add event listeners for debugging
+    canvas.on('object:resizing', (e) => {
+      console.log('Resizing event:', e.target?.frameWidth, 'x', e.target?.frameHeight);
+    });
+
+    canvas.on('object:scaling', (e) => {
+      console.log('Scaling event (should not see this for frames):', e.target?.scaleX, e.target?.scaleY);
+    });
+  </script>
+</body>
+</html>

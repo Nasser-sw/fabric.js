@@ -3,6 +3,13 @@ import type { InteractiveFabricObject } from '../shapes/Object/InteractiveObject
 import { degreesToRadians } from '../util/misc/radiansDegreesConversion';
 import type { Control } from './Control';
 
+/**
+ * Pill dimensions for side controls (Canva-style)
+ */
+const PILL_WIDTH = 6;
+const PILL_HEIGHT = 20;
+const PILL_RADIUS = 3;
+
 export type ControlRenderingStyleOverride = Partial<
   Pick<
     InteractiveFabricObject,
@@ -132,5 +139,81 @@ export function renderSquareControl(
   if (stroke) {
     ctx.strokeRect(-xSizeBy2, -ySizeBy2, xSize, ySize);
   }
+  ctx.restore();
+}
+
+/**
+ * Render a horizontal pill control (for left/right side handles).
+ * Modern Canva-style appearance.
+ * @param {CanvasRenderingContext2D} ctx context to render on
+ * @param {Number} left x coordinate where the control center should be
+ * @param {Number} top y coordinate where the control center should be
+ * @param {Object} styleOverride override for FabricObject controls style
+ * @param {FabricObject} fabricObject the fabric object for which we are rendering controls
+ */
+export function renderHorizontalPillControl(
+  this: Control,
+  ctx: CanvasRenderingContext2D,
+  left: number,
+  top: number,
+  styleOverride: ControlRenderingStyleOverride,
+  fabricObject: InteractiveFabricObject,
+) {
+  styleOverride = styleOverride || {};
+  const width = PILL_WIDTH;
+  const height = PILL_HEIGHT;
+  const radius = PILL_RADIUS;
+
+  ctx.save();
+  ctx.translate(left, top);
+  const angle = fabricObject.getTotalAngle();
+  ctx.rotate(degreesToRadians(angle));
+
+  ctx.fillStyle = styleOverride.cornerColor || fabricObject.cornerColor || '#ffffff';
+  ctx.strokeStyle = styleOverride.cornerStrokeColor || fabricObject.cornerStrokeColor || '#0d99ff';
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.roundRect(-width / 2, -height / 2, width, height, radius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Render a vertical pill control (for top/bottom side handles).
+ * Modern Canva-style appearance.
+ * @param {CanvasRenderingContext2D} ctx context to render on
+ * @param {Number} left x coordinate where the control center should be
+ * @param {Number} top y coordinate where the control center should be
+ * @param {Object} styleOverride override for FabricObject controls style
+ * @param {FabricObject} fabricObject the fabric object for which we are rendering controls
+ */
+export function renderVerticalPillControl(
+  this: Control,
+  ctx: CanvasRenderingContext2D,
+  left: number,
+  top: number,
+  styleOverride: ControlRenderingStyleOverride,
+  fabricObject: InteractiveFabricObject,
+) {
+  styleOverride = styleOverride || {};
+  const width = PILL_HEIGHT; // Swapped for vertical
+  const height = PILL_WIDTH;
+  const radius = PILL_RADIUS;
+
+  ctx.save();
+  ctx.translate(left, top);
+  const angle = fabricObject.getTotalAngle();
+  ctx.rotate(degreesToRadians(angle));
+
+  ctx.fillStyle = styleOverride.cornerColor || fabricObject.cornerColor || '#ffffff';
+  ctx.strokeStyle = styleOverride.cornerStrokeColor || fabricObject.cornerStrokeColor || '#0d99ff';
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.roundRect(-width / 2, -height / 2, width, height, radius);
+  ctx.fill();
+  ctx.stroke();
   ctx.restore();
 }
