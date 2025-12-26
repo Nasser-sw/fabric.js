@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta20";
+var version = "7.0.1-beta23";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -30983,6 +30983,13 @@ class Frame extends Group {
     this._editModeObjectCaching = this.objectCaching;
     this.objectCaching = false;
 
+    // Force clear any existing cache
+    this.dirty = true;
+    if (this._cacheCanvas) {
+      this._cacheCanvas = null;
+      this._cacheContext = null;
+    }
+
     // Enable sub-target interaction so clicks go through to content
     this.subTargetCheck = true;
     this.interactive = true;
@@ -30993,16 +31000,21 @@ class Frame extends Group {
     const minScale = this._calculateCoverScale(originalWidth, originalHeight);
 
     // Make content image interactive with scale constraint
+    // Also disable its caching to ensure it renders fully
     this._contentImage.set({
       selectable: true,
       evented: true,
       hasControls: true,
       hasBorders: true,
       minScaleLimit: minScale,
-      lockScalingFlip: true
+      lockScalingFlip: true,
+      objectCaching: false
     });
+    this._contentImage.dirty = true;
 
-    // Store clip path but keep rendering it for the overlay effect
+    // Store and remove clipPath to show full image
+    // We must actually remove it (not just skip rendering) because Fabric's
+    // rendering pipeline checks clipPath existence in multiple places
     if (this.clipPath) {
       this._editModeClipPath = this.clipPath;
       this.clipPath = undefined;
@@ -31012,9 +31024,10 @@ class Frame extends Group {
     this._setupEditModeConstraints();
     this.set('dirty', true);
 
-    // Select the content image on the canvas
+    // Just render - don't call setActiveObject() on the content image
+    // because it causes position miscalculation with viewport transforms.
+    // The content image is still interactive via subTargetCheck = true
     if (this.canvas) {
-      this.canvas.setActiveObject(this._contentImage);
       this.canvas.renderAll();
     }
 
@@ -31096,6 +31109,38 @@ class Frame extends Group {
       this._boundConstrainScale = undefined;
     }
   }
+  /**
+   * Override shouldCache to prevent caching during edit mode.
+   * This ensures the full image is rendered without cache-based clipping.
+   * @override
+   */
+  shouldCache() {
+    if (this.isEditMode) {
+      this.ownCaching = false;
+      return false;
+    }
+    return super.shouldCache();
+  }
+
+  /**
+   * Override drawObject to skip clipPath rendering during edit mode.
+   * This prevents coordinate recalculation issues with viewport transforms.
+   * @override
+   */
+  drawObject(ctx, forClipping, context) {
+    this._renderBackground(ctx);
+    for (let i = 0; i < this._objects.length; i++) {
+      const obj = this._objects[i];
+      if (obj.group === this) {
+        obj.render(ctx);
+      }
+    }
+    // Skip clipPath rendering in edit mode to show full image
+    if (!this.isEditMode) {
+      this._drawClipPath(ctx, this.clipPath, context);
+    }
+  }
+
   /**
    * Custom render to show edit mode overlay
    * @override
@@ -31242,20 +31287,19 @@ class Frame extends Group {
       contentScale: currentScale
     };
 
-    // Make content non-interactive again
+    // Make content non-interactive again and restore caching
     this._contentImage.set({
       selectable: false,
       evented: false,
       hasControls: false,
-      hasBorders: false
+      hasBorders: false,
+      objectCaching: true
     });
 
     // Restore clip path
     if (this._editModeClipPath) {
       this.clipPath = this._editModeClipPath;
       this._editModeClipPath = undefined;
-    } else {
-      this._updateClipPath();
     }
 
     // Restore caching setting
