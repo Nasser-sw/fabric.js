@@ -410,7 +410,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta17";
+var version = "7.0.1-beta19";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -8680,6 +8680,24 @@ class Control {
    */
   render(ctx, left, top, styleOverride, fabricObject) {
     styleOverride = styleOverride || {};
+
+    // Auto-detect side controls by position and use pill renderers
+    // Side controls have one axis at 0: ml/mr have y=0, mt/mb have x=0
+    const isSideControl = (this.x === 0 || this.y === 0) && !(this.x === 0 && this.y === 0);
+    if (isSideControl && !styleOverride.cornerStyle) {
+      // Horizontal pills for left/right (y = 0)
+      if (this.y === 0 && this.x !== 0) {
+        renderHorizontalPillControl.call(this, ctx, left, top, styleOverride, fabricObject);
+        return;
+      }
+      // Vertical pills for top/bottom (x = 0)
+      if (this.x === 0 && this.y !== 0) {
+        renderVerticalPillControl.call(this, ctx, left, top, styleOverride, fabricObject);
+        return;
+      }
+    }
+
+    // Corner controls and rotation use cornerStyle
     switch (styleOverride.cornerStyle || fabricObject.cornerStyle) {
       case 'circle':
         renderCircleControl.call(this, ctx, left, top, styleOverride, fabricObject);
