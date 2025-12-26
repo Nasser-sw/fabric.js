@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fabric.js Image Stress Test - 100+ Layers</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    h1 { text-align: center; margin-bottom: 20px; color: #00d4ff; }
+    .container {
+      display: flex;
+      gap: 20px;
+      max-width: 1520px;
+      margin: 0 auto;
+    }
+    .canvas-wrapper {
+      flex: 1;
+      background: #3d3d3d;
+      border-radius: 8px;
+      padding: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      min-height: 600px;
+    }
+    .canvas-outer {
+      position: relative;
+      box-shadow: 0 2px 20px rgba(0,0,0,0.4);
+    }
+    #canvas { display: block; }
+    .controls {
+      width: 320px;
+      background: #16213e;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .control-group {
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .control-group:last-child { border-bottom: none; }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #00d4ff;
+    }
+    input[type="number"], input[type="range"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #3a3a5a;
+      border-radius: 4px;
+      background: #0f0f23;
+      color: #eee;
+      margin-bottom: 5px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s;
+      margin-bottom: 8px;
+    }
+    .btn-primary { background: #00d4ff; color: #000; }
+    .btn-primary:hover { background: #00b8e6; }
+    .btn-secondary { background: #4a4a6a; color: #fff; }
+    .btn-secondary:hover { background: #5a5a7a; }
+    .btn-danger { background: #ff4757; color: #fff; }
+    .btn-danger:hover { background: #ff3344; }
+    .btn-success { background: #2ed573; color: #000; }
+    .btn-success:hover { background: #26c066; }
+    .metrics {
+      background: #0f0f23;
+      border-radius: 6px;
+      padding: 15px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .metrics .label { color: #888; }
+    .metrics .value { color: #2ed573; font-weight: bold; }
+    .metrics .warning { color: #ffa502; }
+    .metrics .error { color: #ff4757; }
+    .status {
+      text-align: center;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-weight: 500;
+    }
+    .status.running { background: #ffa502; color: #000; }
+    .status.complete { background: #2ed573; color: #000; }
+    .status.idle { background: #4a4a6a; }
+    .status.error { background: #ff4757; color: #fff; }
+    .row { display: flex; gap: 8px; }
+    .row button { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>Fabric.js Image Stress Test</h1>
+
+  <div class="container">
+    <div class="canvas-wrapper">
+      <div class="canvas-outer">
+        <canvas id="canvas" width="1240" height="1240"></canvas>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div id="status" class="status idle">Ready</div>
+
+      <div class="control-group">
+        <label>Number of Images</label>
+        <input type="number" id="imageCount" value="120" min="10" max="1000">
+
+        <label>Scale Range (%)</label>
+        <div class="row">
+          <input type="number" id="minSize" value="10" min="5" max="100" placeholder="Min %">
+          <input type="number" id="maxSize" value="50" min="10" max="200" placeholder="Max %">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <button class="btn-primary" onclick="runStressTest()">Run Stress Test</button>
+        <div class="row">
+          <button class="btn-secondary" onclick="selectAll()">Select All</button>
+          <button class="btn-secondary" onclick="deselectAll()">Deselect</button>
+        </div>
+        <div class="row">
+          <button class="btn-secondary" onclick="testZoom()">Test Zoom</button>
+          <button class="btn-secondary" onclick="testPan()">Test Pan</button>
+        </div>
+        <button class="btn-success" onclick="testRapidRender()">Test Rapid Render (x50)</button>
+        <button class="btn-danger" onclick="clearCanvas()">Clear Canvas</button>
+      </div>
+
+      <div class="control-group">
+        <label>Performance Metrics</label>
+        <div id="metrics" class="metrics">
+          <span class="label">Click "Run Stress Test" to begin...</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Interactive Tests</label>
+        <button class="btn-secondary" onclick="transformAll()">Transform All Objects</button>
+        <button class="btn-secondary" onclick="shuffleZOrder()">Shuffle Z-Order</button>
+        <button class="btn-secondary" onclick="toggleCaching()">Toggle Object Caching</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../../dist/index.js"></script>
+  <script>
+    let canvas;
+    let metrics = {};
+    let cachingEnabled = true;
+    let loadedImages = [];
+
+    // Real image sources - works with local server (npm run local-server)
+    const IMAGE_SOURCES = [
+      '/test/fixtures/diet.jpeg',
+      '/test/fixtures/dog_image.jpg',
+      '/test/fixtures/greyfloral.png',
+      '/test/fixtures/parrot.png',
+      '/test/fixtures/shirt-with-alpha.png',
+      '/test/fixtures/test_image.gif',
+      '/test/fixtures/very_large_image.jpg',
+    ];
+
+    const ARTBOARD_SIZE = 1080;
+    const PADDING = 80;
+    const CANVAS_SIZE = ARTBOARD_SIZE + PADDING * 2; // 1240
+
+    // Initialize canvas
+    function initCanvas() {
+      canvas = new fabric.Canvas('canvas', {
+        backgroundColor: '#3d3d3d',
+        selection: true,
+        preserveObjectStacking: true,
+        controlsAboveOverlay: true,
+        skipOffscreen: true,  // big perf win - skip objects outside viewport
+      });
+
+      // Create white artboard in center (no Fabric shadow - use CSS instead for perf)
+      const artboard = new fabric.Rect({
+        left: PADDING,
+        top: PADDING,
+        width: ARTBOARD_SIZE,
+        height: ARTBOARD_SIZE,
+        fill: '#ffffff',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
+      });
+      canvas.add(artboard);
+      canvas.sendObjectToBack(artboard);
+      canvas.artboard = artboard; // keep reference
+
+      // Native ctx.clip() - fast GPU clipping, controls still visible outside
+      const CLIP = { left: PADDING, top: PADDING, w: ARTBOARD_SIZE, h: ARTBOARD_SIZE };
+      const _renderObjects = canvas._renderObjects.bind(canvas);
+      canvas._renderObjects = function(ctx, objects) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(CLIP.left, CLIP.top, CLIP.w, CLIP.h);
+        ctx.clip();
+        _renderObjects(ctx, objects);
+        ctx.restore();
+      };
+
+      // Performance: disable retina scaling
+      canvas.enableRetinaScaling = false;
+
+      // Performance: interaction mode - reduce quality while dragging
+      function setInteractionMode(on) {
+        canvas.contextContainer.imageSmoothingEnabled = !on;
+        // Hide controls/borders for non-active objects (big perf win with many objects)
+        canvas.forEachObject(o => {
+          if (o !== canvas.getActiveObject() && o !== canvas.artboard) {
+            o.hasControls = !on;
+            o.hasBorders = !on;
+          }
+        });
+      }
+
+      canvas.on('object:moving', () => setInteractionMode(true));
+      canvas.on('object:scaling', () => setInteractionMode(true));
+      canvas.on('object:rotating', () => setInteractionMode(true));
+      canvas.on('object:modified', () => {
+        setInteractionMode(false);
+        canvas.requestRenderAll();
+      });
+
+      // Add FPS counter
+      let lastTime = performance.now();
+      let frames = 0;
+
+      canvas.on('after:render', () => {
+        frames++;
+        const now = performance.now();
+        if (now - lastTime >= 1000) {
+          const fps = Math.round(frames * 1000 / (now - lastTime));
+          updateFPS(fps);
+          frames = 0;
+          lastTime = now;
+        }
+      });
+
+      // Preload images
+      preloadImages();
+    }
+
+    async function preloadImages() {
+      setStatus('Preloading images...', 'running');
+      loadedImages = [];
+      const errors = [];
+
+      for (const src of IMAGE_SOURCES) {
+        try {
+          const img = await loadImage(src);
+          const scaled = await downscaleImage(img, 2048); // downscale huge images
+          loadedImages.push(scaled);
+          console.log(`Loaded: ${src} (${scaled.width}x${scaled.height})`);
+        } catch (err) {
+          errors.push(src);
+          console.warn(`Failed to load ${src}:`, err);
+        }
+      }
+
+      if (loadedImages.length === 0) {
+        const el = document.getElementById('metrics');
+        el.innerHTML = `
+          <div class="error">No images loaded!</div>
+          <div class="label">Make sure to run via local server:</div>
+          <div class="value" style="font-size:11px;">npm run local-server</div>
+          <div class="label" style="margin-top:10px;">Then open:</div>
+          <div class="value" style="font-size:10px;">http://localhost:8080/test/visual/image-stress-test.html</div>
+          <div class="label" style="margin-top:10px;">Failed paths:</div>
+          ${errors.map(e => `<div class="error" style="font-size:10px;">${e}</div>`).join('')}
+        `;
+        setStatus('No images loaded! Use local server.', 'error');
+      } else {
+        setStatus(`Ready - ${loadedImages.length} images preloaded`, 'complete');
+      }
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    // Downscale huge images for better perf (especially very_large_image.jpg)
+    async function downscaleImage(img, maxDim = 2048) {
+      const ratio = Math.min(1, maxDim / Math.max(img.width, img.height));
+      if (ratio === 1) return img;
+
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * ratio);
+      c.height = Math.round(img.height * ratio);
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+
+      const out = new Image();
+      out.src = c.toDataURL('image/jpeg', 0.9);
+      await new Promise(r => (out.onload = r));
+      console.log(`Downscaled ${img.width}x${img.height} -> ${out.width}x${out.height}`);
+      return out;
+    }
+
+    function updateFPS(fps) {
+      const fpsEl = document.getElementById('fps-display');
+      if (fpsEl) {
+        fpsEl.textContent = `FPS: ${fps}`;
+        fpsEl.className = fps > 30 ? 'value' : fps > 15 ? 'warning' : 'error';
+      }
+    }
+
+    function setStatus(text, type = 'idle') {
+      const status = document.getElementById('status');
+      status.textContent = text;
+      status.className = `status ${type}`;
+    }
+
+    async function runStressTest() {
+      if (loadedImages.length === 0) {
+        setStatus('No images loaded! Reload page.', 'error');
+        return;
+      }
+
+      const imageCount = parseInt(document.getElementById('imageCount').value);
+      const scaleMin = parseFloat(document.getElementById('minSize').value) / 100;
+      const scaleMax = parseFloat(document.getElementById('maxSize').value) / 100;
+
+      setStatus(`Loading ${imageCount} real images...`, 'running');
+
+      // Remove only the images, keep artboard
+      canvas.getObjects().forEach(obj => {
+        if (obj !== canvas.artboard) canvas.remove(obj);
+      });
+
+      // Recreate artboard
+      canvas.backgroundColor = '#3d3d3d';
+      const artboard = new fabric.Rect({
+        left: PADDING,
+        top: PADDING,
+        width: ARTBOARD_SIZE,
+        height: ARTBOARD_SIZE,
+        fill: '#ffffff',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
+      });
+      canvas.add(artboard);
+      canvas.sendObjectToBack(artboard);
+      canvas.artboard = artboard;
+
+      metrics = {
+        imageCount,
+        loadTimes: [],
+        totalLoadTime: 0,
+        addTime: 0,
+        renderTime: 0,
+        totalTime: 0,
+      };
+
+      const startTime = performance.now();
+      const fabricImages = [];
+
+      // Create fabric images from preloaded images
+      for (let i = 0; i < imageCount; i++) {
+        const loadStart = performance.now();
+
+        // Pick a random source image
+        const sourceImg = loadedImages[i % loadedImages.length];
+        const scale = scaleMin + Math.random() * (scaleMax - scaleMin);
+
+        const fabricImage = new fabric.FabricImage(sourceImg, {
+          left: PADDING + Math.random() * (ARTBOARD_SIZE - 100),
+          top: PADDING + Math.random() * (ARTBOARD_SIZE - 100),
+          angle: Math.random() * 360,
+          scaleX: scale,
+          scaleY: scale,
+          opacity: 0.7 + Math.random() * 0.3,
+        });
+
+        // Smart caching: only cache smaller images (large cached bitmaps hurt perf)
+        const scaledW = fabricImage.getScaledWidth();
+        const scaledH = fabricImage.getScaledHeight();
+        fabricImage.objectCaching = cachingEnabled && (scaledW * scaledH < 800 * 800);
+
+        fabricImages.push(fabricImage);
+        metrics.loadTimes.push(performance.now() - loadStart);
+
+        // Update progress
+        if (i % 20 === 0) {
+          setStatus(`Creating FabricImages: ${i}/${imageCount}`, 'running');
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+
+      metrics.totalLoadTime = metrics.loadTimes.reduce((a, b) => a + b, 0);
+
+      // Add to canvas
+      setStatus('Adding images to canvas...', 'running');
+      const addStart = performance.now();
+      canvas.add(...fabricImages);
+      metrics.addTime = performance.now() - addStart;
+
+      // Render
+      setStatus('Rendering...', 'running');
+      const renderStart = performance.now();
+      canvas.requestRenderAll();
+      await new Promise(r => setTimeout(r, 100));
+      metrics.renderTime = performance.now() - renderStart;
+
+      metrics.totalTime = performance.now() - startTime;
+      metrics.objectCount = canvas.getObjects().length;
+
+      updateMetricsDisplay();
+      setStatus(`Complete: ${imageCount} real images added`, 'complete');
+    }
+
+    function updateMetricsDisplay() {
+      const el = document.getElementById('metrics');
+      el.innerHTML = `
+        <div><span class="label">Real Images Loaded:</span> <span class="value">${loadedImages.length} sources</span></div>
+        <div><span class="label">FabricImages Created:</span> <span class="value">${metrics.imageCount}</span></div>
+        <div><span class="label">Objects on Canvas:</span> <span class="value">${metrics.objectCount}</span></div>
+        <div><span class="label">Avg Create Time:</span> <span class="value">${(metrics.totalLoadTime / metrics.imageCount).toFixed(2)}ms</span></div>
+        <div><span class="label">Total Create Time:</span> <span class="value">${metrics.totalLoadTime.toFixed(2)}ms</span></div>
+        <div><span class="label">Add Time:</span> <span class="value">${metrics.addTime.toFixed(2)}ms</span></div>
+        <div><span class="label">Render Time:</span> <span class="value">${metrics.renderTime.toFixed(2)}ms</span></div>
+        <div><span class="label">Total Time:</span> <span class="${metrics.totalTime > 5000 ? 'warning' : 'value'}">${metrics.totalTime.toFixed(2)}ms</span></div>
+        <div><span class="label">Object Caching:</span> <span class="value">${cachingEnabled ? 'ON' : 'OFF'}</span></div>
+        <div id="fps-display" class="value">FPS: --</div>
+      `;
+    }
+
+    function selectAll() {
+      const objects = canvas.getObjects();
+      if (objects.length === 0) return;
+
+      const start = performance.now();
+      const selection = new fabric.ActiveSelection(objects, { canvas });
+      canvas.setActiveObject(selection);
+      canvas.requestRenderAll();
+
+      console.log(`Selected ${objects.length} objects in ${(performance.now() - start).toFixed(2)}ms`);
+      setStatus(`Selected ${objects.length} objects`, 'complete');
+    }
+
+    function deselectAll() {
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+      setStatus('Deselected all', 'complete');
+    }
+
+    function testZoom() {
+      const zoomLevels = [0.5, 0.75, 1, 1.25, 1.5, 2, 1];
+      let index = 0;
+
+      setStatus('Testing zoom...', 'running');
+
+      const interval = setInterval(() => {
+        if (index >= zoomLevels.length) {
+          clearInterval(interval);
+          setStatus('Zoom test complete', 'complete');
+          return;
+        }
+
+        const start = performance.now();
+        canvas.setZoom(zoomLevels[index]);
+        canvas.requestRenderAll();
+        console.log(`Zoom ${zoomLevels[index]}x: ${(performance.now() - start).toFixed(2)}ms`);
+        index++;
+      }, 500);
+    }
+
+    function testPan() {
+      const panSteps = [
+        { x: 100, y: 0 },
+        { x: 100, y: 100 },
+        { x: 0, y: 100 },
+        { x: -100, y: 0 },
+        { x: -100, y: -100 },
+        { x: 0, y: 0 },
+      ];
+      let index = 0;
+
+      setStatus('Testing pan...', 'running');
+
+      const interval = setInterval(() => {
+        if (index >= panSteps.length) {
+          clearInterval(interval);
+          setStatus('Pan test complete', 'complete');
+          return;
+        }
+
+        const start = performance.now();
+        canvas.absolutePan(new fabric.Point(panSteps[index].x, panSteps[index].y));
+        canvas.requestRenderAll();
+        console.log(`Pan to (${panSteps[index].x}, ${panSteps[index].y}): ${(performance.now() - start).toFixed(2)}ms`);
+        index++;
+      }, 400);
+    }
+
+    async function testRapidRender() {
+      const count = 50;
+      const times = [];
+
+      setStatus(`Running ${count} rapid renders...`, 'running');
+
+      for (let i = 0; i < count; i++) {
+        const start = performance.now();
+        canvas.renderAll();
+        times.push(performance.now() - start);
+      }
+
+      const avg = times.reduce((a, b) => a + b, 0) / times.length;
+      const max = Math.max(...times);
+      const min = Math.min(...times);
+
+      console.log(`Rapid Render Test (${count}x):`);
+      console.log(`  Average: ${avg.toFixed(2)}ms`);
+      console.log(`  Min: ${min.toFixed(2)}ms`);
+      console.log(`  Max: ${max.toFixed(2)}ms`);
+
+      setStatus(`Avg render: ${avg.toFixed(2)}ms (${count}x)`, 'complete');
+    }
+
+    function transformAll() {
+      const objects = canvas.getObjects();
+      const start = performance.now();
+
+      objects.forEach((obj, i) => {
+        obj.set({
+          angle: obj.angle + 15,
+          scaleX: obj.scaleX * (0.9 + Math.random() * 0.2),
+          scaleY: obj.scaleY * (0.9 + Math.random() * 0.2),
+        });
+        obj.setCoords();
+      });
+
+      canvas.requestRenderAll();
+      console.log(`Transformed ${objects.length} objects in ${(performance.now() - start).toFixed(2)}ms`);
+      setStatus(`Transformed ${objects.length} objects`, 'complete');
+    }
+
+    function shuffleZOrder() {
+      const objects = canvas.getObjects();
+      const start = performance.now();
+
+      // Shuffle z-order randomly
+      for (let i = 0; i < 20; i++) {
+        const randomObj = objects[Math.floor(Math.random() * objects.length)];
+        if (Math.random() > 0.5) {
+          canvas.bringObjectToFront(randomObj);
+        } else {
+          canvas.sendObjectToBack(randomObj);
+        }
+      }
+
+      canvas.requestRenderAll();
+      console.log(`Shuffled z-order in ${(performance.now() - start).toFixed(2)}ms`);
+      setStatus('Z-order shuffled', 'complete');
+    }
+
+    function toggleCaching() {
+      cachingEnabled = !cachingEnabled;
+      const objects = canvas.getObjects();
+
+      objects.forEach(obj => {
+        obj.objectCaching = cachingEnabled;
+        obj.dirty = true;
+      });
+
+      canvas.requestRenderAll();
+      setStatus(`Object caching: ${cachingEnabled ? 'ON' : 'OFF'}`, 'complete');
+      updateMetricsDisplay();
+    }
+
+    function clearCanvas() {
+      canvas.clear();
+      canvas.backgroundColor = '#3d3d3d';
+
+      // Recreate artboard
+      const artboard = new fabric.Rect({
+        left: PADDING,
+        top: PADDING,
+        width: ARTBOARD_SIZE,
+        height: ARTBOARD_SIZE,
+        fill: '#ffffff',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
+      });
+      canvas.add(artboard);
+      canvas.artboard = artboard;
+      canvas.requestRenderAll();
+      metrics = {};
+      document.getElementById('metrics').innerHTML = '<span class="label">Canvas cleared</span>';
+      setStatus('Ready', 'idle');
+    }
+
+    // Initialize
+    initCanvas();
+  </script>
+</body>
+</html>

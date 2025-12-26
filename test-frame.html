@@ -209,9 +209,7 @@
       overflow: visible;
     }
 
-    #canvas-container canvas {
-      border-radius: 8px;
-    }
+    /* Removed border-radius on canvas - it causes clipping issues */
 
     /* Work area is the white rectangle in center */
 
@@ -537,15 +535,51 @@
     canvas.add(workArea);
     canvas.sendObjectToBack(workArea);
 
-    // Create clipPath for the canvas to hide content outside work area
-    const canvasClipPath = new fabric.Rect({
-      left: canvasPadding,
-      top: canvasPadding,
-      width: workAreaWidth,
-      height: workAreaHeight,
-      absolutePositioned: true,
-    });
-    canvas.clipPath = canvasClipPath;
+    // Track edit mode for conditional clipping
+    let editingFrameRef = null; // Reference to the frame currently being edited
+    const CLIP = { left: canvasPadding, top: canvasPadding, w: workAreaWidth, h: workAreaHeight };
+
+    // Native ctx.clip() - override renderCanvas to clip at lowest level
+    const originalRenderCanvas = canvas.renderCanvas.bind(canvas);
+    canvas.renderCanvas = function(ctx, objects) {
+      // Always clear the ENTIRE canvas first (including area outside clip)
+      // This prevents ghost artifacts when exiting edit mode
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      if (editingFrameRef) {
+        // Edit mode: render all objects EXCEPT editing frame with clip,
+        // then render editing frame without clip
+        const otherObjects = objects.filter(obj => obj !== editingFrameRef);
+
+        // Render other objects with clip
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(CLIP.left, CLIP.top, CLIP.w, CLIP.h);
+        ctx.clip();
+        originalRenderCanvas(ctx, otherObjects);
+        ctx.restore();
+
+        // Render editing frame without clip (full image visible)
+        editingFrameRef.render(ctx);
+      } else {
+        // Normal mode: clip everything
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(CLIP.left, CLIP.top, CLIP.w, CLIP.h);
+        ctx.clip();
+        originalRenderCanvas(ctx, objects);
+        ctx.restore();
+      }
+    };
+
+    // Helper to set edit mode state
+    function setEditModeClip(frame) {
+      editingFrameRef = frame;
+      canvas.requestRenderAll();
+    }
 
     // Track selected frame for property panel
     let selectedFrame = null;
@@ -794,11 +828,12 @@
     // Double-click to enter edit mode
     canvas.on('mouse:dblclick', (e) => {
       if (e.target && (e.target.type === 'Frame' || e.target.type === 'frame') && e.target.hasContent()) {
-        e.target.enterEditMode();
         editingFrame = e.target;
-        // Disable canvas clip during edit mode so we can see full image
-        canvas.clipPath = null;
-        canvas.renderAll();
+        // Set the specific frame for unclipped rendering
+        setEditModeClip(e.target);
+        // Then enter frame's edit mode
+        e.target.enterEditMode();
+        canvas.requestRenderAll();
         setStatus('Edit mode - drag image to reposition, click outside to exit');
       }
     });
@@ -808,9 +843,8 @@
       if (editingFrame) {
         editingFrame.exitEditMode();
         editingFrame = null;
-        // Restore canvas clip
-        canvas.clipPath = canvasClipPath;
-        canvas.renderAll();
+        // Clear the editing frame reference to re-enable clipping for all
+        setEditModeClip(null);
         setStatus('Exited edit mode');
       }
     }

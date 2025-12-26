@@ -138,6 +138,12 @@ export class Frame extends Group {
    */
   private _placeholder: FabricObject | null = null;
 
+  /**
+   * Stored objectCaching value before edit mode
+   * @private
+   */
+  private _editModeObjectCaching?: boolean;
+
   static ownDefaults = frameDefaultValues;
 
   static getDefaults(): Record<string, any> {
@@ -791,6 +797,12 @@ export class Frame extends Group {
 
     this.isEditMode = true;
 
+    // Disable caching during edit mode - otherwise the cache canvas
+    // clips content to the frame bounds, preventing us from seeing
+    // the full image outside the frame
+    this._editModeObjectCaching = this.objectCaching;
+    this.objectCaching = false;
+
     // Enable sub-target interaction so clicks go through to content
     this.subTargetCheck = true;
     this.interactive = true;
@@ -815,6 +827,7 @@ export class Frame extends Group {
       this._editModeClipPath = this.clipPath as FabricObject;
       this.clipPath = undefined;
     }
+
 
     // Add constraint handlers for moving/scaling
     this._setupEditModeConstraints();
@@ -1081,6 +1094,12 @@ export class Frame extends Group {
       this._editModeClipPath = undefined;
     } else {
       this._updateClipPath();
+    }
+
+    // Restore caching setting
+    if (this._editModeObjectCaching !== undefined) {
+      this.objectCaching = this._editModeObjectCaching;
+      this._editModeObjectCaching = undefined;
     }
 
     this.set('dirty', true);
