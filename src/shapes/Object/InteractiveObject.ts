@@ -551,6 +551,48 @@ export class InteractiveFabricObject<
     ctx: CanvasRenderingContext2D,
     styleOverride: ControlRenderingStyleOverride = {},
   ) {
+    // Check if object is being actively transformed (Canva-style control visibility)
+    // Only hide controls when actually dragging, not just on click/select
+    const currentTransform = this.canvas?._currentTransform;
+    const isActivelyTransforming =
+      currentTransform &&
+      (currentTransform.target as unknown) === this &&
+      this.isMoving; // isMoving is true only during actual drag
+
+    if (isActivelyTransforming) {
+      const activeCorner = currentTransform!.corner;
+
+      // Moving (no active corner) - don't draw any controls, just border
+      if (!activeCorner) {
+        return;
+      }
+
+      // Scaling/rotating - only draw the active control
+      const control = this.controls[activeCorner];
+      if (control && control.getVisibility(this, activeCorner)) {
+        ctx.save();
+        const retinaScaling = this.getCanvasRetinaScaling();
+        const { cornerStrokeColor, cornerDashArray, cornerColor } = this;
+        const options = {
+          cornerStrokeColor,
+          cornerDashArray,
+          cornerColor,
+          ...styleOverride,
+        };
+        ctx.setTransform(retinaScaling, 0, 0, retinaScaling, 0, 0);
+        ctx.strokeStyle = ctx.fillStyle = options.cornerColor;
+        if (!this.transparentCorners) {
+          ctx.strokeStyle = options.cornerStrokeColor;
+        }
+        this._setLineDash(ctx, options.cornerDashArray);
+        const p = this.oCoords[activeCorner];
+        control.render(ctx, p.x, p.y, options, this);
+        ctx.restore();
+      }
+      return;
+    }
+
+    // Normal rendering - draw all controls
     ctx.save();
     const retinaScaling = this.getCanvasRetinaScaling();
     const { cornerStrokeColor, cornerDashArray, cornerColor } = this;

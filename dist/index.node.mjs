@@ -9654,7 +9654,51 @@ class InteractiveFabricObject extends FabricObject$1 {
    * @param {ControlRenderingStyleOverride} styleOverride object to override the object style
    */
   drawControls(ctx) {
+    var _this$canvas;
     let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    // Check if object is being actively transformed (Canva-style control visibility)
+    // Only hide controls when actually dragging, not just on click/select
+    const currentTransform = (_this$canvas = this.canvas) === null || _this$canvas === void 0 ? void 0 : _this$canvas._currentTransform;
+    const isActivelyTransforming = currentTransform && currentTransform.target === this && this.isMoving; // isMoving is true only during actual drag
+
+    if (isActivelyTransforming) {
+      const activeCorner = currentTransform.corner;
+
+      // Moving (no active corner) - don't draw any controls, just border
+      if (!activeCorner) {
+        return;
+      }
+
+      // Scaling/rotating - only draw the active control
+      const control = this.controls[activeCorner];
+      if (control && control.getVisibility(this, activeCorner)) {
+        ctx.save();
+        const retinaScaling = this.getCanvasRetinaScaling();
+        const {
+          cornerStrokeColor,
+          cornerDashArray,
+          cornerColor
+        } = this;
+        const options = {
+          cornerStrokeColor,
+          cornerDashArray,
+          cornerColor,
+          ...styleOverride
+        };
+        ctx.setTransform(retinaScaling, 0, 0, retinaScaling, 0, 0);
+        ctx.strokeStyle = ctx.fillStyle = options.cornerColor;
+        if (!this.transparentCorners) {
+          ctx.strokeStyle = options.cornerStrokeColor;
+        }
+        this._setLineDash(ctx, options.cornerDashArray);
+        const p = this.oCoords[activeCorner];
+        control.render(ctx, p.x, p.y, options, this);
+        ctx.restore();
+      }
+      return;
+    }
+
+    // Normal rendering - draw all controls
     ctx.save();
     const retinaScaling = this.getCanvasRetinaScaling();
     const {
