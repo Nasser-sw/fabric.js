@@ -990,60 +990,68 @@ export class Frame extends Group {
 
     // Draw edit mode overlay if in edit mode
     if (this.isEditMode && this._editModeClipPath) {
-      this._renderEditModeOverlay(ctx);
+      this._renderEditModeOverlay(ctx, false);
+
+      // In expand mode, re-render the content image's controls ON TOP of the overlay
+      if (this._contentExpandMode && this._contentImage) {
+        this._contentImage._renderControls(ctx);
+      }
     }
   }
 
   /**
    * Renders the edit mode overlay - dims area outside frame, shows frame border
    * @private
+   * @param skipDimOverlay - if true, skip the dark overlay (for expand mode)
    */
-  private _renderEditModeOverlay(ctx: CanvasRenderingContext2D): void {
+  private _renderEditModeOverlay(ctx: CanvasRenderingContext2D, skipDimOverlay: boolean = false): void {
     ctx.save();
 
     // Apply the group's transform
     const m = this.calcTransformMatrix();
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
 
-    // Draw semi-transparent overlay on the OUTSIDE of the frame
-    // We do this by drawing a large rect and cutting out the frame shape
-    ctx.beginPath();
+    // Draw semi-transparent overlay on the OUTSIDE of the frame (skip in expand mode)
+    if (!skipDimOverlay) {
+      // We do this by drawing a large rect and cutting out the frame shape
+      ctx.beginPath();
 
-    // Large outer rectangle (covers the whole image area)
-    const padding = 2000; // Large enough to cover any overflow
-    ctx.rect(-padding, -padding, padding * 2, padding * 2);
+      // Large outer rectangle (covers the whole image area)
+      const padding = 2000; // Large enough to cover any overflow
+      ctx.rect(-padding, -padding, padding * 2, padding * 2);
 
-    // Cut out the frame shape (counter-clockwise to create hole)
-    if (this.frameShape === 'circle') {
-      const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
-      ctx.moveTo(radius, 0);
-      ctx.arc(0, 0, radius, 0, Math.PI * 2, true);
-    } else if (this.frameShape === 'rounded-rect') {
-      const w = this.frameWidth / 2;
-      const h = this.frameHeight / 2;
-      const r = Math.min(this.frameBorderRadius, w, h);
-      ctx.moveTo(w, h - r);
-      ctx.arcTo(w, -h, w - r, -h, r);
-      ctx.arcTo(-w, -h, -w, -h + r, r);
-      ctx.arcTo(-w, h, -w + r, h, r);
-      ctx.arcTo(w, h, w, h - r, r);
-      ctx.closePath();
-    } else {
-      // Rectangle
-      const w = this.frameWidth / 2;
-      const h = this.frameHeight / 2;
-      ctx.moveTo(w, -h);
-      ctx.lineTo(-w, -h);
-      ctx.lineTo(-w, h);
-      ctx.lineTo(w, h);
-      ctx.closePath();
+      // Cut out the frame shape (counter-clockwise to create hole)
+      if (this.frameShape === 'circle') {
+        const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
+        ctx.moveTo(radius, 0);
+        ctx.arc(0, 0, radius, 0, Math.PI * 2, true);
+      } else if (this.frameShape === 'rounded-rect') {
+        const w = this.frameWidth / 2;
+        const h = this.frameHeight / 2;
+        const r = Math.min(this.frameBorderRadius, w, h);
+        ctx.moveTo(w, h - r);
+        ctx.arcTo(w, -h, w - r, -h, r);
+        ctx.arcTo(-w, -h, -w, -h + r, r);
+        ctx.arcTo(-w, h, -w + r, h, r);
+        ctx.arcTo(w, h, w, h - r, r);
+        ctx.closePath();
+      } else {
+        // Rectangle
+        const w = this.frameWidth / 2;
+        const h = this.frameHeight / 2;
+        ctx.moveTo(w, -h);
+        ctx.lineTo(-w, -h);
+        ctx.lineTo(-w, h);
+        ctx.lineTo(w, h);
+        ctx.closePath();
+      }
+
+      // Fill with semi-transparent dark overlay
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fill('evenodd');
     }
 
-    // Fill with semi-transparent dark overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fill('evenodd');
-
-    // Draw frame border
+    // Draw frame border (always visible)
     ctx.beginPath();
     if (this.frameShape === 'circle') {
       const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
@@ -1082,6 +1090,11 @@ export class Frame extends Group {
   exitEditMode(): void {
     if (!this._contentImage || !this.isEditMode) {
       return;
+    }
+
+    // Exit content expand mode first if active
+    if (this._contentExpandMode) {
+      this.exitContentExpandMode();
     }
 
     this.isEditMode = false;
@@ -1170,6 +1183,109 @@ export class Frame extends Group {
     } else {
       this.enterEditMode();
     }
+  }
+
+  // ==================== CONTENT EXPAND MODE ====================
+
+  /**
+   * Whether the content image is in expand mode
+   */
+  private _contentExpandMode: boolean = false;
+
+  /**
+   * Enter expand mode for the content image (for AI outpainting)
+   * Must be in edit mode first
+   */
+  enterContentExpandMode(): void {
+    if (!this._contentImage || !this.isEditMode) {
+      console.warn('Frame: Must be in edit mode with content to enter expand mode');
+      return;
+    }
+
+    if (this._contentExpandMode) return;
+
+    this._contentExpandMode = true;
+
+    // Remove constraints - in expand mode we don't enforce image covering frame
+    this._removeEditModeConstraints();
+
+    // Enter expand mode on the content image
+    this._contentImage.enterExpandMode();
+
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  /**
+   * Exit expand mode for the content image
+   */
+  exitContentExpandMode(): void {
+    if (!this._contentImage || !this._contentExpandMode) return;
+
+    this._contentExpandMode = false;
+
+    // Exit expand mode on the content image
+    this._contentImage.exitExpandMode();
+
+    // Re-add constraints if still in edit mode
+    if (this.isEditMode) {
+      this._setupEditModeConstraints();
+    }
+
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  /**
+   * Toggle expand mode for content image
+   */
+  toggleContentExpandMode(): void {
+    if (this._contentExpandMode) {
+      this.exitContentExpandMode();
+    } else {
+      this.enterContentExpandMode();
+    }
+  }
+
+  /**
+   * Check if content is in expand mode
+   */
+  isContentExpandMode(): boolean {
+    return this._contentExpandMode;
+  }
+
+  /**
+   * Get expansion values from the content image
+   */
+  getContentExpansion(): { expandLeft: number; expandRight: number; expandTop: number; expandBottom: number } | null {
+    if (!this._contentImage) return null;
+    return this._contentImage.getExpansion();
+  }
+
+  /**
+   * Set expansion values on the content image
+   */
+  setContentExpansion(expansion: { expandLeft?: number; expandRight?: number; expandTop?: number; expandBottom?: number }): void {
+    if (!this._contentImage) return;
+    this._contentImage.setExpansion(expansion);
+  }
+
+  /**
+   * Reset content expansion to zero
+   */
+  resetContentExpansion(): void {
+    if (!this._contentImage) return;
+    this._contentImage.resetExpansion();
+  }
+
+  /**
+   * Check if content has any expansion
+   */
+  hasContentExpansion(): boolean {
+    if (!this._contentImage) return false;
+    return this._contentImage.hasExpansion();
   }
 
   /**

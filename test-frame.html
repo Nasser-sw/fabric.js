@@ -320,7 +320,9 @@
           <li>Click a frame preset to add it to canvas</li>
           <li>Drag images onto frames to fill them</li>
           <li>Double-click a frame to edit image position</li>
-          <li>Click outside to exit edit mode</li>
+          <li>Press <b>E</b> to enter AI Expand mode</li>
+          <li>Drag purple handles to define expansion</li>
+          <li>Press ESC or click outside to exit</li>
         </ul>
       </div>
 
@@ -453,6 +455,34 @@
         <div style="margin-top: 15px;">
           <button onclick="enterEditMode()" class="shape-btn" style="width: 100%;">
             Edit Image Position
+          </button>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button onclick="toggleExpandMode()" id="expand-mode-btn" class="shape-btn" style="width: 100%; background: #8b5cf6;">
+            AI Expand Mode
+          </button>
+        </div>
+
+        <!-- Expansion Values Display -->
+        <div id="expansion-values" style="display: none; margin-top: 15px; background: #0f3460; padding: 10px; border-radius: 6px;">
+          <label style="display: block; font-size: 11px; color: #8b5cf6; margin-bottom: 8px; text-transform: uppercase;">
+            Expansion Values (px)
+          </label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
+            <div>Left: <span id="exp-left">0</span></div>
+            <div>Right: <span id="exp-right">0</span></div>
+            <div>Top: <span id="exp-top">0</span></div>
+            <div>Bottom: <span id="exp-bottom">0</span></div>
+          </div>
+          <div style="margin-top: 8px; font-size: 11px; color: #666;">
+            Expanded size: <span id="exp-size">-</span>
+          </div>
+          <button onclick="resetExpansion()" class="shape-btn" style="width: 100%; margin-top: 10px; background: #e94560; font-size: 11px;">
+            Reset Expansion
+          </button>
+          <button onclick="getExpansionForAPI()" class="shape-btn" style="width: 100%; margin-top: 5px; background: #27ae60; font-size: 11px;">
+            Copy for API
           </button>
         </div>
 
@@ -691,9 +721,118 @@
     // Enter edit mode for selected frame
     window.enterEditMode = function() {
       if (!selectedFrame || !selectedFrame.hasContent()) return;
+      editingFrame = selectedFrame;
+      setEditModeClip(selectedFrame);
       selectedFrame.enterEditMode();
       canvas.renderAll();
-      setStatus('Edit mode - drag image to reposition');
+      setStatus('Edit mode - drag image to reposition, press E for expand mode');
+    };
+
+    // Toggle expand mode for content image
+    window.toggleExpandMode = function() {
+      if (!selectedFrame || !selectedFrame.hasContent()) {
+        setStatus('Select a frame with content first');
+        return;
+      }
+
+      // Must be in edit mode first
+      if (!selectedFrame.isEditMode) {
+        editingFrame = selectedFrame;
+        setEditModeClip(selectedFrame);
+        selectedFrame.enterEditMode();
+      }
+
+      // Toggle content expand mode
+      selectedFrame.toggleContentExpandMode();
+
+      // Update UI
+      updateExpandModeUI();
+      canvas.renderAll();
+
+      if (selectedFrame.isContentExpandMode()) {
+        setStatus('EXPAND MODE - Drag purple handles outward to define expansion area');
+      } else {
+        setStatus('Edit mode - drag image to reposition');
+      }
+    };
+
+    // Update expansion values display
+    function updateExpansionValues() {
+      if (!selectedFrame) return;
+
+      const expansion = selectedFrame.getContentExpansion();
+      if (!expansion) return;
+
+      document.getElementById('exp-left').textContent = Math.round(expansion.expandLeft);
+      document.getElementById('exp-right').textContent = Math.round(expansion.expandRight);
+      document.getElementById('exp-top').textContent = Math.round(expansion.expandTop);
+      document.getElementById('exp-bottom').textContent = Math.round(expansion.expandBottom);
+
+      // Calculate expanded size
+      const origWidth = selectedFrame.frameMeta?.originalWidth || selectedFrame.frameWidth;
+      const origHeight = selectedFrame.frameMeta?.originalHeight || selectedFrame.frameHeight;
+      const expandedWidth = origWidth + expansion.expandLeft + expansion.expandRight;
+      const expandedHeight = origHeight + expansion.expandTop + expansion.expandBottom;
+      document.getElementById('exp-size').textContent = `${Math.round(expandedWidth)} x ${Math.round(expandedHeight)}`;
+    }
+
+    // Update expand mode UI state
+    function updateExpandModeUI() {
+      const btn = document.getElementById('expand-mode-btn');
+      const valuesDiv = document.getElementById('expansion-values');
+
+      if (selectedFrame && selectedFrame.isContentExpandMode()) {
+        btn.textContent = 'Exit Expand Mode';
+        btn.style.background = '#e94560';
+        valuesDiv.style.display = 'block';
+        updateExpansionValues();
+      } else {
+        btn.textContent = 'AI Expand Mode';
+        btn.style.background = '#8b5cf6';
+        valuesDiv.style.display = selectedFrame?.hasContentExpansion() ? 'block' : 'none';
+        if (selectedFrame?.hasContentExpansion()) {
+          updateExpansionValues();
+        }
+      }
+    }
+
+    // Reset expansion
+    window.resetExpansion = function() {
+      if (!selectedFrame) return;
+      selectedFrame.resetContentExpansion();
+      updateExpansionValues();
+      canvas.renderAll();
+      setStatus('Expansion reset');
+    };
+
+    // Get expansion values for API
+    window.getExpansionForAPI = function() {
+      if (!selectedFrame) return;
+
+      const expansion = selectedFrame.getContentExpansion();
+      if (!expansion) return;
+
+      const apiData = {
+        expandLeft: Math.round(expansion.expandLeft),
+        expandRight: Math.round(expansion.expandRight),
+        expandTop: Math.round(expansion.expandTop),
+        expandBottom: Math.round(expansion.expandBottom),
+        originalWidth: selectedFrame.frameMeta?.originalWidth || selectedFrame.frameWidth,
+        originalHeight: selectedFrame.frameMeta?.originalHeight || selectedFrame.frameHeight,
+      };
+
+      const json = JSON.stringify(apiData, null, 2);
+
+      // Copy to clipboard
+      navigator.clipboard.writeText(json).then(() => {
+        setStatus('Expansion data copied to clipboard!');
+      }).catch(() => {
+        // Fallback: show in JSON output
+        document.getElementById('json-output').textContent = json;
+        setStatus('Expansion data shown in JSON panel');
+      });
+
+      console.log('Expansion for AI API:', apiData);
     };
 
     // Clear frame content
@@ -786,8 +925,10 @@
 
     // Update properties panel
     function updatePropertiesPanel(frame) {
+      console.log('updatePropertiesPanel called with:', frame, 'type:', frame?.type);
       if (frame && (frame.type === 'Frame' || frame.type === 'frame')) {
         selectedFrame = frame;
+        console.log('Frame selected, showing properties panel');
         document.getElementById('frame-properties').style.display = 'block';
         document.getElementById('no-selection').style.display = 'none';
 
@@ -807,19 +948,24 @@
     // Canvas selection events
     canvas.on('selection:created', (e) => {
       updatePropertiesPanel(e.selected[0]);
+      updateExpandModeUI();
     });
 
     canvas.on('selection:updated', (e) => {
       updatePropertiesPanel(e.selected[0]);
+      updateExpandModeUI();
     });
 
     canvas.on('selection:cleared', () => {
       // Exit edit mode if active
       if (selectedFrame && selectedFrame.isEditMode) {
         selectedFrame.exitEditMode();
+        editingFrame = null;
+        setEditModeClip(null);
         canvas.renderAll();
       }
       updatePropertiesPanel(null);
+      updateExpandModeUI();
     });
 
     // Track which frame is in edit mode
@@ -863,10 +1009,19 @@
       }
     });
 
-    // ESC key to exit edit mode
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+      // ESC to exit edit mode
       if (e.key === 'Escape' && editingFrame) {
         exitEditModeAndRestoreClip();
+        updateExpandModeUI();
+      }
+
+      // E to toggle expand mode (when frame is selected)
+      if (e.key === 'e' || e.key === 'E') {
+        if (selectedFrame && selectedFrame.hasContent() && !e.target.matches('input, textarea')) {
+          toggleExpandMode();
+        }
       }
     });
 
@@ -882,6 +1037,23 @@
     canvas.on('object:modified', (e) => {
       if (e.target && (e.target.type === 'Frame' || e.target.type === 'frame')) {
         updatePropertiesPanel(e.target);
+      }
+      // Update expansion values after any modification
+      if (selectedFrame && selectedFrame.isContentExpandMode()) {
+        updateExpansionValues();
+      }
+    });
+
+    // Update expansion values in real-time during dragging
+    canvas.on('object:scaling', (e) => {
+      if (selectedFrame && selectedFrame.isContentExpandMode()) {
+        updateExpansionValues();
+      }
+    });
+
+    canvas.on('object:moving', (e) => {
+      if (selectedFrame && selectedFrame.isContentExpandMode()) {
+        updateExpansionValues();
       }
     });
 

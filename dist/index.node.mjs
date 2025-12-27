@@ -410,7 +410,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta23";
+var version = "7.0.1-beta24";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -9319,6 +9319,406 @@ const createTextboxDefaultControls = () => {
   return controls;
 };
 
+/**
+ * Expansion state for AI outpainting
+ */
+
+/**
+ * Direction(s) that an expand control affects
+ */
+
+/**
+ * Styling constants for expand controls
+ */
+const EXPAND_HANDLE_FILL = '#ffffff';
+const EXPAND_HANDLE_STROKE = '#8b5cf6'; // Purple
+const EXPAND_PREVIEW_FILL = 'rgba(139, 92, 246, 0.1)';
+const EXPAND_PREVIEW_STROKE = '#8b5cf6';
+const EXPAND_PREVIEW_DASH = [6, 4];
+
+// Handle sizes - similar to default Fabric controls
+const EDGE_HANDLE_WIDTH = 6;
+const EDGE_HANDLE_HEIGHT = 20;
+const CORNER_HANDLE_SIZE = 10;
+const HANDLE_RADIUS = 2;
+
+/**
+ * Default expansion state
+ */
+const createDefaultExpansion = () => ({
+  expandLeft: 0,
+  expandRight: 0,
+  expandTop: 0,
+  expandBottom: 0
+});
+
+/**
+ * Get expansion state from object, initializing if needed
+ */
+function getExpansion(obj) {
+  if (!obj.expansion) {
+    obj.expansion = createDefaultExpansion();
+  }
+  return obj.expansion;
+}
+
+/**
+ * Set expansion state on object
+ */
+function setExpansion(obj, expansion) {
+  const current = getExpansion(obj);
+  Object.assign(current, expansion);
+}
+
+/**
+ * Custom control for AI expansion handles
+ */
+class ExpandControl extends Control {
+  /**
+   * Which direction(s) this control affects
+   */
+
+  constructor(options) {
+    super(options);
+    this.expandDirections = options.expandDirections;
+    this.actionName = 'expand';
+  }
+
+  /**
+   * Position handler for expand controls
+   * Positions controls at the expansion boundary, not the object boundary
+   * Note: expansion values are stored in screen pixels (already scaled)
+   */
+  positionHandler(dim, finalMatrix, fabricObject, currentControl) {
+    const expansion = getExpansion(fabricObject);
+    const {
+      expandLeft,
+      expandRight,
+      expandTop,
+      expandBottom
+    } = expansion;
+
+    // dim already includes scale, so use it directly for base size
+    // expansion values are also in screen pixels, so use directly
+    const halfWidth = dim.x / 2;
+    const halfHeight = dim.y / 2;
+
+    // Calculate the expanded half dimensions
+    const expandedHalfWidth = halfWidth + (expandLeft + expandRight) / 2;
+    const expandedHalfHeight = halfHeight + (expandTop + expandBottom) / 2;
+
+    // Calculate offset from center based on asymmetric expansion
+    const centerOffsetX = (expandRight - expandLeft) / 2;
+    const centerOffsetY = (expandBottom - expandTop) / 2;
+    let posX;
+    let posY;
+
+    // Position based on which side this control is on
+    if (this.x < 0) {
+      // Left side controls
+      posX = -expandedHalfWidth + centerOffsetX;
+    } else if (this.x > 0) {
+      // Right side controls
+      posX = expandedHalfWidth + centerOffsetX;
+    } else {
+      // Center (top/bottom only)
+      posX = centerOffsetX;
+    }
+    if (this.y < 0) {
+      // Top side controls
+      posY = -expandedHalfHeight + centerOffsetY;
+    } else if (this.y > 0) {
+      // Bottom side controls
+      posY = expandedHalfHeight + centerOffsetY;
+    } else {
+      // Center (left/right only)
+      posY = centerOffsetY;
+    }
+    return new Point(posX, posY).transform(finalMatrix);
+  }
+
+  /**
+   * Custom render for expand handles - purple border with white fill
+   */
+  render(ctx, left, top, styleOverride, fabricObject) {
+    ctx.save();
+    ctx.translate(left, top);
+    const angle = fabricObject.getTotalAngle();
+    ctx.rotate(degreesToRadians(angle));
+
+    // Add subtle shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = EXPAND_HANDLE_FILL;
+    ctx.strokeStyle = EXPAND_HANDLE_STROKE;
+    ctx.lineWidth = 2;
+
+    // Determine if this is a corner or edge control
+    const isCorner = this.x !== 0 && this.y !== 0;
+    if (isCorner) {
+      // Corner: draw a circle
+      ctx.beginPath();
+      ctx.arc(0, 0, CORNER_HANDLE_SIZE / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (this.y === 0) {
+      // Horizontal edge (left/right): vertical pill
+      ctx.beginPath();
+      ctx.roundRect(-EDGE_HANDLE_WIDTH / 2, -EDGE_HANDLE_HEIGHT / 2, EDGE_HANDLE_WIDTH, EDGE_HANDLE_HEIGHT, HANDLE_RADIUS);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      // Vertical edge (top/bottom): horizontal pill
+      ctx.beginPath();
+      ctx.roundRect(-EDGE_HANDLE_HEIGHT / 2, -EDGE_HANDLE_WIDTH / 2, EDGE_HANDLE_HEIGHT, EDGE_HANDLE_WIDTH, HANDLE_RADIUS);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/**
+ * Action handler for expanding left edge
+ */
+const expandLeftHandler = (eventData, transform, x, y) => {
+  const {
+    target
+  } = transform;
+  const expansion = getExpansion(target);
+
+  // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
+  const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
+
+  // Use SCALED half width since localPoint is in scaled coords
+  const scaleX = target.scaleX || 1;
+  const scaledHalfWidth = target.width * scaleX / 2;
+
+  // Calculate new expansion (how far left of the object's left edge)
+  // localPoint.x is negative when left of center
+  // Expansion starts when localPoint.x < -scaledHalfWidth
+  const newExpandLeft = Math.max(0, -scaledHalfWidth - localPoint.x);
+  if (Math.abs(newExpandLeft - expansion.expandLeft) > 0.5) {
+    var _target$canvas;
+    expansion.expandLeft = newExpandLeft;
+    target.setCoords();
+    (_target$canvas = target.canvas) === null || _target$canvas === void 0 || _target$canvas.requestRenderAll();
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Action handler for expanding right edge
+ */
+const expandRightHandler = (eventData, transform, x, y) => {
+  const {
+    target
+  } = transform;
+  const expansion = getExpansion(target);
+
+  // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
+  const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
+
+  // Use SCALED half width since localPoint is in scaled coords
+  const scaleX = target.scaleX || 1;
+  const scaledHalfWidth = target.width * scaleX / 2;
+
+  // Calculate new expansion (how far right of the object's right edge)
+  // localPoint.x is positive when right of center
+  // Expansion starts when localPoint.x > scaledHalfWidth
+  const newExpandRight = Math.max(0, localPoint.x - scaledHalfWidth);
+  if (Math.abs(newExpandRight - expansion.expandRight) > 0.5) {
+    var _target$canvas2;
+    expansion.expandRight = newExpandRight;
+    target.setCoords();
+    (_target$canvas2 = target.canvas) === null || _target$canvas2 === void 0 || _target$canvas2.requestRenderAll();
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Action handler for expanding top edge
+ */
+const expandTopHandler = (eventData, transform, x, y) => {
+  const {
+    target
+  } = transform;
+  const expansion = getExpansion(target);
+
+  // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
+  const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
+
+  // Use SCALED half height since localPoint is in scaled coords
+  const scaleY = target.scaleY || 1;
+  const scaledHalfHeight = target.height * scaleY / 2;
+
+  // Calculate new expansion (how far above the object's top edge)
+  const newExpandTop = Math.max(0, -scaledHalfHeight - localPoint.y);
+  if (Math.abs(newExpandTop - expansion.expandTop) > 0.5) {
+    var _target$canvas3;
+    expansion.expandTop = newExpandTop;
+    target.setCoords();
+    (_target$canvas3 = target.canvas) === null || _target$canvas3 === void 0 || _target$canvas3.requestRenderAll();
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Action handler for expanding bottom edge
+ */
+const expandBottomHandler = (eventData, transform, x, y) => {
+  const {
+    target
+  } = transform;
+  const expansion = getExpansion(target);
+
+  // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
+  const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
+
+  // Use SCALED half height since localPoint is in scaled coords
+  const scaleY = target.scaleY || 1;
+  const scaledHalfHeight = target.height * scaleY / 2;
+
+  // Calculate new expansion (how far below the object's bottom edge)
+  const newExpandBottom = Math.max(0, localPoint.y - scaledHalfHeight);
+  if (Math.abs(newExpandBottom - expansion.expandBottom) > 0.5) {
+    var _target$canvas4;
+    expansion.expandBottom = newExpandBottom;
+    target.setCoords();
+    (_target$canvas4 = target.canvas) === null || _target$canvas4 === void 0 || _target$canvas4.requestRenderAll();
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Combined handler for corner controls (affects two directions)
+ */
+function createCornerExpandHandler(horizontalHandler, verticalHandler) {
+  return (eventData, transform, x, y) => {
+    const h = horizontalHandler(eventData, transform, x, y);
+    const v = verticalHandler(eventData, transform, x, y);
+    return h || v;
+  };
+}
+
+/**
+ * Cursor style handler for expand controls
+ */
+function expandCursorStyleHandler(eventData, control, fabricObject) {
+  const expandControl = control;
+  const directions = expandControl.expandDirections;
+
+  // Determine cursor based on direction
+  if (directions.includes('left') && directions.includes('right')) {
+    return 'ew-resize';
+  }
+  if (directions.includes('top') && directions.includes('bottom')) {
+    return 'ns-resize';
+  }
+  if (directions.includes('left') || directions.includes('right')) {
+    return 'ew-resize';
+  }
+  if (directions.includes('top') || directions.includes('bottom')) {
+    return 'ns-resize';
+  }
+  if (directions.length === 2) {
+    // Corner
+    if (directions.includes('left') && directions.includes('top') || directions.includes('right') && directions.includes('bottom')) {
+      return 'nwse-resize';
+    }
+    return 'nesw-resize';
+  }
+  return 'move';
+}
+
+/**
+ * Create the set of expand controls for an object
+ */
+function createExpandControls() {
+  return {
+    // Edge controls
+    ml: new ExpandControl({
+      x: -0.5,
+      y: 0,
+      expandDirections: ['left'],
+      actionHandler: expandLeftHandler,
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: EDGE_HANDLE_WIDTH,
+      sizeY: EDGE_HANDLE_HEIGHT
+    }),
+    mr: new ExpandControl({
+      x: 0.5,
+      y: 0,
+      expandDirections: ['right'],
+      actionHandler: expandRightHandler,
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: EDGE_HANDLE_WIDTH,
+      sizeY: EDGE_HANDLE_HEIGHT
+    }),
+    mt: new ExpandControl({
+      x: 0,
+      y: -0.5,
+      expandDirections: ['top'],
+      actionHandler: expandTopHandler,
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: EDGE_HANDLE_HEIGHT,
+      sizeY: EDGE_HANDLE_WIDTH
+    }),
+    mb: new ExpandControl({
+      x: 0,
+      y: 0.5,
+      expandDirections: ['bottom'],
+      actionHandler: expandBottomHandler,
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: EDGE_HANDLE_HEIGHT,
+      sizeY: EDGE_HANDLE_WIDTH
+    }),
+    // Corner controls
+    tl: new ExpandControl({
+      x: -0.5,
+      y: -0.5,
+      expandDirections: ['left', 'top'],
+      actionHandler: createCornerExpandHandler(expandLeftHandler, expandTopHandler),
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: CORNER_HANDLE_SIZE,
+      sizeY: CORNER_HANDLE_SIZE
+    }),
+    tr: new ExpandControl({
+      x: 0.5,
+      y: -0.5,
+      expandDirections: ['right', 'top'],
+      actionHandler: createCornerExpandHandler(expandRightHandler, expandTopHandler),
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: CORNER_HANDLE_SIZE,
+      sizeY: CORNER_HANDLE_SIZE
+    }),
+    bl: new ExpandControl({
+      x: -0.5,
+      y: 0.5,
+      expandDirections: ['left', 'bottom'],
+      actionHandler: createCornerExpandHandler(expandLeftHandler, expandBottomHandler),
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: CORNER_HANDLE_SIZE,
+      sizeY: CORNER_HANDLE_SIZE
+    }),
+    br: new ExpandControl({
+      x: 0.5,
+      y: 0.5,
+      expandDirections: ['right', 'bottom'],
+      actionHandler: createCornerExpandHandler(expandRightHandler, expandBottomHandler),
+      cursorStyleHandler: expandCursorStyleHandler,
+      sizeX: CORNER_HANDLE_SIZE,
+      sizeY: CORNER_HANDLE_SIZE
+    })
+  };
+}
+
 class InteractiveFabricObject extends FabricObject$1 {
   static getDefaults() {
     return {
@@ -9335,6 +9735,9 @@ class InteractiveFabricObject extends FabricObject$1 {
     super();
     Object.assign(this, this.constructor.createControls(), InteractiveFabricObject.ownDefaults);
     this.setOptions(options);
+    // Initialize expansion state
+    this.expandMode = false;
+    this.expansion = createDefaultExpansion();
   }
 
   /**
@@ -9617,6 +10020,11 @@ class InteractiveFabricObject extends FabricObject$1 {
     } else {
       size = this._calculateCurrentDimensions().scalarAdd(this.borderScaleFactor);
     }
+
+    // Draw expansion preview if in expand mode or has expansion
+    if (this.expandMode || this.hasExpansion()) {
+      this.drawExpandPreview(ctx, size);
+    }
     this._drawBorders(ctx, size, styleOverride);
   }
 
@@ -9869,6 +10277,192 @@ class InteractiveFabricObject extends FabricObject$1 {
   renderDropTargetEffect(_e) {
     // for subclasses
   }
+
+  // ==================== EXPAND MODE API ====================
+
+  /**
+   * Saved lock state before expand mode
+   * @private
+   */
+
+  /**
+   * Enter expand mode - switches controls to expansion handles
+   * for defining AI outpainting areas
+   */
+  enterExpandMode() {
+    var _this$canvas2;
+    if (this.expandMode) return;
+
+    // Save current controls
+    this._savedControls = this.controls;
+
+    // Save and lock movement/scaling to prevent default behaviors
+    this._savedLockMovementX = this.lockMovementX;
+    this._savedLockMovementY = this.lockMovementY;
+    this._savedLockScalingX = this.lockScalingX;
+    this._savedLockScalingY = this.lockScalingY;
+    this.lockMovementX = true;
+    this.lockMovementY = true;
+    this.lockScalingX = true;
+    this.lockScalingY = true;
+
+    // Switch to expand controls
+    this.controls = createExpandControls();
+    this.expandMode = true;
+
+    // Recalculate control positions
+    this.setCoords();
+    (_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 || _this$canvas2.requestRenderAll();
+  }
+
+  /**
+   * Exit expand mode - restores normal controls
+   */
+  exitExpandMode() {
+    var _this$canvas3;
+    if (!this.expandMode) return;
+
+    // Restore saved controls
+    if (this._savedControls) {
+      this.controls = this._savedControls;
+      this._savedControls = undefined;
+    } else {
+      // Fallback to default controls
+      this.controls = createObjectDefaultControls();
+    }
+
+    // Restore lock states
+    if (this._savedLockMovementX !== undefined) {
+      this.lockMovementX = this._savedLockMovementX;
+      this._savedLockMovementX = undefined;
+    }
+    if (this._savedLockMovementY !== undefined) {
+      this.lockMovementY = this._savedLockMovementY;
+      this._savedLockMovementY = undefined;
+    }
+    if (this._savedLockScalingX !== undefined) {
+      this.lockScalingX = this._savedLockScalingX;
+      this._savedLockScalingX = undefined;
+    }
+    if (this._savedLockScalingY !== undefined) {
+      this.lockScalingY = this._savedLockScalingY;
+      this._savedLockScalingY = undefined;
+    }
+    this.expandMode = false;
+
+    // Recalculate control positions
+    this.setCoords();
+    (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
+  }
+
+  /**
+   * Toggle expand mode
+   */
+  toggleExpandMode() {
+    if (this.expandMode) {
+      this.exitExpandMode();
+    } else {
+      this.enterExpandMode();
+    }
+  }
+
+  /**
+   * Get the current expansion state
+   * @returns ExpansionState with expandLeft, expandRight, expandTop, expandBottom
+   */
+  getExpansion() {
+    return {
+      ...this.expansion
+    };
+  }
+
+  /**
+   * Set expansion values
+   * @param expansion Partial expansion state to merge
+   */
+  setExpansion(expansion) {
+    var _this$canvas4;
+    Object.assign(this.expansion, expansion);
+    this.setCoords();
+    (_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 || _this$canvas4.requestRenderAll();
+  }
+
+  /**
+   * Reset expansion to zero in all directions
+   */
+  resetExpansion() {
+    var _this$canvas5;
+    this.expansion = createDefaultExpansion();
+    this.setCoords();
+    (_this$canvas5 = this.canvas) === null || _this$canvas5 === void 0 || _this$canvas5.requestRenderAll();
+  }
+
+  /**
+   * Check if object has any expansion set
+   */
+  hasExpansion() {
+    const {
+      expandLeft,
+      expandRight,
+      expandTop,
+      expandBottom
+    } = this.expansion;
+    return expandLeft > 0 || expandRight > 0 || expandTop > 0 || expandBottom > 0;
+  }
+
+  /**
+   * Get the total expanded dimensions
+   * @returns Object with expandedWidth and expandedHeight
+   */
+  getExpandedDimensions() {
+    const {
+      expandLeft,
+      expandRight,
+      expandTop,
+      expandBottom
+    } = this.expansion;
+    return {
+      expandedWidth: this.width + expandLeft + expandRight,
+      expandedHeight: this.height + expandTop + expandBottom
+    };
+  }
+
+  /**
+   * Draw the expansion preview area
+   * Called during border rendering when in expand mode
+   * @param ctx Canvas rendering context
+   * @param size Object dimensions (already includes scale)
+   * Note: expansion values are stored in screen pixels (already scaled)
+   */
+  drawExpandPreview(ctx, size) {
+    if (!this.expandMode && !this.hasExpansion()) return;
+    const {
+      expandLeft,
+      expandRight,
+      expandTop,
+      expandBottom
+    } = this.expansion;
+
+    // Expansion values are already in screen pixels, use directly
+    const expandedWidth = size.x + expandLeft + expandRight;
+    const expandedHeight = size.y + expandTop + expandBottom;
+
+    // Offset to account for asymmetric expansion
+    const offsetX = (expandRight - expandLeft) / 2;
+    const offsetY = (expandBottom - expandTop) / 2;
+    ctx.save();
+
+    // Draw expansion area fill
+    ctx.fillStyle = EXPAND_PREVIEW_FILL;
+    ctx.fillRect(-expandedWidth / 2 + offsetX, -expandedHeight / 2 + offsetY, expandedWidth, expandedHeight);
+
+    // Draw expansion border
+    ctx.strokeStyle = EXPAND_PREVIEW_STROKE;
+    ctx.lineWidth = 1;
+    ctx.setLineDash(EXPAND_PREVIEW_DASH);
+    ctx.strokeRect(-expandedWidth / 2 + offsetX, -expandedHeight / 2 + offsetY, expandedWidth, expandedHeight);
+    ctx.restore();
+  }
 }
 /**
  * The object's controls' position in viewport coordinates
@@ -9904,6 +10498,16 @@ class InteractiveFabricObject extends FabricObject$1 {
  * Probably added to keep track of some performance issues
  * @TODO use git blame to investigate why it was added
  * DON'T USE IT. WE WILL TRY TO REMOVE IT
+ */
+/**
+ * Whether the object is in expand mode (for AI outpainting)
+ */
+/**
+ * Expansion state for AI outpainting (pixels to expand in each direction)
+ */
+/**
+ * Saved controls when switching to expand mode
+ * @private
  */
 _defineProperty(InteractiveFabricObject, "ownDefaults", interactiveObjectDefaultValues);
 
@@ -30464,6 +31068,11 @@ class Frame extends Group {
      * @private
      */
     _defineProperty(this, "_editModeClipPath", void 0);
+    // ==================== CONTENT EXPAND MODE ====================
+    /**
+     * Whether the content image is in expand mode
+     */
+    _defineProperty(this, "_contentExpandMode", false);
     Object.assign(this, Frame.ownDefaults);
 
     // Apply user options
@@ -31206,60 +31815,69 @@ class Frame extends Group {
 
     // Draw edit mode overlay if in edit mode
     if (this.isEditMode && this._editModeClipPath) {
-      this._renderEditModeOverlay(ctx);
+      this._renderEditModeOverlay(ctx, false);
+
+      // In expand mode, re-render the content image's controls ON TOP of the overlay
+      if (this._contentExpandMode && this._contentImage) {
+        this._contentImage._renderControls(ctx);
+      }
     }
   }
 
   /**
    * Renders the edit mode overlay - dims area outside frame, shows frame border
    * @private
+   * @param skipDimOverlay - if true, skip the dark overlay (for expand mode)
    */
   _renderEditModeOverlay(ctx) {
+    let skipDimOverlay = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
     ctx.save();
 
     // Apply the group's transform
     const m = this.calcTransformMatrix();
     ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
 
-    // Draw semi-transparent overlay on the OUTSIDE of the frame
-    // We do this by drawing a large rect and cutting out the frame shape
-    ctx.beginPath();
+    // Draw semi-transparent overlay on the OUTSIDE of the frame (skip in expand mode)
+    if (!skipDimOverlay) {
+      // We do this by drawing a large rect and cutting out the frame shape
+      ctx.beginPath();
 
-    // Large outer rectangle (covers the whole image area)
-    const padding = 2000; // Large enough to cover any overflow
-    ctx.rect(-padding, -padding, padding * 2, padding * 2);
+      // Large outer rectangle (covers the whole image area)
+      const padding = 2000; // Large enough to cover any overflow
+      ctx.rect(-padding, -padding, padding * 2, padding * 2);
 
-    // Cut out the frame shape (counter-clockwise to create hole)
-    if (this.frameShape === 'circle') {
-      const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
-      ctx.moveTo(radius, 0);
-      ctx.arc(0, 0, radius, 0, Math.PI * 2, true);
-    } else if (this.frameShape === 'rounded-rect') {
-      const w = this.frameWidth / 2;
-      const h = this.frameHeight / 2;
-      const r = Math.min(this.frameBorderRadius, w, h);
-      ctx.moveTo(w, h - r);
-      ctx.arcTo(w, -h, w - r, -h, r);
-      ctx.arcTo(-w, -h, -w, -h + r, r);
-      ctx.arcTo(-w, h, -w + r, h, r);
-      ctx.arcTo(w, h, w, h - r, r);
-      ctx.closePath();
-    } else {
-      // Rectangle
-      const w = this.frameWidth / 2;
-      const h = this.frameHeight / 2;
-      ctx.moveTo(w, -h);
-      ctx.lineTo(-w, -h);
-      ctx.lineTo(-w, h);
-      ctx.lineTo(w, h);
-      ctx.closePath();
+      // Cut out the frame shape (counter-clockwise to create hole)
+      if (this.frameShape === 'circle') {
+        const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
+        ctx.moveTo(radius, 0);
+        ctx.arc(0, 0, radius, 0, Math.PI * 2, true);
+      } else if (this.frameShape === 'rounded-rect') {
+        const w = this.frameWidth / 2;
+        const h = this.frameHeight / 2;
+        const r = Math.min(this.frameBorderRadius, w, h);
+        ctx.moveTo(w, h - r);
+        ctx.arcTo(w, -h, w - r, -h, r);
+        ctx.arcTo(-w, -h, -w, -h + r, r);
+        ctx.arcTo(-w, h, -w + r, h, r);
+        ctx.arcTo(w, h, w, h - r, r);
+        ctx.closePath();
+      } else {
+        // Rectangle
+        const w = this.frameWidth / 2;
+        const h = this.frameHeight / 2;
+        ctx.moveTo(w, -h);
+        ctx.lineTo(-w, -h);
+        ctx.lineTo(-w, h);
+        ctx.lineTo(w, h);
+        ctx.closePath();
+      }
+
+      // Fill with semi-transparent dark overlay
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fill('evenodd');
     }
 
-    // Fill with semi-transparent dark overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fill('evenodd');
-
-    // Draw frame border
+    // Draw frame border (always visible)
     ctx.beginPath();
     if (this.frameShape === 'circle') {
       const radius = Math.min(this.frameWidth, this.frameHeight) / 2;
@@ -31298,6 +31916,11 @@ class Frame extends Group {
     var _this$_contentImage$l, _this$_contentImage$t, _this$_contentImage$s, _this$_contentImage$s2, _ref9, _this$frameMeta$origi5, _ref0, _this$frameMeta$origi6;
     if (!this._contentImage || !this.isEditMode) {
       return;
+    }
+
+    // Exit content expand mode first if active
+    if (this._contentExpandMode) {
+      this.exitContentExpandMode();
     }
     this.isEditMode = false;
 
@@ -31386,6 +32009,96 @@ class Frame extends Group {
     } else {
       this.enterEditMode();
     }
+  }
+  /**
+   * Enter expand mode for the content image (for AI outpainting)
+   * Must be in edit mode first
+   */
+  enterContentExpandMode() {
+    if (!this._contentImage || !this.isEditMode) {
+      console.warn('Frame: Must be in edit mode with content to enter expand mode');
+      return;
+    }
+    if (this._contentExpandMode) return;
+    this._contentExpandMode = true;
+
+    // Remove constraints - in expand mode we don't enforce image covering frame
+    this._removeEditModeConstraints();
+
+    // Enter expand mode on the content image
+    this._contentImage.enterExpandMode();
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  /**
+   * Exit expand mode for the content image
+   */
+  exitContentExpandMode() {
+    if (!this._contentImage || !this._contentExpandMode) return;
+    this._contentExpandMode = false;
+
+    // Exit expand mode on the content image
+    this._contentImage.exitExpandMode();
+
+    // Re-add constraints if still in edit mode
+    if (this.isEditMode) {
+      this._setupEditModeConstraints();
+    }
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  /**
+   * Toggle expand mode for content image
+   */
+  toggleContentExpandMode() {
+    if (this._contentExpandMode) {
+      this.exitContentExpandMode();
+    } else {
+      this.enterContentExpandMode();
+    }
+  }
+
+  /**
+   * Check if content is in expand mode
+   */
+  isContentExpandMode() {
+    return this._contentExpandMode;
+  }
+
+  /**
+   * Get expansion values from the content image
+   */
+  getContentExpansion() {
+    if (!this._contentImage) return null;
+    return this._contentImage.getExpansion();
+  }
+
+  /**
+   * Set expansion values on the content image
+   */
+  setContentExpansion(expansion) {
+    if (!this._contentImage) return;
+    this._contentImage.setExpansion(expansion);
+  }
+
+  /**
+   * Reset content expansion to zero
+   */
+  resetContentExpansion() {
+    if (!this._contentImage) return;
+    this._contentImage.resetExpansion();
+  }
+
+  /**
+   * Check if content has any expansion
+   */
+  hasContentExpansion() {
+    if (!this._contentImage) return false;
+    return this._contentImage.hasExpansion();
   }
 
   /**
@@ -32793,7 +33506,15 @@ function createPathControls(path) {
 
 var index = /*#__PURE__*/Object.freeze({
   __proto__: null,
+  EXPAND_HANDLE_FILL: EXPAND_HANDLE_FILL,
+  EXPAND_HANDLE_STROKE: EXPAND_HANDLE_STROKE,
+  EXPAND_PREVIEW_DASH: EXPAND_PREVIEW_DASH,
+  EXPAND_PREVIEW_FILL: EXPAND_PREVIEW_FILL,
+  EXPAND_PREVIEW_STROKE: EXPAND_PREVIEW_STROKE,
+  ExpandControl: ExpandControl,
   changeWidth: changeWidth,
+  createDefaultExpansion: createDefaultExpansion,
+  createExpandControls: createExpandControls,
   createObjectDefaultControls: createObjectDefaultControls,
   createPathControls: createPathControls,
   createPolyActionHandler: createPolyActionHandler,
@@ -32802,7 +33523,12 @@ var index = /*#__PURE__*/Object.freeze({
   createResizeControls: createResizeControls,
   createTextboxDefaultControls: createTextboxDefaultControls,
   dragHandler: dragHandler,
+  expandBottomHandler: expandBottomHandler,
+  expandLeftHandler: expandLeftHandler,
+  expandRightHandler: expandRightHandler,
+  expandTopHandler: expandTopHandler,
   factoryPolyActionHandler: factoryPolyActionHandler,
+  getExpansion: getExpansion,
   getLocalPoint: getLocalPoint,
   polyActionHandler: polyActionHandler,
   renderCircleControl: renderCircleControl,
@@ -32817,6 +33543,7 @@ var index = /*#__PURE__*/Object.freeze({
   scalingXOrSkewingY: scalingXOrSkewingY,
   scalingY: scalingY,
   scalingYOrSkewingX: scalingYOrSkewingX,
+  setExpansion: setExpansion,
   skewCursorStyleHandler: skewCursorStyleHandler,
   skewHandlerX: skewHandlerX,
   skewHandlerY: skewHandlerY,

@@ -18,6 +18,16 @@ import type { ControlRenderingStyleOverride } from '../../controls/controlRender
 import type { FabricObjectProps } from './types/FabricObjectProps';
 import type { TFabricObjectProps, SerializedObjectProps } from './types';
 import { createObjectDefaultControls } from '../../controls/commonControls';
+import {
+  createExpandControls,
+  getExpansion,
+  setExpansion as setExpansionState,
+  createDefaultExpansion,
+  EXPAND_PREVIEW_FILL,
+  EXPAND_PREVIEW_STROKE,
+  EXPAND_PREVIEW_DASH,
+  type ExpansionState,
+} from '../../controls/expandControl';
 import { interactiveObjectDefaultValues } from './defaultValues';
 import { SCALE } from '../../constants';
 
@@ -135,6 +145,22 @@ export class InteractiveFabricObject<
 
   declare canvas?: Canvas;
 
+  /**
+   * Whether the object is in expand mode (for AI outpainting)
+   */
+  declare expandMode: boolean;
+
+  /**
+   * Expansion state for AI outpainting (pixels to expand in each direction)
+   */
+  declare expansion: ExpansionState;
+
+  /**
+   * Saved controls when switching to expand mode
+   * @private
+   */
+  declare _savedControls?: TControlSet;
+
   static ownDefaults = interactiveObjectDefaultValues;
 
   static getDefaults(): Record<string, any> {
@@ -156,6 +182,9 @@ export class InteractiveFabricObject<
       InteractiveFabricObject.ownDefaults,
     );
     this.setOptions(options);
+    // Initialize expansion state
+    this.expandMode = false;
+    this.expansion = createDefaultExpansion();
   }
 
   /**
@@ -504,6 +533,12 @@ export class InteractiveFabricObject<
         this.borderScaleFactor,
       );
     }
+
+    // Draw expansion preview if in expand mode or has expansion
+    if (this.expandMode || this.hasExpansion()) {
+      this.drawExpandPreview(ctx, size);
+    }
+
     this._drawBorders(ctx, size, styleOverride);
   }
 
@@ -765,5 +800,189 @@ export class InteractiveFabricObject<
    */
   renderDropTargetEffect(_e: DragEvent) {
     // for subclasses
+  }
+
+  // ==================== EXPAND MODE API ====================
+
+  /**
+   * Saved lock state before expand mode
+   * @private
+   */
+  declare _savedLockMovementX?: boolean;
+  declare _savedLockMovementY?: boolean;
+  declare _savedLockScalingX?: boolean;
+  declare _savedLockScalingY?: boolean;
+
+  /**
+   * Enter expand mode - switches controls to expansion handles
+   * for defining AI outpainting areas
+   */
+  enterExpandMode(): void {
+    if (this.expandMode) return;
+
+    // Save current controls
+    this._savedControls = this.controls;
+
+    // Save and lock movement/scaling to prevent default behaviors
+    this._savedLockMovementX = this.lockMovementX;
+    this._savedLockMovementY = this.lockMovementY;
+    this._savedLockScalingX = this.lockScalingX;
+    this._savedLockScalingY = this.lockScalingY;
+
+    this.lockMovementX = true;
+    this.lockMovementY = true;
+    this.lockScalingX = true;
+    this.lockScalingY = true;
+
+    // Switch to expand controls
+    this.controls = createExpandControls();
+    this.expandMode = true;
+
+    // Recalculate control positions
+    this.setCoords();
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   * Exit expand mode - restores normal controls
+   */
+  exitExpandMode(): void {
+    if (!this.expandMode) return;
+
+    // Restore saved controls
+    if (this._savedControls) {
+      this.controls = this._savedControls;
+      this._savedControls = undefined;
+    } else {
+      // Fallback to default controls
+      this.controls = createObjectDefaultControls();
+    }
+
+    // Restore lock states
+    if (this._savedLockMovementX !== undefined) {
+      this.lockMovementX = this._savedLockMovementX;
+      this._savedLockMovementX = undefined;
+    }
+    if (this._savedLockMovementY !== undefined) {
+      this.lockMovementY = this._savedLockMovementY;
+      this._savedLockMovementY = undefined;
+    }
+    if (this._savedLockScalingX !== undefined) {
+      this.lockScalingX = this._savedLockScalingX;
+      this._savedLockScalingX = undefined;
+    }
+    if (this._savedLockScalingY !== undefined) {
+      this.lockScalingY = this._savedLockScalingY;
+      this._savedLockScalingY = undefined;
+    }
+
+    this.expandMode = false;
+
+    // Recalculate control positions
+    this.setCoords();
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   * Toggle expand mode
+   */
+  toggleExpandMode(): void {
+    if (this.expandMode) {
+      this.exitExpandMode();
+    } else {
+      this.enterExpandMode();
+    }
+  }
+
+  /**
+   * Get the current expansion state
+   * @returns ExpansionState with expandLeft, expandRight, expandTop, expandBottom
+   */
+  getExpansion(): ExpansionState {
+    return { ...this.expansion };
+  }
+
+  /**
+   * Set expansion values
+   * @param expansion Partial expansion state to merge
+   */
+  setExpansion(expansion: Partial<ExpansionState>): void {
+    Object.assign(this.expansion, expansion);
+    this.setCoords();
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   * Reset expansion to zero in all directions
+   */
+  resetExpansion(): void {
+    this.expansion = createDefaultExpansion();
+    this.setCoords();
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   * Check if object has any expansion set
+   */
+  hasExpansion(): boolean {
+    const { expandLeft, expandRight, expandTop, expandBottom } = this.expansion;
+    return expandLeft > 0 || expandRight > 0 || expandTop > 0 || expandBottom > 0;
+  }
+
+  /**
+   * Get the total expanded dimensions
+   * @returns Object with expandedWidth and expandedHeight
+   */
+  getExpandedDimensions(): { expandedWidth: number; expandedHeight: number } {
+    const { expandLeft, expandRight, expandTop, expandBottom } = this.expansion;
+    return {
+      expandedWidth: this.width + expandLeft + expandRight,
+      expandedHeight: this.height + expandTop + expandBottom,
+    };
+  }
+
+  /**
+   * Draw the expansion preview area
+   * Called during border rendering when in expand mode
+   * @param ctx Canvas rendering context
+   * @param size Object dimensions (already includes scale)
+   * Note: expansion values are stored in screen pixels (already scaled)
+   */
+  drawExpandPreview(ctx: CanvasRenderingContext2D, size: Point): void {
+    if (!this.expandMode && !this.hasExpansion()) return;
+
+    const { expandLeft, expandRight, expandTop, expandBottom } = this.expansion;
+
+    // Expansion values are already in screen pixels, use directly
+    const expandedWidth = size.x + expandLeft + expandRight;
+    const expandedHeight = size.y + expandTop + expandBottom;
+
+    // Offset to account for asymmetric expansion
+    const offsetX = (expandRight - expandLeft) / 2;
+    const offsetY = (expandBottom - expandTop) / 2;
+
+    ctx.save();
+
+    // Draw expansion area fill
+    ctx.fillStyle = EXPAND_PREVIEW_FILL;
+    ctx.fillRect(
+      -expandedWidth / 2 + offsetX,
+      -expandedHeight / 2 + offsetY,
+      expandedWidth,
+      expandedHeight,
+    );
+
+    // Draw expansion border
+    ctx.strokeStyle = EXPAND_PREVIEW_STROKE;
+    ctx.lineWidth = 1;
+    ctx.setLineDash(EXPAND_PREVIEW_DASH);
+    ctx.strokeRect(
+      -expandedWidth / 2 + offsetX,
+      -expandedHeight / 2 + offsetY,
+      expandedWidth,
+      expandedHeight,
+    );
+
+    ctx.restore();
   }
 }
