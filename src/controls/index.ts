@@ -22,3 +22,4 @@ export { wrapWithFireEvent } from './wrapWithFireEvent';
 export { wrapWithFixedAnchor } from './wrapWithFixedAnchor';
 export * from './pathControl';
 export * from './expandControl';
+export * from './imageCropControls';

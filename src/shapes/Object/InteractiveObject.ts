@@ -534,9 +534,9 @@ export class InteractiveFabricObject<
       );
     }
 
-    // Draw expansion preview if in expand mode or has expansion
-    if (this.expandMode || this.hasExpansion()) {
-      this.drawExpandPreview(ctx, size);
+    // Draw expansion preview only when actively in expand mode
+    if (this.expandMode) {
+      this.drawExpandPreview(ctx, size, options);
     }
 
     this._drawBorders(ctx, size, styleOverride);
@@ -945,21 +945,47 @@ export class InteractiveFabricObject<
    * Draw the expansion preview area
    * Called during border rendering when in expand mode
    * @param ctx Canvas rendering context
-   * @param size Object dimensions (already includes scale)
-   * Note: expansion values are stored in screen pixels (already scaled)
+   * @param size Object dimensions (already in correct coordinate space from drawBorders)
+   * @param options Decomposed transform options (contains scaleX, scaleY)
+   * Note: expansion values are stored in local object coordinates
+   *
+   * Key insight: size is proportional to object dimensions.
+   * Express expansion as a proportion of object size, then scale by size.
+   * This ensures correct behavior with zoom and grouped objects.
    */
-  drawExpandPreview(ctx: CanvasRenderingContext2D, size: Point): void {
-    if (!this.expandMode && !this.hasExpansion()) return;
+  drawExpandPreview(
+    ctx: CanvasRenderingContext2D,
+    size: Point,
+    options?: TQrDecomposeOut,
+  ): void {
+    if (!this.expandMode) return;
+
+    // Use size but subtract borderScaleFactor and padding to match control positioning
+    const borderOffset = this.borderScaleFactor || 1;
+    const paddingOffset = (this.padding || 0) * 2;
+    const dim = {
+      x: size.x - borderOffset - paddingOffset,
+      y: size.y - borderOffset - paddingOffset,
+    };
+
+    // Calculate scale factor from dim for expansion scaling
+    const scaleX = dim.x / (this.width || 1);
+    const scaleY = dim.y / (this.height || 1);
 
     const { expandLeft, expandRight, expandTop, expandBottom } = this.expansion;
 
-    // Expansion values are already in screen pixels, use directly
-    const expandedWidth = size.x + expandLeft + expandRight;
-    const expandedHeight = size.y + expandTop + expandBottom;
+    const scaledExpandLeft = expandLeft * scaleX;
+    const scaledExpandRight = expandRight * scaleX;
+    const scaledExpandTop = expandTop * scaleY;
+    const scaledExpandBottom = expandBottom * scaleY;
+
+    // Calculate expanded dimensions
+    const expandedWidth = dim.x + scaledExpandLeft + scaledExpandRight;
+    const expandedHeight = dim.y + scaledExpandTop + scaledExpandBottom;
 
     // Offset to account for asymmetric expansion
-    const offsetX = (expandRight - expandLeft) / 2;
-    const offsetY = (expandBottom - expandTop) / 2;
+    const offsetX = (scaledExpandRight - scaledExpandLeft) / 2;
+    const offsetY = (scaledExpandBottom - scaledExpandTop) / 2;
 
     ctx.save();
 

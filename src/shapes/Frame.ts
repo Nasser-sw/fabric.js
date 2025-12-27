@@ -28,8 +28,12 @@ export type FrameShapeType = 'rect' | 'circle' | 'rounded-rect' | 'custom';
 export interface FrameMeta {
   /** Aspect ratio label (e.g., '16:9', '1:1', '4:5') */
   aspect?: string;
-  /** Content scale factor for cover scaling */
+  /** Content scale factor for cover scaling (deprecated, use contentScaleX/Y) */
   contentScale?: number;
+  /** Content X scale factor (for non-uniform scaling) */
+  contentScaleX?: number;
+  /** Content Y scale factor (for non-uniform scaling) */
+  contentScaleY?: number;
   /** X offset of content within frame */
   contentOffsetX?: number;
   /** Y offset of content within frame */
@@ -143,6 +147,12 @@ export class Frame extends Group {
    * @private
    */
   private _editModeObjectCaching?: boolean;
+
+  /**
+   * Stored original controls of content image before edit mode
+   * @private
+   */
+  private _editModeOriginalControls?: Record<string, any>;
 
   static ownDefaults = frameDefaultValues;
 
@@ -828,9 +838,19 @@ export class Frame extends Group {
       hasBorders: true,
       minScaleLimit: minScale,
       lockScalingFlip: true,
+      lockUniScaling: false, // Allow non-uniform stretching
       objectCaching: false,
     });
     this._contentImage.dirty = true;
+
+    // Save original controls and replace with corner-only controls for scaling
+    this._editModeOriginalControls = this._contentImage.controls;
+    this._contentImage.controls = {
+      tl: this._contentImage.controls.tl,
+      tr: this._contentImage.controls.tr,
+      bl: this._contentImage.controls.bl,
+      br: this._contentImage.controls.br,
+    };
 
     // Store and remove clipPath to show full image
     // We must actually remove it (not just skip rendering) because Fabric's
@@ -845,11 +865,15 @@ export class Frame extends Group {
 
     this.set('dirty', true);
 
-    // Just render - don't call setActiveObject() on the content image
-    // because it causes position miscalculation with viewport transforms.
-    // The content image is still interactive via subTargetCheck = true
+    // Select the content image so its controls are active
     if (this.canvas) {
-      this.canvas.renderAll();
+      // Use requestAnimationFrame to ensure rendering is complete before selecting
+      requestAnimationFrame(() => {
+        if (this._contentImage && this.canvas) {
+          this.canvas.setActiveObject(this._contentImage);
+          this.canvas.requestRenderAll();
+        }
+      });
     }
 
     // Fire custom event
@@ -879,10 +903,11 @@ export class Frame extends Group {
 
       const originalWidth = frame.frameMeta.originalWidth ?? img.width ?? 100;
       const originalHeight = frame.frameMeta.originalHeight ?? img.height ?? 100;
-      const currentScale = img.scaleX ?? 1;
+      const scaleX = img.scaleX ?? 1;
+      const scaleY = img.scaleY ?? 1;
 
-      const scaledImgHalfW = (originalWidth * currentScale) / 2;
-      const scaledImgHalfH = (originalHeight * currentScale) / 2;
+      const scaledImgHalfW = (originalWidth * scaleX) / 2;
+      const scaledImgHalfH = (originalHeight * scaleY) / 2;
       const frameHalfW = frame.frameWidth / 2;
       const frameHalfH = frame.frameHeight / 2;
 
@@ -905,14 +930,19 @@ export class Frame extends Group {
 
       const originalWidth = frame.frameMeta.originalWidth ?? img.width ?? 100;
       const originalHeight = frame.frameMeta.originalHeight ?? img.height ?? 100;
-      const minScale = frame._calculateCoverScale(originalWidth, originalHeight);
+
+      // Calculate minimum scale for each axis independently
+      const minScaleX = frame.frameWidth / originalWidth;
+      const minScaleY = frame.frameHeight / originalHeight;
 
       let scaleX = img.scaleX ?? 1;
       let scaleY = img.scaleY ?? 1;
 
-      // Ensure uniform scaling and minimum scale
-      const scale = Math.max(minScale, Math.max(scaleX, scaleY));
-      img.set({ scaleX: scale, scaleY: scale });
+      // Ensure each axis meets minimum scale (allows non-uniform stretching)
+      scaleX = Math.max(minScaleX, scaleX);
+      scaleY = Math.max(minScaleY, scaleY);
+
+      img.set({ scaleX, scaleY });
 
       // Also constrain position after scale
       frame._boundConstrainMove?.(e);
@@ -991,11 +1021,8 @@ export class Frame extends Group {
     // Draw edit mode overlay if in edit mode
     if (this.isEditMode && this._editModeClipPath) {
       this._renderEditModeOverlay(ctx, false);
-
-      // In expand mode, re-render the content image's controls ON TOP of the overlay
-      if (this._contentExpandMode && this._contentImage) {
-        this._contentImage._renderControls(ctx);
-      }
+      // Note: Controls are rendered by the canvas's normal rendering pipeline
+      // with proper viewport transforms - no manual _renderControls call needed
     }
   }
 
@@ -1115,9 +1142,10 @@ export class Frame extends Group {
     // Constrain position so image always covers the frame
     const originalWidth = this.frameMeta.originalWidth ?? this._contentImage.width ?? 100;
     const originalHeight = this.frameMeta.originalHeight ?? this._contentImage.height ?? 100;
-    const currentScale = Math.max(contentScaleX, contentScaleY);
-    const scaledImgHalfW = (originalWidth * currentScale) / 2;
-    const scaledImgHalfH = (originalHeight * currentScale) / 2;
+
+    // Use actual scaleX/scaleY for non-uniform scaling support
+    const scaledImgHalfW = (originalWidth * contentScaleX) / 2;
+    const scaledImgHalfH = (originalHeight * contentScaleY) / 2;
     const frameHalfW = this.frameWidth / 2;
     const frameHalfH = this.frameHeight / 2;
 
@@ -1133,13 +1161,20 @@ export class Frame extends Group {
       top: constrainedTop,
     });
 
-    // Update metadata with new offsets and scale
+    // Update metadata with new offsets and scale (store both scaleX and scaleY)
     this.frameMeta = {
       ...this.frameMeta,
       contentOffsetX: constrainedLeft,
       contentOffsetY: constrainedTop,
-      contentScale: currentScale,
+      contentScaleX: contentScaleX,
+      contentScaleY: contentScaleY,
     };
+
+    // Restore original controls before making non-interactive
+    if (this._editModeOriginalControls) {
+      this._contentImage.controls = this._editModeOriginalControls;
+      this._editModeOriginalControls = undefined;
+    }
 
     // Make content non-interactive again and restore caching
     this._contentImage.set({
@@ -1147,6 +1182,8 @@ export class Frame extends Group {
       evented: false,
       hasControls: false,
       hasBorders: false,
+      lockUniScaling: false, // Reset to default
+      centeredScaling: false, // Reset to default
       objectCaching: true,
     });
 

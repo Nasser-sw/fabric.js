@@ -1,4 +1,6 @@
 import { getFabricDocument, getEnv } from '../env';
+import type { Control } from '../controls/Control';
+import { createImageCropControls, createImageCropModeControls } from '../controls/imageCropControls';
 import type { BaseFilter } from '../filters/BaseFilter';
 import { getFilterBackend } from '../filters/FilterBackend';
 import { SHARED_ATTRIBUTES } from '../parser/attributes';
@@ -56,6 +58,7 @@ export const imageDefaultValues: Partial<TClassProperties<FabricImage>> = {
   cropX: 0,
   cropY: 0,
   imageSmoothing: true,
+  cropMode: false,
 };
 
 export interface SerializedImageProps extends SerializedObjectProps {
@@ -169,6 +172,26 @@ export class FabricImage<
   declare _filteredEl?: HTMLCanvasElement;
   declare _originalElement: ImageSource;
 
+  /**
+   * Whether the image is in crop mode (double-click to enter)
+   */
+  declare cropMode: boolean;
+
+  /**
+   * Backup of normal controls when entering crop mode
+   */
+  private _normalControls?: Record<string, Control>;
+
+  /**
+   * Original position and crop values for drag-to-reposition in crop mode
+   * Updated at the start of each drag
+   */
+  private _cropModeOriginalLeft?: number;
+  private _cropModeOriginalTop?: number;
+  private _cropModeOriginalCropX?: number;
+  private _cropModeOriginalCropY?: number;
+  private _cropModeDragActive?: boolean;
+
   static type = 'Image';
 
   static cacheProperties = [...cacheProperties, ...IMAGE_PROPS];
@@ -181,6 +204,154 @@ export class FabricImage<
       ...FabricImage.ownDefaults,
     };
   }
+
+  /**
+   * Creates Canva-like controls for images
+   * - All handles scale uniformly
+   * - Double-click to enter crop mode
+   */
+  static createControls(): { controls: Record<string, Control> } {
+    return { controls: createImageCropControls() };
+  }
+
+  /**
+   * Enter crop mode - switches to crop controls
+   * Call this on double-click
+   */
+  enterCropMode(): void {
+    if (this.cropMode) return;
+
+    this.cropMode = true;
+    // Backup current controls
+    this._normalControls = { ...this.controls };
+    // Switch to crop mode controls
+    this.controls = createImageCropModeControls();
+    // Dirty cache to force re-render with full image visible
+    this.dirty = true;
+    // Reset drag state
+    this._cropModeDragActive = false;
+    this.setCoords();
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   * Exit crop mode - restores normal controls
+   * Call this on click outside or escape
+   */
+  exitCropMode(): void {
+    if (!this.cropMode) return;
+
+    this.cropMode = false;
+    // Restore normal controls
+    if (this._normalControls) {
+      this.controls = this._normalControls;
+      this._normalControls = undefined;
+    } else {
+      this.controls = createImageCropControls();
+    }
+    // Dirty cache to force re-render with cropped image only
+    this.dirty = true;
+    this.setCoords();
+    this.canvas?.requestRenderAll();
+  }
+
+  /**
+   * Toggle crop mode
+   */
+  toggleCropMode(): void {
+    if (this.cropMode) {
+      this.exitCropMode();
+    } else {
+      this.enterCropMode();
+    }
+  }
+
+  /**
+   * Override set to intercept movement in crop mode
+   * In crop mode, dragging adjusts cropX/cropY instead of left/top
+   */
+  // @ts-ignore - override set with different signature for crop mode handling
+  set(key: string | Record<string, unknown>, value?: unknown): this {
+    // Only intercept in crop mode when actually dragging (isMoving is true)
+    if (this.cropMode && this.isMoving && typeof key === 'string') {
+      if (key === 'left' && typeof value === 'number') {
+        return this._setCropModePosition('left', value);
+      }
+      if (key === 'top' && typeof value === 'number') {
+        return this._setCropModePosition('top', value);
+      }
+    }
+    return super.set(key as string, value);
+  }
+
+  /**
+   * Handle position changes in crop mode - converts to cropX/cropY changes
+   * @private
+   */
+  private _setCropModePosition(axis: 'left' | 'top', newPos: number): this {
+    const element = this._element as HTMLImageElement;
+    if (!element) {
+      return super.set(axis, newPos);
+    }
+
+    // Capture baseline values at the start of each new drag
+    if (!this._cropModeDragActive) {
+      this._cropModeDragActive = true;
+      this._cropModeOriginalLeft = this.left;
+      this._cropModeOriginalTop = this.top;
+      this._cropModeOriginalCropX = this.cropX;
+      this._cropModeOriginalCropY = this.cropY;
+    }
+
+    const scale = axis === 'left' ? (this.scaleX || 1) : (this.scaleY || 1);
+    const basePos = axis === 'left' ? this._cropModeOriginalLeft : this._cropModeOriginalTop;
+    const baseCrop = axis === 'left' ? this._cropModeOriginalCropX : this._cropModeOriginalCropY;
+    const cropProp = axis === 'left' ? 'cropX' : 'cropY';
+    const sizeProp = axis === 'left' ? 'width' : 'height';
+    const elSize = axis === 'left'
+      ? (element.naturalWidth || element.width)
+      : (element.naturalHeight || element.height);
+
+    if (basePos === undefined || baseCrop === undefined) {
+      return super.set(axis, newPos);
+    }
+
+    // Calculate total delta from drag start position
+    const totalDelta = newPos - basePos;
+
+    // Convert screen delta to source image pixels
+    // Dragging right (positive delta) should make the image follow the cursor
+    // Use Math.abs(scale) to handle flipped images.
+    const cropOffset = totalDelta / Math.abs(scale);
+
+    // Calculate new crop value from baseline crop + offset
+    const currentSize = (this[sizeProp] as number) || elSize;
+    let newCrop = baseCrop + cropOffset;
+
+    // Clamp to valid range: 0 to (elSize - visible size)
+    const maxCrop = Math.max(0, elSize - currentSize);
+    newCrop = Math.max(0, Math.min(maxCrop, newCrop));
+
+    // Update crop value
+    super.set(cropProp, newCrop);
+    // Keep position fixed at baseline
+    super.set(axis, basePos);
+    // Mark as dirty for re-render
+    this.dirty = true;
+
+    return this;
+  }
+
+  /**
+   * Reset crop mode drag state when drag ends
+   * Called by canvas on mouse up
+   */
+  _onMouseUp(): void {
+    if (this.cropMode) {
+      this._cropModeDragActive = false;
+    }
+  }
+
   /**
    * Constructor
    * Image can be initialized with any canvas drawable or a string.
@@ -615,6 +786,10 @@ export class FabricImage<
    * @return {Boolean}
    */
   shouldCache() {
+    // Don't cache in crop mode - we need to render the full image
+    if (this.cropMode) {
+      return false;
+    }
     return this.needsItsOwnCache();
   }
 
@@ -645,8 +820,97 @@ export class FabricImage<
       maxDestW = Math.min(w, elWidth / scaleX - cropX),
       maxDestH = Math.min(h, elHeight / scaleY - cropY);
 
-    elementToDraw &&
-      ctx.drawImage(elementToDraw, sX, sY, sW, sH, x, y, maxDestW, maxDestH);
+    if (this.cropMode) {
+      // In crop mode: show full image with crop area highlighted
+      this._renderCropMode(ctx, elementToDraw, elWidth, elHeight, scaleX, scaleY);
+    } else {
+      // Normal mode: just draw the cropped portion
+      elementToDraw &&
+        ctx.drawImage(elementToDraw, sX, sY, sW, sH, x, y, maxDestW, maxDestH);
+    }
+  }
+
+  /**
+   * Render the image in crop mode - shows full image dimmed with crop area highlighted
+   * @private
+   */
+  _renderCropMode(
+    ctx: CanvasRenderingContext2D,
+    elementToDraw: CanvasImageSource,
+    elWidth: number,
+    elHeight: number,
+    scaleX: number,
+    scaleY: number,
+  ) {
+    const w = this.width,
+      h = this.height,
+      cropX = Math.max(this.cropX, 0),
+      cropY = Math.max(this.cropY, 0);
+
+    // Calculate full image dimensions at current scale
+    const fullW = elWidth / scaleX;
+    const fullH = elHeight / scaleY;
+
+    // Position of the full image (crop area is centered at 0,0)
+    // The crop window starts at (cropX, cropY) in the original image
+    // We want the crop window to be at (-w/2, -h/2) to (w/2, h/2)
+    // So the full image starts at (-w/2 - cropX, -h/2 - cropY)
+    const fullX = -w / 2 - cropX;
+    const fullY = -h / 2 - cropY;
+
+    // Draw the FULL image dimmed (outside crop area)
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.drawImage(
+      elementToDraw,
+      0, 0, elWidth, elHeight,  // source: full image
+      fullX, fullY, fullW, fullH,  // dest: positioned so crop area is centered
+    );
+    ctx.restore();
+
+    // Draw dark overlay on the dimmed parts (outside crop area)
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    // Left side
+    if (cropX > 0) {
+      ctx.fillRect(fullX, fullY, cropX, fullH);
+    }
+    // Right side
+    const rightStart = -w / 2 + w;
+    const rightWidth = fullW - cropX - w;
+    if (rightWidth > 0) {
+      ctx.fillRect(rightStart, fullY, rightWidth, fullH);
+    }
+    // Top side (between left and right)
+    if (cropY > 0) {
+      ctx.fillRect(-w / 2, fullY, w, cropY);
+    }
+    // Bottom side (between left and right)
+    const bottomStart = -h / 2 + h;
+    const bottomHeight = fullH - cropY - h;
+    if (bottomHeight > 0) {
+      ctx.fillRect(-w / 2, bottomStart, w, bottomHeight);
+    }
+    ctx.restore();
+
+    // Draw the crop area at FULL opacity
+    const sX = cropX * scaleX,
+      sY = cropY * scaleY,
+      sW = Math.min(w * scaleX, elWidth - sX),
+      sH = Math.min(h * scaleY, elHeight - sY),
+      x = -w / 2,
+      y = -h / 2,
+      maxDestW = Math.min(w, elWidth / scaleX - cropX),
+      maxDestH = Math.min(h, elHeight / scaleY - cropY);
+
+    ctx.drawImage(elementToDraw, sX, sY, sW, sH, x, y, maxDestW, maxDestH);
+
+    // Draw a border around the crop area
+    ctx.save();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
   }
 
   /**

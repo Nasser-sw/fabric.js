@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta26";
+var version = "7.0.1-beta41";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -9331,7 +9331,11 @@ class ExpandControl extends Control {
   /**
    * Position handler for expand controls
    * Positions controls at the expansion boundary, not the object boundary
-   * Note: expansion values are stored in screen pixels (already scaled)
+   * Note: expansion values are stored in UNSCALED local object coordinates
+   *
+   * Key insight: dim already includes zoom, and finalMatrix undoes zoom.
+   * So we need to express expansion as a PROPORTION of dim, not as a separate offset.
+   * This ensures the expansion scales correctly with zoom.
    */
   positionHandler(dim, finalMatrix, fabricObject, currentControl) {
     const expansion = getExpansion(fabricObject);
@@ -9342,43 +9346,39 @@ class ExpandControl extends Control {
       expandBottom
     } = expansion;
 
-    // dim already includes scale, so use it directly for base size
-    // expansion values are also in screen pixels, so use directly
-    const halfWidth = dim.x / 2;
-    const halfHeight = dim.y / 2;
+    // Get object's base dimensions (unscaled)
+    const objWidth = fabricObject.width || 1;
+    const objHeight = fabricObject.height || 1;
 
-    // Calculate the expanded half dimensions
-    const expandedHalfWidth = halfWidth + (expandLeft + expandRight) / 2;
-    const expandedHalfHeight = halfHeight + (expandTop + expandBottom) / 2;
+    // Express expansion as a proportion of object size
+    // dim includes zoom, finalMatrix applies inverse zoom
+    // The result matches drawExpandPreview which also uses ratio * size
+    const expandLeftRatio = expandLeft / objWidth;
+    const expandRightRatio = expandRight / objWidth;
+    const expandTopRatio = expandTop / objHeight;
+    const expandBottomRatio = expandBottom / objHeight;
 
-    // Calculate offset from center based on asymmetric expansion
-    const centerOffsetX = (expandRight - expandLeft) / 2;
-    const centerOffsetY = (expandBottom - expandTop) / 2;
-    let posX;
-    let posY;
-
-    // Position based on which side this control is on
+    // Calculate position as a multiple of dim (same pattern as default control)
+    // this.x is -0.5 for left, 0 for center, 0.5 for right
+    let xMultiplier = this.x;
+    let yMultiplier = this.y;
     if (this.x < 0) {
-      // Left side controls
-      posX = -expandedHalfWidth + centerOffsetX;
+      // Left side: extend further left
+      xMultiplier = this.x - expandLeftRatio;
     } else if (this.x > 0) {
-      // Right side controls
-      posX = expandedHalfWidth + centerOffsetX;
-    } else {
-      // Center (top/bottom only)
-      posX = centerOffsetX;
+      // Right side: extend further right
+      xMultiplier = this.x + expandRightRatio;
     }
     if (this.y < 0) {
-      // Top side controls
-      posY = -expandedHalfHeight + centerOffsetY;
+      // Top side: extend further up
+      yMultiplier = this.y - expandTopRatio;
     } else if (this.y > 0) {
-      // Bottom side controls
-      posY = expandedHalfHeight + centerOffsetY;
-    } else {
-      // Center (left/right only)
-      posY = centerOffsetY;
+      // Bottom side: extend further down
+      yMultiplier = this.y + expandBottomRatio;
     }
-    return new Point(posX, posY).transform(finalMatrix);
+
+    // Same formula as default positionHandler, just with adjusted multipliers
+    return new Point(xMultiplier * dim.x + this.offsetX, yMultiplier * dim.y + this.offsetY).transform(finalMatrix);
   }
 
   /**
@@ -9433,17 +9433,18 @@ const expandLeftHandler = (eventData, transform, x, y) => {
   } = transform;
   const expansion = getExpansion(target);
 
-  // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
+  // Use Fabric's getLocalPoint with center origin
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
-
-  // Use SCALED half width since localPoint is in scaled coords
   const scaleX = target.scaleX || 1;
-  const scaledHalfWidth = target.width * scaleX / 2;
+  // Use _getTransformedDimensions for consistency with scale handlers
+  const dim = target._getTransformedDimensions();
+  const scaledHalfWidth = dim.x / 2;
 
-  // Calculate new expansion (how far left of the object's left edge)
-  // localPoint.x is negative when left of center
-  // Expansion starts when localPoint.x < -scaledHalfWidth
-  const newExpandLeft = Math.max(0, -scaledHalfWidth - localPoint.x);
+  // Calculate expansion in scaled coordinates
+  const scaledExpansion = Math.max(0, -scaledHalfWidth - localPoint.x);
+
+  // Store in UNSCALED object coordinates (divide by scale)
+  const newExpandLeft = scaledExpansion / scaleX;
   if (Math.abs(newExpandLeft - expansion.expandLeft) > 0.5) {
     var _target$canvas;
     expansion.expandLeft = newExpandLeft;
@@ -9465,15 +9466,14 @@ const expandRightHandler = (eventData, transform, x, y) => {
 
   // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
-
-  // Use SCALED half width since localPoint is in scaled coords
   const scaleX = target.scaleX || 1;
   const scaledHalfWidth = target.width * scaleX / 2;
 
-  // Calculate new expansion (how far right of the object's right edge)
-  // localPoint.x is positive when right of center
-  // Expansion starts when localPoint.x > scaledHalfWidth
-  const newExpandRight = Math.max(0, localPoint.x - scaledHalfWidth);
+  // Calculate expansion in scaled coordinates first
+  const scaledExpansion = Math.max(0, localPoint.x - scaledHalfWidth);
+
+  // Store in UNSCALED coordinates (divide by scale)
+  const newExpandRight = scaledExpansion / scaleX;
   if (Math.abs(newExpandRight - expansion.expandRight) > 0.5) {
     var _target$canvas2;
     expansion.expandRight = newExpandRight;
@@ -9495,13 +9495,14 @@ const expandTopHandler = (eventData, transform, x, y) => {
 
   // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
-
-  // Use SCALED half height since localPoint is in scaled coords
   const scaleY = target.scaleY || 1;
   const scaledHalfHeight = target.height * scaleY / 2;
 
-  // Calculate new expansion (how far above the object's top edge)
-  const newExpandTop = Math.max(0, -scaledHalfHeight - localPoint.y);
+  // Calculate expansion in scaled coordinates first
+  const scaledExpansion = Math.max(0, -scaledHalfHeight - localPoint.y);
+
+  // Store in UNSCALED coordinates (divide by scale)
+  const newExpandTop = scaledExpansion / scaleY;
   if (Math.abs(newExpandTop - expansion.expandTop) > 0.5) {
     var _target$canvas3;
     expansion.expandTop = newExpandTop;
@@ -9523,13 +9524,14 @@ const expandBottomHandler = (eventData, transform, x, y) => {
 
   // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
-
-  // Use SCALED half height since localPoint is in scaled coords
   const scaleY = target.scaleY || 1;
   const scaledHalfHeight = target.height * scaleY / 2;
 
-  // Calculate new expansion (how far below the object's bottom edge)
-  const newExpandBottom = Math.max(0, localPoint.y - scaledHalfHeight);
+  // Calculate expansion in scaled coordinates first
+  const scaledExpansion = Math.max(0, localPoint.y - scaledHalfHeight);
+
+  // Store in UNSCALED coordinates (divide by scale)
+  const newExpandBottom = scaledExpansion / scaleY;
   if (Math.abs(newExpandBottom - expansion.expandBottom) > 0.5) {
     var _target$canvas4;
     expansion.expandBottom = newExpandBottom;
@@ -9965,9 +9967,9 @@ class InteractiveFabricObject extends FabricObject$1 {
       size = this._calculateCurrentDimensions().scalarAdd(this.borderScaleFactor);
     }
 
-    // Draw expansion preview if in expand mode or has expansion
-    if (this.expandMode || this.hasExpansion()) {
-      this.drawExpandPreview(ctx, size);
+    // Draw expansion preview only when actively in expand mode
+    if (this.expandMode) {
+      this.drawExpandPreview(ctx, size, options);
     }
     this._drawBorders(ctx, size, styleOverride);
   }
@@ -10375,25 +10377,46 @@ class InteractiveFabricObject extends FabricObject$1 {
    * Draw the expansion preview area
    * Called during border rendering when in expand mode
    * @param ctx Canvas rendering context
-   * @param size Object dimensions (already includes scale)
-   * Note: expansion values are stored in screen pixels (already scaled)
+   * @param size Object dimensions (already in correct coordinate space from drawBorders)
+   * @param options Decomposed transform options (contains scaleX, scaleY)
+   * Note: expansion values are stored in local object coordinates
+   *
+   * Key insight: size is proportional to object dimensions.
+   * Express expansion as a proportion of object size, then scale by size.
+   * This ensures correct behavior with zoom and grouped objects.
    */
-  drawExpandPreview(ctx, size) {
-    if (!this.expandMode && !this.hasExpansion()) return;
+  drawExpandPreview(ctx, size, options) {
+    if (!this.expandMode) return;
+
+    // Use size but subtract borderScaleFactor and padding to match control positioning
+    const borderOffset = this.borderScaleFactor || 1;
+    const paddingOffset = (this.padding || 0) * 2;
+    const dim = {
+      x: size.x - borderOffset - paddingOffset,
+      y: size.y - borderOffset - paddingOffset
+    };
+
+    // Calculate scale factor from dim for expansion scaling
+    const scaleX = dim.x / (this.width || 1);
+    const scaleY = dim.y / (this.height || 1);
     const {
       expandLeft,
       expandRight,
       expandTop,
       expandBottom
     } = this.expansion;
+    const scaledExpandLeft = expandLeft * scaleX;
+    const scaledExpandRight = expandRight * scaleX;
+    const scaledExpandTop = expandTop * scaleY;
+    const scaledExpandBottom = expandBottom * scaleY;
 
-    // Expansion values are already in screen pixels, use directly
-    const expandedWidth = size.x + expandLeft + expandRight;
-    const expandedHeight = size.y + expandTop + expandBottom;
+    // Calculate expanded dimensions
+    const expandedWidth = dim.x + scaledExpandLeft + scaledExpandRight;
+    const expandedHeight = dim.y + scaledExpandTop + scaledExpandBottom;
 
     // Offset to account for asymmetric expansion
-    const offsetX = (expandRight - expandLeft) / 2;
-    const offsetY = (expandBottom - expandTop) / 2;
+    const offsetX = (scaledExpandRight - scaledExpandLeft) / 2;
+    const offsetY = (scaledExpandBottom - scaledExpandTop) / 2;
     ctx.save();
 
     // Draw expansion area fill
@@ -29791,6 +29814,474 @@ _defineProperty(Textbox, "ownDefaults", textboxDefaultValues);
 classRegistry.setClass(Textbox);
 
 /**
+ * Minimum size for cropped images (in pixels)
+ */
+const MIN_SIZE = 20;
+
+/**
+ * Get the original element dimensions for an image
+ */
+function getOriginalDimensions(target) {
+  const element = target.getElement();
+  if (!element) {
+    return {
+      width: target.width || 100,
+      height: target.height || 100
+    };
+  }
+  return {
+    width: element.naturalWidth || element.width || target.width || 100,
+    height: element.naturalHeight || element.height || target.height || 100
+  };
+}
+
+/**
+ * Handler for resizing from RIGHT edge (mr control) - Canva style
+ * Crops from right side, anchor on left
+ */
+const resizeFromRightHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const original = getOriginalDimensions(target);
+  const currentScale = target.scaleX || 1;
+  const cropX = target.cropX || 0;
+  const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+  const requestedVisualWidth = Math.max(MIN_SIZE, Math.abs(localPoint.x));
+  const maxAvailableWidth = (original.width - cropX) * currentScale;
+  if (requestedVisualWidth <= maxAvailableWidth) {
+    // Within bounds - just change visible width, cropX stays same (crops from right)
+    target.width = requestedVisualWidth / currentScale;
+  } else {
+    // Beyond bounds - scale uniformly
+    target.width = original.width - cropX;
+    const newScale = requestedVisualWidth / target.width;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+    const currentVisualHeight = (target.height || original.height) * currentScale;
+    target.height = currentVisualHeight / newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for resizing from LEFT edge (ml control) - Canva style
+ * Crops from left side, anchor on right
+ */
+const resizeFromLeftHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const original = getOriginalDimensions(target);
+  const currentScale = target.scaleX || 1;
+  const currentCropX = target.cropX || 0;
+  const currentWidth = target.width || original.width;
+  const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+  const requestedVisualWidth = Math.max(MIN_SIZE, Math.abs(localPoint.x));
+
+  // Right edge position in original image coords (stays fixed)
+  const rightEdgeInOriginal = currentCropX + currentWidth;
+
+  // Maximum we can expand to the left (cropX can go to 0)
+  const maxAvailableWidth = rightEdgeInOriginal * currentScale;
+  if (requestedVisualWidth <= maxAvailableWidth) {
+    // Within bounds - adjust cropX and width (crops from left)
+    const newWidthUnscaled = requestedVisualWidth / currentScale;
+    const newCropX = rightEdgeInOriginal - newWidthUnscaled;
+    if (newCropX >= 0) {
+      target.cropX = newCropX;
+      target.width = newWidthUnscaled;
+    } else {
+      // Hit left boundary
+      target.cropX = 0;
+      target.width = rightEdgeInOriginal;
+    }
+  } else {
+    // Beyond bounds - scale uniformly
+    target.cropX = 0;
+    target.width = rightEdgeInOriginal;
+    const newScale = requestedVisualWidth / target.width;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+    const currentVisualHeight = (target.height || original.height) * currentScale;
+    target.height = currentVisualHeight / newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for cropping from the right edge (mr control) - for crop mode
+ * - Drag inward: decrease width (crop right side)
+ * - Drag outward: increase width until hitting boundary, then scale
+ */
+const cropFromRightHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const localPoint = getLocalPoint(transform, 'left', 'center', x, y);
+  const original = getOriginalDimensions(target);
+  const currentCropX = target.cropX || 0;
+  const currentScale = target.scaleX || 1;
+
+  // Maximum visible width at current scale (from current cropX to right edge of original)
+  const maxVisibleWidth = (original.width - currentCropX) * currentScale;
+
+  // Requested width based on mouse position
+  const requestedWidth = Math.max(MIN_SIZE, localPoint.x);
+  if (requestedWidth <= maxVisibleWidth) {
+    // Within bounds - just change visible width (crop/uncrop)
+    // Convert to unscaled width for the width property
+    target.width = requestedWidth / currentScale;
+  } else {
+    // Beyond bounds - need to scale
+    // First, set width to maximum possible
+    target.width = original.width - currentCropX;
+    // Calculate new scale to reach requested size
+    const newScale = requestedWidth / target.width;
+    target.scaleX = newScale;
+    target.scaleY = newScale; // Uniform scaling
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for resizing from BOTTOM edge (mb control) - Canva style
+ * Crops from bottom side, anchor on top
+ */
+const resizeFromBottomHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const original = getOriginalDimensions(target);
+  const currentScale = target.scaleY || 1;
+  const cropY = target.cropY || 0;
+  const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+  const requestedVisualHeight = Math.max(MIN_SIZE, Math.abs(localPoint.y));
+  const maxAvailableHeight = (original.height - cropY) * currentScale;
+  if (requestedVisualHeight <= maxAvailableHeight) {
+    // Within bounds - just change visible height, cropY stays same (crops from bottom)
+    target.height = requestedVisualHeight / currentScale;
+  } else {
+    // Beyond bounds - scale uniformly
+    target.height = original.height - cropY;
+    const newScale = requestedVisualHeight / target.height;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+    const currentVisualWidth = (target.width || original.width) * currentScale;
+    target.width = currentVisualWidth / newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for resizing from TOP edge (mt control) - Canva style
+ * Crops from top side, anchor on bottom
+ */
+const resizeFromTopHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const original = getOriginalDimensions(target);
+  const currentScale = target.scaleY || 1;
+  const currentCropY = target.cropY || 0;
+  const currentHeight = target.height || original.height;
+  const localPoint = getLocalPoint(transform, transform.originX, transform.originY, x, y);
+  const requestedVisualHeight = Math.max(MIN_SIZE, Math.abs(localPoint.y));
+
+  // Bottom edge position in original image coords (stays fixed)
+  const bottomEdgeInOriginal = currentCropY + currentHeight;
+
+  // Maximum we can expand to the top (cropY can go to 0)
+  const maxAvailableHeight = bottomEdgeInOriginal * currentScale;
+  if (requestedVisualHeight <= maxAvailableHeight) {
+    // Within bounds - adjust cropY and height (crops from top)
+    const newHeightUnscaled = requestedVisualHeight / currentScale;
+    const newCropY = bottomEdgeInOriginal - newHeightUnscaled;
+    if (newCropY >= 0) {
+      target.cropY = newCropY;
+      target.height = newHeightUnscaled;
+    } else {
+      // Hit top boundary
+      target.cropY = 0;
+      target.height = bottomEdgeInOriginal;
+    }
+  } else {
+    // Beyond bounds - scale uniformly
+    target.cropY = 0;
+    target.height = bottomEdgeInOriginal;
+    const newScale = requestedVisualHeight / target.height;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+    const currentVisualWidth = (target.width || original.width) * currentScale;
+    target.width = currentVisualWidth / newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+// Wrapped resize handlers with fixed anchor
+const resizeFromRight = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(resizeFromRightHandler));
+const resizeFromLeft = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(resizeFromLeftHandler));
+const resizeFromBottom = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(resizeFromBottomHandler));
+const resizeFromTop = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(resizeFromTopHandler));
+
+/**
+ * Handler for cropping from the left edge (ml control)
+ * - Drag inward: increase cropX, decrease width (crop left side)
+ * - Drag outward: decrease cropX until 0, then scale
+ */
+const cropFromLeftHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const localPoint = getLocalPoint(transform, 'right', 'center', x, y);
+  getOriginalDimensions(target);
+  const currentCropX = target.cropX || 0;
+  const currentWidth = target.width || 100;
+  const currentScale = target.scaleX || 1;
+
+  // Requested width based on mouse position (localPoint.x is negative from right origin)
+  const requestedWidth = Math.max(MIN_SIZE, Math.abs(localPoint.x));
+
+  // Current right edge position in original image coordinates
+  const rightEdge = currentCropX + currentWidth;
+
+  // Maximum possible width at current scale (if cropX goes to 0)
+  const maxVisibleWidth = rightEdge * currentScale;
+  if (requestedWidth <= maxVisibleWidth) {
+    // Within bounds - adjust cropX and width
+    const newWidthUnscaled = requestedWidth / currentScale;
+    const newCropX = rightEdge - newWidthUnscaled;
+    if (newCropX >= 0) {
+      target.cropX = newCropX;
+      target.width = newWidthUnscaled;
+    } else {
+      // Would go past left edge - clamp cropX to 0
+      target.cropX = 0;
+      target.width = rightEdge;
+    }
+  } else {
+    // Beyond bounds - need to scale
+    target.cropX = 0;
+    target.width = rightEdge;
+    const newScale = requestedWidth / target.width;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for cropping from the bottom edge (mb control)
+ */
+const cropFromBottomHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const localPoint = getLocalPoint(transform, 'center', 'top', x, y);
+  const original = getOriginalDimensions(target);
+  const currentCropY = target.cropY || 0;
+  const currentScale = target.scaleY || 1;
+  const maxVisibleHeight = (original.height - currentCropY) * currentScale;
+  const requestedHeight = Math.max(MIN_SIZE, localPoint.y);
+  if (requestedHeight <= maxVisibleHeight) {
+    target.height = requestedHeight / currentScale;
+  } else {
+    target.height = original.height - currentCropY;
+    const newScale = requestedHeight / target.height;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for cropping from the top edge (mt control)
+ */
+const cropFromTopHandler = (eventData, transform, x, y) => {
+  const target = transform.target;
+  const localPoint = getLocalPoint(transform, 'center', 'bottom', x, y);
+  getOriginalDimensions(target);
+  const currentCropY = target.cropY || 0;
+  const currentHeight = target.height || 100;
+  const currentScale = target.scaleY || 1;
+  const requestedHeight = Math.max(MIN_SIZE, Math.abs(localPoint.y));
+  const bottomEdge = currentCropY + currentHeight;
+  const maxVisibleHeight = bottomEdge * currentScale;
+  if (requestedHeight <= maxVisibleHeight) {
+    const newHeightUnscaled = requestedHeight / currentScale;
+    const newCropY = bottomEdge - newHeightUnscaled;
+    if (newCropY >= 0) {
+      target.cropY = newCropY;
+      target.height = newHeightUnscaled;
+    } else {
+      target.cropY = 0;
+      target.height = bottomEdge;
+    }
+  } else {
+    target.cropY = 0;
+    target.height = bottomEdge;
+    const newScale = requestedHeight / target.height;
+    target.scaleX = newScale;
+    target.scaleY = newScale;
+  }
+  target.setCoords();
+  return true;
+};
+
+/**
+ * Handler for cropping from corners (tl, tr, bl, br controls)
+ * Handles both dimensions simultaneously
+ */
+const createCornerCropHandler = (xDirection, yDirection) => {
+  const xHandler = xDirection === 'left' ? cropFromLeftHandler : cropFromRightHandler;
+  const yHandler = yDirection === 'top' ? cropFromTopHandler : cropFromBottomHandler;
+  return (eventData, transform, x, y) => {
+    // Apply both handlers
+    const xChanged = xHandler(eventData, transform, x, y);
+    const yChanged = yHandler(eventData, transform, x, y);
+    return xChanged || yChanged;
+  };
+};
+
+// Wrapped handlers with fixed anchor and fire event
+const cropFromRight = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(cropFromRightHandler));
+const cropFromLeft = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(cropFromLeftHandler));
+const cropFromBottom = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(cropFromBottomHandler));
+const cropFromTop = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(cropFromTopHandler));
+const cropFromTopLeft = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(createCornerCropHandler('left', 'top')));
+const cropFromTopRight = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(createCornerCropHandler('right', 'top')));
+const cropFromBottomLeft = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(createCornerCropHandler('left', 'bottom')));
+const cropFromBottomRight = wrapWithFireEvent(RESIZING, wrapWithFixedAnchor(createCornerCropHandler('right', 'bottom')));
+
+/**
+ * Creates Canva-like controls for FabricImage
+ * - Side handles crop/resize visible area (Canva style)
+ * - Corner handles scale uniformly
+ * - Double-click enters crop mode for fine-tuning
+ */
+const createImageCropControls = () => ({
+  // Side controls - crop from each side
+  ml: new Control({
+    x: -0.5,
+    y: 0,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: resizeFromLeft,
+    actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
+  }),
+  mr: new Control({
+    x: 0.5,
+    y: 0,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: resizeFromRight,
+    actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
+  }),
+  mb: new Control({
+    x: 0,
+    y: 0.5,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: resizeFromBottom,
+    actionName: RESIZING,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6
+  }),
+  mt: new Control({
+    x: 0,
+    y: -0.5,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: resizeFromTop,
+    actionName: RESIZING,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6
+  }),
+  // Corner controls - uniform scaling (like Canva)
+  tl: new Control({
+    x: -0.5,
+    y: -0.5,
+    cursorStyleHandler: scaleCursorStyleHandler,
+    actionHandler: scalingEqually
+  }),
+  tr: new Control({
+    x: 0.5,
+    y: -0.5,
+    cursorStyleHandler: scaleCursorStyleHandler,
+    actionHandler: scalingEqually
+  }),
+  bl: new Control({
+    x: -0.5,
+    y: 0.5,
+    cursorStyleHandler: scaleCursorStyleHandler,
+    actionHandler: scalingEqually
+  }),
+  br: new Control({
+    x: 0.5,
+    y: 0.5,
+    cursorStyleHandler: scaleCursorStyleHandler,
+    actionHandler: scalingEqually
+  }),
+  mtr: new Control({
+    x: 0,
+    y: -0.5,
+    actionHandler: rotationWithSnapping,
+    cursorStyleHandler: rotationStyleHandler,
+    offsetY: -40,
+    withConnection: true,
+    actionName: ROTATE
+  })
+});
+
+/**
+ * Creates crop mode controls for FabricImage (used in crop mode after double-click)
+ * - Side handles crop/uncrop single axis
+ * - Corner handles crop/uncrop both axes
+ */
+const createImageCropModeControls = () => ({
+  ml: new Control({
+    x: -0.5,
+    y: 0,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: cropFromLeft,
+    actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
+  }),
+  mr: new Control({
+    x: 0.5,
+    y: 0,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: cropFromRight,
+    actionName: RESIZING,
+    render: renderHorizontalPillControl,
+    sizeX: 6,
+    sizeY: 20
+  }),
+  mb: new Control({
+    x: 0,
+    y: 0.5,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: cropFromBottom,
+    actionName: RESIZING,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6
+  }),
+  mt: new Control({
+    x: 0,
+    y: -0.5,
+    cursorStyleHandler: scaleSkewCursorStyleHandler,
+    actionHandler: cropFromTop,
+    actionName: RESIZING,
+    render: renderVerticalPillControl,
+    sizeX: 20,
+    sizeY: 6
+  })
+
+  // No corner controls in crop mode - or could add corner crop handlers
+  // No rotation in crop mode
+});
+
+/**
  * Canvas 2D filter backend.
  */
 
@@ -30200,7 +30691,8 @@ const imageDefaultValues = {
   minimumScaleTrigger: 0.5,
   cropX: 0,
   cropY: 0,
-  imageSmoothing: true
+  imageSmoothing: true,
+  cropMode: false
 };
 const IMAGE_PROPS = ['cropX', 'cropY'];
 
@@ -30214,6 +30706,153 @@ class FabricImage extends FabricObject {
       ...FabricImage.ownDefaults
     };
   }
+
+  /**
+   * Creates Canva-like controls for images
+   * - All handles scale uniformly
+   * - Double-click to enter crop mode
+   */
+  static createControls() {
+    return {
+      controls: createImageCropControls()
+    };
+  }
+
+  /**
+   * Enter crop mode - switches to crop controls
+   * Call this on double-click
+   */
+  enterCropMode() {
+    var _this$canvas;
+    if (this.cropMode) return;
+    this.cropMode = true;
+    // Backup current controls
+    this._normalControls = {
+      ...this.controls
+    };
+    // Switch to crop mode controls
+    this.controls = createImageCropModeControls();
+    // Dirty cache to force re-render with full image visible
+    this.dirty = true;
+    // Reset drag state
+    this._cropModeDragActive = false;
+    this.setCoords();
+    (_this$canvas = this.canvas) === null || _this$canvas === void 0 || _this$canvas.requestRenderAll();
+  }
+
+  /**
+   * Exit crop mode - restores normal controls
+   * Call this on click outside or escape
+   */
+  exitCropMode() {
+    var _this$canvas2;
+    if (!this.cropMode) return;
+    this.cropMode = false;
+    // Restore normal controls
+    if (this._normalControls) {
+      this.controls = this._normalControls;
+      this._normalControls = undefined;
+    } else {
+      this.controls = createImageCropControls();
+    }
+    // Dirty cache to force re-render with cropped image only
+    this.dirty = true;
+    this.setCoords();
+    (_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 || _this$canvas2.requestRenderAll();
+  }
+
+  /**
+   * Toggle crop mode
+   */
+  toggleCropMode() {
+    if (this.cropMode) {
+      this.exitCropMode();
+    } else {
+      this.enterCropMode();
+    }
+  }
+
+  /**
+   * Override set to intercept movement in crop mode
+   * In crop mode, dragging adjusts cropX/cropY instead of left/top
+   */
+  // @ts-ignore - override set with different signature for crop mode handling
+  set(key, value) {
+    // Only intercept in crop mode when actually dragging (isMoving is true)
+    if (this.cropMode && this.isMoving && typeof key === 'string') {
+      if (key === 'left' && typeof value === 'number') {
+        return this._setCropModePosition('left', value);
+      }
+      if (key === 'top' && typeof value === 'number') {
+        return this._setCropModePosition('top', value);
+      }
+    }
+    return super.set(key, value);
+  }
+
+  /**
+   * Handle position changes in crop mode - converts to cropX/cropY changes
+   * @private
+   */
+  _setCropModePosition(axis, newPos) {
+    const element = this._element;
+    if (!element) {
+      return super.set(axis, newPos);
+    }
+
+    // Capture baseline values at the start of each new drag
+    if (!this._cropModeDragActive) {
+      this._cropModeDragActive = true;
+      this._cropModeOriginalLeft = this.left;
+      this._cropModeOriginalTop = this.top;
+      this._cropModeOriginalCropX = this.cropX;
+      this._cropModeOriginalCropY = this.cropY;
+    }
+    const scale = axis === 'left' ? this.scaleX || 1 : this.scaleY || 1;
+    const basePos = axis === 'left' ? this._cropModeOriginalLeft : this._cropModeOriginalTop;
+    const baseCrop = axis === 'left' ? this._cropModeOriginalCropX : this._cropModeOriginalCropY;
+    const cropProp = axis === 'left' ? 'cropX' : 'cropY';
+    const sizeProp = axis === 'left' ? 'width' : 'height';
+    const elSize = axis === 'left' ? element.naturalWidth || element.width : element.naturalHeight || element.height;
+    if (basePos === undefined || baseCrop === undefined) {
+      return super.set(axis, newPos);
+    }
+
+    // Calculate total delta from drag start position
+    const totalDelta = newPos - basePos;
+
+    // Convert screen delta to source image pixels
+    // Dragging right (positive delta) should make the image follow the cursor
+    // Use Math.abs(scale) to handle flipped images.
+    const cropOffset = totalDelta / Math.abs(scale);
+
+    // Calculate new crop value from baseline crop + offset
+    const currentSize = this[sizeProp] || elSize;
+    let newCrop = baseCrop + cropOffset;
+
+    // Clamp to valid range: 0 to (elSize - visible size)
+    const maxCrop = Math.max(0, elSize - currentSize);
+    newCrop = Math.max(0, Math.min(maxCrop, newCrop));
+
+    // Update crop value
+    super.set(cropProp, newCrop);
+    // Keep position fixed at baseline
+    super.set(axis, basePos);
+    // Mark as dirty for re-render
+    this.dirty = true;
+    return this;
+  }
+
+  /**
+   * Reset crop mode drag state when drag ends
+   * Called by canvas on mouse up
+   */
+  _onMouseUp() {
+    if (this.cropMode) {
+      this._cropModeDragActive = false;
+    }
+  }
+
   /**
    * Constructor
    * Image can be initialized with any canvas drawable or a string.
@@ -30259,6 +30898,19 @@ class FabricImage extends FabricObject {
      * @type Number
      */
     _defineProperty(this, "_filterScalingY", 1);
+    /**
+     * Backup of normal controls when entering crop mode
+     */
+    _defineProperty(this, "_normalControls", void 0);
+    /**
+     * Original position and crop values for drag-to-reposition in crop mode
+     * Updated at the start of each drag
+     */
+    _defineProperty(this, "_cropModeOriginalLeft", void 0);
+    _defineProperty(this, "_cropModeOriginalTop", void 0);
+    _defineProperty(this, "_cropModeOriginalCropX", void 0);
+    _defineProperty(this, "_cropModeOriginalCropY", void 0);
+    _defineProperty(this, "_cropModeDragActive", void 0);
     this.filters = [];
     Object.assign(this, FabricImage.ownDefaults);
     this.setOptions(options);
@@ -30617,6 +31269,10 @@ class FabricImage extends FabricObject {
    * @return {Boolean}
    */
   shouldCache() {
+    // Don't cache in crop mode - we need to render the full image
+    if (this.cropMode) {
+      return false;
+    }
     return this.needsItsOwnCache();
   }
   _renderFill(ctx) {
@@ -30642,7 +31298,87 @@ class FabricImage extends FabricObject {
       y = -h / 2,
       maxDestW = Math.min(w, elWidth / scaleX - cropX),
       maxDestH = Math.min(h, elHeight / scaleY - cropY);
-    elementToDraw && ctx.drawImage(elementToDraw, sX, sY, sW, sH, x, y, maxDestW, maxDestH);
+    if (this.cropMode) {
+      // In crop mode: show full image with crop area highlighted
+      this._renderCropMode(ctx, elementToDraw, elWidth, elHeight, scaleX, scaleY);
+    } else {
+      // Normal mode: just draw the cropped portion
+      elementToDraw && ctx.drawImage(elementToDraw, sX, sY, sW, sH, x, y, maxDestW, maxDestH);
+    }
+  }
+
+  /**
+   * Render the image in crop mode - shows full image dimmed with crop area highlighted
+   * @private
+   */
+  _renderCropMode(ctx, elementToDraw, elWidth, elHeight, scaleX, scaleY) {
+    const w = this.width,
+      h = this.height,
+      cropX = Math.max(this.cropX, 0),
+      cropY = Math.max(this.cropY, 0);
+
+    // Calculate full image dimensions at current scale
+    const fullW = elWidth / scaleX;
+    const fullH = elHeight / scaleY;
+
+    // Position of the full image (crop area is centered at 0,0)
+    // The crop window starts at (cropX, cropY) in the original image
+    // We want the crop window to be at (-w/2, -h/2) to (w/2, h/2)
+    // So the full image starts at (-w/2 - cropX, -h/2 - cropY)
+    const fullX = -w / 2 - cropX;
+    const fullY = -h / 2 - cropY;
+
+    // Draw the FULL image dimmed (outside crop area)
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.drawImage(elementToDraw, 0, 0, elWidth, elHeight,
+    // source: full image
+    fullX, fullY, fullW, fullH // dest: positioned so crop area is centered
+    );
+    ctx.restore();
+
+    // Draw dark overlay on the dimmed parts (outside crop area)
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    // Left side
+    if (cropX > 0) {
+      ctx.fillRect(fullX, fullY, cropX, fullH);
+    }
+    // Right side
+    const rightStart = -w / 2 + w;
+    const rightWidth = fullW - cropX - w;
+    if (rightWidth > 0) {
+      ctx.fillRect(rightStart, fullY, rightWidth, fullH);
+    }
+    // Top side (between left and right)
+    if (cropY > 0) {
+      ctx.fillRect(-w / 2, fullY, w, cropY);
+    }
+    // Bottom side (between left and right)
+    const bottomStart = -h / 2 + h;
+    const bottomHeight = fullH - cropY - h;
+    if (bottomHeight > 0) {
+      ctx.fillRect(-w / 2, bottomStart, w, bottomHeight);
+    }
+    ctx.restore();
+
+    // Draw the crop area at FULL opacity
+    const sX = cropX * scaleX,
+      sY = cropY * scaleY,
+      sW = Math.min(w * scaleX, elWidth - sX),
+      sH = Math.min(h * scaleY, elHeight - sY),
+      x = -w / 2,
+      y = -h / 2,
+      maxDestW = Math.min(w, elWidth / scaleX - cropX),
+      maxDestH = Math.min(h, elHeight / scaleY - cropY);
+    ctx.drawImage(elementToDraw, sX, sY, sW, sH, x, y, maxDestW, maxDestH);
+
+    // Draw a border around the crop area
+    ctx.save();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
   }
 
   /**
@@ -31001,6 +31737,11 @@ class Frame extends Group {
      * @private
      */
     _defineProperty(this, "_editModeObjectCaching", void 0);
+    /**
+     * Stored original controls of content image before edit mode
+     * @private
+     */
+    _defineProperty(this, "_editModeOriginalControls", void 0);
     /**
      * Bound constraint handler references for cleanup
      * @private
@@ -31617,9 +32358,20 @@ class Frame extends Group {
       hasBorders: true,
       minScaleLimit: minScale,
       lockScalingFlip: true,
+      lockUniScaling: false,
+      // Allow non-uniform stretching
       objectCaching: false
     });
     this._contentImage.dirty = true;
+
+    // Save original controls and replace with corner-only controls for scaling
+    this._editModeOriginalControls = this._contentImage.controls;
+    this._contentImage.controls = {
+      tl: this._contentImage.controls.tl,
+      tr: this._contentImage.controls.tr,
+      bl: this._contentImage.controls.bl,
+      br: this._contentImage.controls.br
+    };
 
     // Store and remove clipPath to show full image
     // We must actually remove it (not just skip rendering) because Fabric's
@@ -31633,11 +32385,15 @@ class Frame extends Group {
     this._setupEditModeConstraints();
     this.set('dirty', true);
 
-    // Just render - don't call setActiveObject() on the content image
-    // because it causes position miscalculation with viewport transforms.
-    // The content image is still interactive via subTargetCheck = true
+    // Select the content image so its controls are active
     if (this.canvas) {
-      this.canvas.renderAll();
+      // Use requestAnimationFrame to ensure rendering is complete before selecting
+      requestAnimationFrame(() => {
+        if (this._contentImage && this.canvas) {
+          this.canvas.setActiveObject(this._contentImage);
+          this.canvas.requestRenderAll();
+        }
+      });
     }
 
     // Fire custom event
@@ -31656,13 +32412,14 @@ class Frame extends Group {
 
     // Constrain movement to prevent gaps
     this._boundConstrainMove = e => {
-      var _ref5, _frame$frameMeta$orig, _ref6, _frame$frameMeta$orig2, _img$scaleX2, _img$left2, _img$top2;
+      var _ref5, _frame$frameMeta$orig, _ref6, _frame$frameMeta$orig2, _img$scaleX2, _img$scaleY, _img$left2, _img$top2;
       if (e.target !== img || !frame.isEditMode) return;
       const originalWidth = (_ref5 = (_frame$frameMeta$orig = frame.frameMeta.originalWidth) !== null && _frame$frameMeta$orig !== void 0 ? _frame$frameMeta$orig : img.width) !== null && _ref5 !== void 0 ? _ref5 : 100;
       const originalHeight = (_ref6 = (_frame$frameMeta$orig2 = frame.frameMeta.originalHeight) !== null && _frame$frameMeta$orig2 !== void 0 ? _frame$frameMeta$orig2 : img.height) !== null && _ref6 !== void 0 ? _ref6 : 100;
-      const currentScale = (_img$scaleX2 = img.scaleX) !== null && _img$scaleX2 !== void 0 ? _img$scaleX2 : 1;
-      const scaledImgHalfW = originalWidth * currentScale / 2;
-      const scaledImgHalfH = originalHeight * currentScale / 2;
+      const scaleX = (_img$scaleX2 = img.scaleX) !== null && _img$scaleX2 !== void 0 ? _img$scaleX2 : 1;
+      const scaleY = (_img$scaleY = img.scaleY) !== null && _img$scaleY !== void 0 ? _img$scaleY : 1;
+      const scaledImgHalfW = originalWidth * scaleX / 2;
+      const scaledImgHalfH = originalHeight * scaleY / 2;
       const frameHalfW = frame.frameWidth / 2;
       const frameHalfH = frame.frameHeight / 2;
       const maxOffsetX = Math.max(0, scaledImgHalfW - frameHalfW);
@@ -31681,19 +32438,23 @@ class Frame extends Group {
 
     // Constrain scaling to prevent gaps
     this._boundConstrainScale = e => {
-      var _ref7, _frame$frameMeta$orig3, _ref8, _frame$frameMeta$orig4, _img$scaleX3, _img$scaleY, _frame$_boundConstrai;
+      var _ref7, _frame$frameMeta$orig3, _ref8, _frame$frameMeta$orig4, _img$scaleX3, _img$scaleY2, _frame$_boundConstrai;
       if (e.target !== img || !frame.isEditMode) return;
       const originalWidth = (_ref7 = (_frame$frameMeta$orig3 = frame.frameMeta.originalWidth) !== null && _frame$frameMeta$orig3 !== void 0 ? _frame$frameMeta$orig3 : img.width) !== null && _ref7 !== void 0 ? _ref7 : 100;
       const originalHeight = (_ref8 = (_frame$frameMeta$orig4 = frame.frameMeta.originalHeight) !== null && _frame$frameMeta$orig4 !== void 0 ? _frame$frameMeta$orig4 : img.height) !== null && _ref8 !== void 0 ? _ref8 : 100;
-      const minScale = frame._calculateCoverScale(originalWidth, originalHeight);
-      let scaleX = (_img$scaleX3 = img.scaleX) !== null && _img$scaleX3 !== void 0 ? _img$scaleX3 : 1;
-      let scaleY = (_img$scaleY = img.scaleY) !== null && _img$scaleY !== void 0 ? _img$scaleY : 1;
 
-      // Ensure uniform scaling and minimum scale
-      const scale = Math.max(minScale, Math.max(scaleX, scaleY));
+      // Calculate minimum scale for each axis independently
+      const minScaleX = frame.frameWidth / originalWidth;
+      const minScaleY = frame.frameHeight / originalHeight;
+      let scaleX = (_img$scaleX3 = img.scaleX) !== null && _img$scaleX3 !== void 0 ? _img$scaleX3 : 1;
+      let scaleY = (_img$scaleY2 = img.scaleY) !== null && _img$scaleY2 !== void 0 ? _img$scaleY2 : 1;
+
+      // Ensure each axis meets minimum scale (allows non-uniform stretching)
+      scaleX = Math.max(minScaleX, scaleX);
+      scaleY = Math.max(minScaleY, scaleY);
       img.set({
-        scaleX: scale,
-        scaleY: scale
+        scaleX,
+        scaleY
       });
 
       // Also constrain position after scale
@@ -31760,11 +32521,8 @@ class Frame extends Group {
     // Draw edit mode overlay if in edit mode
     if (this.isEditMode && this._editModeClipPath) {
       this._renderEditModeOverlay(ctx, false);
-
-      // In expand mode, re-render the content image's controls ON TOP of the overlay
-      if (this._contentExpandMode && this._contentImage) {
-        this._contentImage._renderControls(ctx);
-      }
+      // Note: Controls are rendered by the canvas's normal rendering pipeline
+      // with proper viewport transforms - no manual _renderControls call needed
     }
   }
 
@@ -31884,9 +32642,10 @@ class Frame extends Group {
     // Constrain position so image always covers the frame
     const originalWidth = (_ref9 = (_this$frameMeta$origi5 = this.frameMeta.originalWidth) !== null && _this$frameMeta$origi5 !== void 0 ? _this$frameMeta$origi5 : this._contentImage.width) !== null && _ref9 !== void 0 ? _ref9 : 100;
     const originalHeight = (_ref0 = (_this$frameMeta$origi6 = this.frameMeta.originalHeight) !== null && _this$frameMeta$origi6 !== void 0 ? _this$frameMeta$origi6 : this._contentImage.height) !== null && _ref0 !== void 0 ? _ref0 : 100;
-    const currentScale = Math.max(contentScaleX, contentScaleY);
-    const scaledImgHalfW = originalWidth * currentScale / 2;
-    const scaledImgHalfH = originalHeight * currentScale / 2;
+
+    // Use actual scaleX/scaleY for non-uniform scaling support
+    const scaledImgHalfW = originalWidth * contentScaleX / 2;
+    const scaledImgHalfH = originalHeight * contentScaleY / 2;
     const frameHalfW = this.frameWidth / 2;
     const frameHalfH = this.frameHeight / 2;
 
@@ -31902,13 +32661,20 @@ class Frame extends Group {
       top: constrainedTop
     });
 
-    // Update metadata with new offsets and scale
+    // Update metadata with new offsets and scale (store both scaleX and scaleY)
     this.frameMeta = {
       ...this.frameMeta,
       contentOffsetX: constrainedLeft,
       contentOffsetY: constrainedTop,
-      contentScale: currentScale
+      contentScaleX: contentScaleX,
+      contentScaleY: contentScaleY
     };
+
+    // Restore original controls before making non-interactive
+    if (this._editModeOriginalControls) {
+      this._contentImage.controls = this._editModeOriginalControls;
+      this._editModeOriginalControls = undefined;
+    }
 
     // Make content non-interactive again and restore caching
     this._contentImage.set({
@@ -31916,6 +32682,10 @@ class Frame extends Group {
       evented: false,
       hasControls: false,
       hasBorders: false,
+      lockUniScaling: false,
+      // Reset to default
+      centeredScaling: false,
+      // Reset to default
       objectCaching: true
     });
 
@@ -33459,6 +34229,8 @@ var index = /*#__PURE__*/Object.freeze({
   changeWidth: changeWidth,
   createDefaultExpansion: createDefaultExpansion,
   createExpandControls: createExpandControls,
+  createImageCropControls: createImageCropControls,
+  createImageCropModeControls: createImageCropModeControls,
   createObjectDefaultControls: createObjectDefaultControls,
   createPathControls: createPathControls,
   createPolyActionHandler: createPolyActionHandler,
@@ -33466,6 +34238,14 @@ var index = /*#__PURE__*/Object.freeze({
   createPolyPositionHandler: createPolyPositionHandler,
   createResizeControls: createResizeControls,
   createTextboxDefaultControls: createTextboxDefaultControls,
+  cropFromBottom: cropFromBottom,
+  cropFromBottomLeft: cropFromBottomLeft,
+  cropFromBottomRight: cropFromBottomRight,
+  cropFromLeft: cropFromLeft,
+  cropFromRight: cropFromRight,
+  cropFromTop: cropFromTop,
+  cropFromTopLeft: cropFromTopLeft,
+  cropFromTopRight: cropFromTopRight,
   dragHandler: dragHandler,
   expandBottomHandler: expandBottomHandler,
   expandLeftHandler: expandLeftHandler,

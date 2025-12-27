@@ -92,7 +92,11 @@ export class ExpandControl extends Control {
   /**
    * Position handler for expand controls
    * Positions controls at the expansion boundary, not the object boundary
-   * Note: expansion values are stored in screen pixels (already scaled)
+   * Note: expansion values are stored in UNSCALED local object coordinates
+   *
+   * Key insight: dim already includes zoom, and finalMatrix undoes zoom.
+   * So we need to express expansion as a PROPORTION of dim, not as a separate offset.
+   * This ensures the expansion scales correctly with zoom.
    */
   positionHandler(
     dim: Point,
@@ -103,46 +107,44 @@ export class ExpandControl extends Control {
     const expansion = getExpansion(fabricObject);
     const { expandLeft, expandRight, expandTop, expandBottom } = expansion;
 
-    // dim already includes scale, so use it directly for base size
-    // expansion values are also in screen pixels, so use directly
-    const halfWidth = dim.x / 2;
-    const halfHeight = dim.y / 2;
+    // Get object's base dimensions (unscaled)
+    const objWidth = fabricObject.width || 1;
+    const objHeight = fabricObject.height || 1;
 
-    // Calculate the expanded half dimensions
-    const expandedHalfWidth = halfWidth + (expandLeft + expandRight) / 2;
-    const expandedHalfHeight = halfHeight + (expandTop + expandBottom) / 2;
+    // Express expansion as a proportion of object size
+    // dim includes zoom, finalMatrix applies inverse zoom
+    // The result matches drawExpandPreview which also uses ratio * size
+    const expandLeftRatio = expandLeft / objWidth;
+    const expandRightRatio = expandRight / objWidth;
+    const expandTopRatio = expandTop / objHeight;
+    const expandBottomRatio = expandBottom / objHeight;
 
-    // Calculate offset from center based on asymmetric expansion
-    const centerOffsetX = (expandRight - expandLeft) / 2;
-    const centerOffsetY = (expandBottom - expandTop) / 2;
+    // Calculate position as a multiple of dim (same pattern as default control)
+    // this.x is -0.5 for left, 0 for center, 0.5 for right
+    let xMultiplier = this.x;
+    let yMultiplier = this.y;
 
-    let posX: number;
-    let posY: number;
-
-    // Position based on which side this control is on
     if (this.x < 0) {
-      // Left side controls
-      posX = -expandedHalfWidth + centerOffsetX;
+      // Left side: extend further left
+      xMultiplier = this.x - expandLeftRatio;
     } else if (this.x > 0) {
-      // Right side controls
-      posX = expandedHalfWidth + centerOffsetX;
-    } else {
-      // Center (top/bottom only)
-      posX = centerOffsetX;
+      // Right side: extend further right
+      xMultiplier = this.x + expandRightRatio;
     }
 
     if (this.y < 0) {
-      // Top side controls
-      posY = -expandedHalfHeight + centerOffsetY;
+      // Top side: extend further up
+      yMultiplier = this.y - expandTopRatio;
     } else if (this.y > 0) {
-      // Bottom side controls
-      posY = expandedHalfHeight + centerOffsetY;
-    } else {
-      // Center (left/right only)
-      posY = centerOffsetY;
+      // Bottom side: extend further down
+      yMultiplier = this.y + expandBottomRatio;
     }
 
-    return new Point(posX, posY).transform(finalMatrix);
+    // Same formula as default positionHandler, just with adjusted multipliers
+    return new Point(
+      xMultiplier * dim.x + this.offsetX,
+      yMultiplier * dim.y + this.offsetY,
+    ).transform(finalMatrix);
   }
 
   /**
@@ -222,17 +224,19 @@ export const expandLeftHandler: TransformActionHandler = (
   const { target } = transform;
   const expansion = getExpansion(target as InteractiveFabricObject);
 
-  // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
+  // Use Fabric's getLocalPoint with center origin
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
 
-  // Use SCALED half width since localPoint is in scaled coords
   const scaleX = target.scaleX || 1;
-  const scaledHalfWidth = (target.width * scaleX) / 2;
+  // Use _getTransformedDimensions for consistency with scale handlers
+  const dim = target._getTransformedDimensions();
+  const scaledHalfWidth = dim.x / 2;
 
-  // Calculate new expansion (how far left of the object's left edge)
-  // localPoint.x is negative when left of center
-  // Expansion starts when localPoint.x < -scaledHalfWidth
-  const newExpandLeft = Math.max(0, -scaledHalfWidth - localPoint.x);
+  // Calculate expansion in scaled coordinates
+  const scaledExpansion = Math.max(0, -scaledHalfWidth - localPoint.x);
+
+  // Store in UNSCALED object coordinates (divide by scale)
+  const newExpandLeft = scaledExpansion / scaleX;
 
   if (Math.abs(newExpandLeft - expansion.expandLeft) > 0.5) {
     expansion.expandLeft = newExpandLeft;
@@ -258,14 +262,14 @@ export const expandRightHandler: TransformActionHandler = (
   // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
 
-  // Use SCALED half width since localPoint is in scaled coords
   const scaleX = target.scaleX || 1;
   const scaledHalfWidth = (target.width * scaleX) / 2;
 
-  // Calculate new expansion (how far right of the object's right edge)
-  // localPoint.x is positive when right of center
-  // Expansion starts when localPoint.x > scaledHalfWidth
-  const newExpandRight = Math.max(0, localPoint.x - scaledHalfWidth);
+  // Calculate expansion in scaled coordinates first
+  const scaledExpansion = Math.max(0, localPoint.x - scaledHalfWidth);
+
+  // Store in UNSCALED coordinates (divide by scale)
+  const newExpandRight = scaledExpansion / scaleX;
 
   if (Math.abs(newExpandRight - expansion.expandRight) > 0.5) {
     expansion.expandRight = newExpandRight;
@@ -291,12 +295,14 @@ export const expandTopHandler: TransformActionHandler = (
   // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
 
-  // Use SCALED half height since localPoint is in scaled coords
   const scaleY = target.scaleY || 1;
   const scaledHalfHeight = (target.height * scaleY) / 2;
 
-  // Calculate new expansion (how far above the object's top edge)
-  const newExpandTop = Math.max(0, -scaledHalfHeight - localPoint.y);
+  // Calculate expansion in scaled coordinates first
+  const scaledExpansion = Math.max(0, -scaledHalfHeight - localPoint.y);
+
+  // Store in UNSCALED coordinates (divide by scale)
+  const newExpandTop = scaledExpansion / scaleY;
 
   if (Math.abs(newExpandTop - expansion.expandTop) > 0.5) {
     expansion.expandTop = newExpandTop;
@@ -322,12 +328,14 @@ export const expandBottomHandler: TransformActionHandler = (
   // Use Fabric's getLocalPoint with center origin (returns scaled coordinates)
   const localPoint = getLocalPoint(transform, CENTER, CENTER, x, y);
 
-  // Use SCALED half height since localPoint is in scaled coords
   const scaleY = target.scaleY || 1;
   const scaledHalfHeight = (target.height * scaleY) / 2;
 
-  // Calculate new expansion (how far below the object's bottom edge)
-  const newExpandBottom = Math.max(0, localPoint.y - scaledHalfHeight);
+  // Calculate expansion in scaled coordinates first
+  const scaledExpansion = Math.max(0, localPoint.y - scaledHalfHeight);
+
+  // Store in UNSCALED coordinates (divide by scale)
+  const newExpandBottom = scaledExpansion / scaleY;
 
   if (Math.abs(newExpandBottom - expansion.expandBottom) > 0.5) {
     expansion.expandBottom = newExpandBottom;

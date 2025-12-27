@@ -320,9 +320,11 @@
           <li>Click a frame preset to add it to canvas</li>
           <li>Drag images onto frames to fill them</li>
           <li>Double-click a frame to edit image position</li>
+          <li><b>Double-click an image</b> to enter crop mode</li>
           <li>Press <b>E</b> to enter AI Expand mode</li>
           <li>Drag purple handles to define expansion</li>
           <li>Press ESC or click outside to exit</li>
+          <li><b>Zoom:</b> Use +/- keys, mouse wheel, or toolbar</li>
         </ul>
       </div>
 
@@ -408,6 +410,12 @@
         <button onclick="clearCanvas()" class="danger">Clear Canvas</button>
         <button onclick="exportJSON()">Export JSON</button>
         <button onclick="loadJSON()">Load JSON</button>
+        <div class="spacer"></div>
+        <!-- Zoom Controls -->
+        <button onclick="zoomOut()" title="Zoom Out (-)">−</button>
+        <span id="zoom-level" style="min-width: 60px; text-align: center;">100%</span>
+        <button onclick="zoomIn()" title="Zoom In (+)">+</button>
+        <button onclick="resetZoom()" title="Reset Zoom">Reset</button>
         <div class="spacer"></div>
         <span class="status" id="status">Ready</span>
       </div>
@@ -506,7 +514,66 @@
       </div>
 
       <div id="no-selection" style="color: #666; font-size: 13px;">
-        Select a frame to see its properties
+        Select a frame or image to see its properties
+      </div>
+
+      <!-- Image Properties Panel -->
+      <div id="image-properties" style="display: none;">
+        <div class="info-row">
+          <div class="info-group">
+            <label>Width</label>
+            <input type="number" id="img-prop-width" readonly>
+          </div>
+          <div class="info-group">
+            <label>Height</label>
+            <input type="number" id="img-prop-height" readonly>
+          </div>
+        </div>
+
+        <div class="info-row">
+          <div class="info-group">
+            <label>Crop X</label>
+            <input type="number" id="img-prop-cropX" readonly>
+          </div>
+          <div class="info-group">
+            <label>Crop Y</label>
+            <input type="number" id="img-prop-cropY" readonly>
+          </div>
+        </div>
+
+        <div style="margin-top: 15px;">
+          <button onclick="toggleImageCropMode()" id="crop-mode-btn" class="shape-btn" style="width: 100%;">
+            Enter Crop Mode
+          </button>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button onclick="toggleImageExpandMode()" id="image-expand-mode-btn" class="shape-btn" style="width: 100%; background: #8b5cf6;">
+            AI Expand Mode
+          </button>
+        </div>
+
+        <!-- Image Expansion Values Display -->
+        <div id="image-expansion-values" style="display: none; margin-top: 15px; background: #0f3460; padding: 10px; border-radius: 6px;">
+          <label style="display: block; font-size: 11px; color: #8b5cf6; margin-bottom: 8px; text-transform: uppercase;">
+            Expansion Values (px)
+          </label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
+            <div>Left: <span id="img-exp-left">0</span></div>
+            <div>Right: <span id="img-exp-right">0</span></div>
+            <div>Top: <span id="img-exp-top">0</span></div>
+            <div>Bottom: <span id="img-exp-bottom">0</span></div>
+          </div>
+          <div style="margin-top: 8px; font-size: 11px; color: #666;">
+            Expanded size: <span id="img-exp-size">-</span>
+          </div>
+          <button onclick="resetImageExpansion()" class="shape-btn" style="width: 100%; margin-top: 10px; background: #e94560; font-size: 11px;">
+            Reset Expansion
+          </button>
+          <button onclick="getImageExpansionForAPI()" class="shape-btn" style="width: 100%; margin-top: 5px; background: #27ae60; font-size: 11px;">
+            Copy for API
+          </button>
+        </div>
       </div>
 
       <h2 style="margin-top: 30px;">Canvas JSON</h2>
@@ -580,25 +647,21 @@
       ctx.restore();
 
       if (editingFrameRef) {
-        // Edit mode: render all objects EXCEPT editing frame with clip,
-        // then render editing frame without clip
-        const otherObjects = objects.filter(obj => obj !== editingFrameRef);
-
-        // Render other objects with clip
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(CLIP.left, CLIP.top, CLIP.w, CLIP.h);
-        ctx.clip();
-        originalRenderCanvas(ctx, otherObjects);
-        ctx.restore();
-
-        // Render editing frame without clip (full image visible)
-        editingFrameRef.render(ctx);
+        // Edit mode: render everything without clip so full image is visible
+        // Let Fabric handle all rendering normally (including controls)
+        originalRenderCanvas(ctx, objects);
       } else {
-        // Normal mode: clip everything
+        // Normal mode: clip everything to work area
+        // Apply clip in viewport-transformed coordinates
         ctx.save();
+        const vpt = canvas.viewportTransform;
         ctx.beginPath();
-        ctx.rect(CLIP.left, CLIP.top, CLIP.w, CLIP.h);
+        // Transform clip rect by viewport
+        const clipLeft = CLIP.left * vpt[0] + vpt[4];
+        const clipTop = CLIP.top * vpt[3] + vpt[5];
+        const clipWidth = CLIP.w * vpt[0];
+        const clipHeight = CLIP.h * vpt[3];
+        ctx.rect(clipLeft, clipTop, clipWidth, clipHeight);
         ctx.clip();
         originalRenderCanvas(ctx, objects);
         ctx.restore();
@@ -923,27 +986,185 @@
       setStatus('Test rect added! Try resizing the frame.');
     };
 
-    // Update properties panel
-    function updatePropertiesPanel(frame) {
-      console.log('updatePropertiesPanel called with:', frame, 'type:', frame?.type);
-      if (frame && (frame.type === 'Frame' || frame.type === 'frame')) {
-        selectedFrame = frame;
-        console.log('Frame selected, showing properties panel');
-        document.getElementById('frame-properties').style.display = 'block';
-        document.getElementById('no-selection').style.display = 'none';
+    // Track selected image
+    let selectedImage = null;
 
-        document.getElementById('prop-width').value = Math.round(frame.frameWidth);
-        document.getElementById('prop-height').value = Math.round(frame.frameHeight);
-        document.getElementById('prop-shape').value = frame.frameShape;
-        document.getElementById('prop-hasContent').value = frame.hasContent() ? 'Yes' : 'No';
+    // Update properties panel
+    function updatePropertiesPanel(obj) {
+      console.log('updatePropertiesPanel called with:', obj, 'type:', obj?.type);
+
+      // Hide all panels first
+      document.getElementById('frame-properties').style.display = 'none';
+      document.getElementById('image-properties').style.display = 'none';
+      document.getElementById('no-selection').style.display = 'none';
+
+      if (obj && (obj.type === 'Frame' || obj.type === 'frame')) {
+        selectedFrame = obj;
+        selectedImage = null;
+        document.getElementById('frame-properties').style.display = 'block';
+
+        document.getElementById('prop-width').value = Math.round(obj.frameWidth);
+        document.getElementById('prop-height').value = Math.round(obj.frameHeight);
+        document.getElementById('prop-shape').value = obj.frameShape;
+        document.getElementById('prop-hasContent').value = obj.hasContent() ? 'Yes' : 'No';
         document.getElementById('radius-group').style.display =
-          frame.frameShape === 'rounded-rect' ? 'block' : 'none';
+          obj.frameShape === 'rounded-rect' ? 'block' : 'none';
+      } else if (obj && obj.type === 'image') {
+        selectedImage = obj;
+        selectedFrame = null;
+        document.getElementById('image-properties').style.display = 'block';
+        updateImagePropertiesPanel(obj);
       } else {
         selectedFrame = null;
-        document.getElementById('frame-properties').style.display = 'none';
+        selectedImage = null;
         document.getElementById('no-selection').style.display = 'block';
       }
     }
+
+    // Update image properties panel
+    function updateImagePropertiesPanel(img) {
+      if (!img) return;
+      document.getElementById('img-prop-width').value = Math.round(img.width * (img.scaleX || 1));
+      document.getElementById('img-prop-height').value = Math.round(img.height * (img.scaleY || 1));
+      document.getElementById('img-prop-cropX').value = Math.round(img.cropX || 0);
+      document.getElementById('img-prop-cropY').value = Math.round(img.cropY || 0);
+      updateImageCropModeUI();
+      updateImageExpandModeUI();
+    }
+
+    // Toggle image crop mode
+    window.toggleImageCropMode = function() {
+      if (!selectedImage) return;
+      selectedImage.toggleCropMode();
+
+      if (selectedImage.cropMode) {
+        croppingImage = selectedImage;
+        dimOtherObjects(selectedImage);
+        setStatus('CROP MODE - drag to move image, drag handles to crop, double-click or click outside to exit');
+      } else {
+        restoreOtherObjects();
+        croppingImage = null;
+        setStatus('Exited crop mode');
+      }
+
+      canvas.requestRenderAll();
+      updateImageCropModeUI();
+    };
+
+    // Update crop mode button UI
+    function updateImageCropModeUI() {
+      const btn = document.getElementById('crop-mode-btn');
+      if (!btn) return;
+      if (selectedImage && selectedImage.cropMode) {
+        btn.textContent = 'Exit Crop Mode';
+        btn.style.background = '#e94560';
+      } else {
+        btn.textContent = 'Enter Crop Mode';
+        btn.style.background = '#0f3460';
+      }
+    }
+
+    // Toggle image expand mode
+    window.toggleImageExpandMode = function() {
+      if (!selectedImage) {
+        setStatus('Select an image first');
+        return;
+      }
+
+      if (selectedImage.expandMode) {
+        selectedImage.exitExpandMode();
+        setStatus('Exited expand mode');
+      } else {
+        selectedImage.enterExpandMode();
+        setStatus('EXPAND MODE - Drag purple handles outward to define expansion area');
+      }
+
+      updateImageExpandModeUI();
+      canvas.renderAll();
+    };
+
+    // Update image expansion values display
+    function updateImageExpansionValues() {
+      if (!selectedImage) return;
+
+      const expansion = selectedImage.getExpansion ? selectedImage.getExpansion() : null;
+      if (!expansion) return;
+
+      document.getElementById('img-exp-left').textContent = Math.round(expansion.expandLeft || 0);
+      document.getElementById('img-exp-right').textContent = Math.round(expansion.expandRight || 0);
+      document.getElementById('img-exp-top').textContent = Math.round(expansion.expandTop || 0);
+      document.getElementById('img-exp-bottom').textContent = Math.round(expansion.expandBottom || 0);
+
+      // Calculate expanded size
+      const origWidth = selectedImage.width * (selectedImage.scaleX || 1);
+      const origHeight = selectedImage.height * (selectedImage.scaleY || 1);
+      const expandedWidth = origWidth + (expansion.expandLeft || 0) + (expansion.expandRight || 0);
+      const expandedHeight = origHeight + (expansion.expandTop || 0) + (expansion.expandBottom || 0);
+      document.getElementById('img-exp-size').textContent = `${Math.round(expandedWidth)} x ${Math.round(expandedHeight)}`;
+    }
+
+    // Update expand mode UI state for images
+    function updateImageExpandModeUI() {
+      const btn = document.getElementById('image-expand-mode-btn');
+      const valuesDiv = document.getElementById('image-expansion-values');
+      if (!btn || !valuesDiv) return;
+
+      if (selectedImage && selectedImage.expandMode) {
+        btn.textContent = 'Exit Expand Mode';
+        btn.style.background = '#e94560';
+        valuesDiv.style.display = 'block';
+        updateImageExpansionValues();
+      } else {
+        btn.textContent = 'AI Expand Mode';
+        btn.style.background = '#8b5cf6';
+        const hasExpansion = selectedImage && selectedImage.getExpansion &&
+          (selectedImage.getExpansion().expandLeft > 0 || selectedImage.getExpansion().expandRight > 0 ||
+           selectedImage.getExpansion().expandTop > 0 || selectedImage.getExpansion().expandBottom > 0);
+        valuesDiv.style.display = hasExpansion ? 'block' : 'none';
+        if (hasExpansion) {
+          updateImageExpansionValues();
+        }
+      }
+    }
+
+    // Reset image expansion
+    window.resetImageExpansion = function() {
+      if (!selectedImage) return;
+      if (selectedImage.resetExpansion) {
+        selectedImage.resetExpansion();
+      }
+      updateImageExpansionValues();
+      canvas.renderAll();
+      setStatus('Image expansion reset');
+    };
+
+    // Get image expansion values for API
+    window.getImageExpansionForAPI = function() {
+      if (!selectedImage) return;
+
+      const expansion = selectedImage.getExpansion ? selectedImage.getExpansion() : null;
+      if (!expansion) return;
+
+      const apiData = {
+        expandLeft: Math.round(expansion.expandLeft || 0),
+        expandRight: Math.round(expansion.expandRight || 0),
+        expandTop: Math.round(expansion.expandTop || 0),
+        expandBottom: Math.round(expansion.expandBottom || 0),
+        originalWidth: Math.round(selectedImage.width * (selectedImage.scaleX || 1)),
+        originalHeight: Math.round(selectedImage.height * (selectedImage.scaleY || 1)),
+      };
+
+      const json = JSON.stringify(apiData, null, 2);
+
+      navigator.clipboard.writeText(json).then(() => {
+        setStatus('Image expansion data copied to clipboard!');
+      }).catch(() => {
+        document.getElementById('json-output').textContent = json;
+        setStatus('Image expansion data shown in JSON panel');
+      });
+
+      console.log('Image expansion for AI API:', apiData);
+    };
 
     // Canvas selection events
     canvas.on('selection:created', (e) => {
@@ -982,6 +1203,87 @@
         canvas.requestRenderAll();
         setStatus('Edit mode - drag image to reposition, click outside to exit');
       }
+      // Double-click on standalone image to toggle crop mode
+      else if (e.target && e.target.type === 'image' && e.target.toggleCropMode) {
+        e.target.toggleCropMode();
+
+        if (e.target.cropMode) {
+          croppingImage = e.target;
+          dimOtherObjects(e.target);
+          setStatus('CROP MODE - drag to move image, drag handles to crop, double-click or click outside to exit');
+        } else {
+          restoreOtherObjects();
+          croppingImage = null;
+          setStatus('Exited crop mode');
+        }
+
+        canvas.requestRenderAll();
+        updateImageCropModeUI();
+      }
+    });
+
+    // Reset crop mode drag state on mouse up
+    canvas.on('mouse:up', (e) => {
+      if (e.target && e.target.type === 'image' && e.target._onMouseUp) {
+        e.target._onMouseUp();
+      }
+    });
+
+    // Track which image is in crop mode
+    let croppingImage = null;
+    let originalObjectStates = new Map();
+
+    // Dim all other objects when entering crop mode
+    function dimOtherObjects(activeImage) {
+      originalObjectStates.clear();
+      canvas.getObjects().forEach(obj => {
+        if (obj !== activeImage && obj !== workArea) {
+          originalObjectStates.set(obj, {
+            opacity: obj.opacity,
+            selectable: obj.selectable,
+            evented: obj.evented
+          });
+          obj.set('opacity', 0.3);
+          obj.set('selectable', false);
+          obj.set('evented', false);
+        }
+      });
+    }
+
+    // Restore all objects when exiting crop mode
+    function restoreOtherObjects() {
+      originalObjectStates.forEach((state, obj) => {
+        obj.set('opacity', state.opacity);
+        obj.set('selectable', state.selectable);
+        obj.set('evented', state.evented);
+      });
+      originalObjectStates.clear();
+    }
+
+    // Click outside to exit crop mode
+    canvas.on('mouse:down', (e) => {
+      if (croppingImage && croppingImage.cropMode) {
+        // Check if clicking outside the image
+        if (e.target !== croppingImage) {
+          croppingImage.exitCropMode();
+          restoreOtherObjects();
+          canvas.requestRenderAll();
+          setStatus('Exited crop mode');
+          croppingImage = null;
+          updateImageCropModeUI();
+        }
+      }
+      // Track when entering crop mode
+      if (e.target && e.target.type === 'image' && e.target.cropMode) {
+        croppingImage = e.target;
+      }
+    });
+
+    // Update croppingImage reference when entering crop mode via double-click
+    canvas.on('mouse:dblclick', (e) => {
+      if (e.target && e.target.type === 'image' && e.target.cropMode) {
+        croppingImage = e.target;
+      }
     });
 
     // Helper to exit edit mode and restore canvas clip
@@ -1011,16 +1313,44 @@
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      // ESC to exit edit mode
-      if (e.key === 'Escape' && editingFrame) {
-        exitEditModeAndRestoreClip();
-        updateExpandModeUI();
+      // Skip if typing in input
+      if (e.target.matches('input, textarea')) return;
+
+      // ESC to exit edit mode or crop mode
+      if (e.key === 'Escape') {
+        if (editingFrame) {
+          exitEditModeAndRestoreClip();
+          updateExpandModeUI();
+        }
+        if (croppingImage && croppingImage.cropMode) {
+          croppingImage.exitCropMode();
+          restoreOtherObjects();
+          canvas.requestRenderAll();
+          setStatus('Exited crop mode');
+          croppingImage = null;
+          updateImageCropModeUI();
+        }
+        if (selectedImage && selectedImage.expandMode) {
+          selectedImage.exitExpandMode();
+          canvas.renderAll();
+          updateImageExpandModeUI();
+          setStatus('Exited expand mode');
+        }
       }
 
-      // E to toggle expand mode (when frame is selected)
+      // E to toggle expand mode (for frame or image)
       if (e.key === 'e' || e.key === 'E') {
-        if (selectedFrame && selectedFrame.hasContent() && !e.target.matches('input, textarea')) {
+        if (selectedFrame && selectedFrame.hasContent()) {
           toggleExpandMode();
+        } else if (selectedImage) {
+          toggleImageExpandMode();
+        }
+      }
+
+      // C to toggle crop mode (for image)
+      if (e.key === 'c' || e.key === 'C') {
+        if (selectedImage) {
+          toggleImageCropMode();
         }
       }
     });
@@ -1253,6 +1583,79 @@
     canvas.on('object:scaling', (e) => {
       console.log('Scaling event (should not see this for frames):', e.target?.scaleX, e.target?.scaleY);
     });
+
+    // ============ ZOOM FUNCTIONALITY ============
+    const ZOOM_STEP = 0.1;
+    const MIN_ZOOM = 0.25;
+    const MAX_ZOOM = 4;
+
+    function updateZoomDisplay() {
+      const zoom = canvas.getZoom();
+      document.getElementById('zoom-level').textContent = Math.round(zoom * 100) + '%';
+    }
+
+    window.zoomIn = function() {
+      let zoom = canvas.getZoom();
+      zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
+      zoomToCenter(zoom);
+    };
+
+    window.zoomOut = function() {
+      let zoom = canvas.getZoom();
+      zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
+      zoomToCenter(zoom);
+    };
+
+    window.resetZoom = function() {
+      zoomToCenter(1);
+    };
+
+    function zoomToCenter(zoom) {
+      // Get canvas center
+      const center = {
+        x: canvas.getWidth() / 2,
+        y: canvas.getHeight() / 2
+      };
+
+      // Zoom to center
+      canvas.zoomToPoint(new fabric.Point(center.x, center.y), zoom);
+      canvas.requestRenderAll();
+      updateZoomDisplay();
+      setStatus(`Zoom: ${Math.round(zoom * 100)}%`);
+    }
+
+    // Mouse wheel zoom
+    canvas.on('mouse:wheel', function(opt) {
+      const delta = opt.e.deltaY;
+      let zoom = canvas.getZoom();
+      zoom *= 0.999 ** delta;
+      zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+
+      // Zoom to mouse position
+      canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+      opt.e.preventDefault();
+      opt.e.stopPropagation();
+      updateZoomDisplay();
+    });
+
+    // Keyboard zoom shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Skip if typing in input
+      if (e.target.matches('input, textarea')) return;
+
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomIn();
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        zoomOut();
+      } else if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        resetZoom();
+      }
+    });
+
+    console.log('Zoom controls ready: use +/- keys, mouse wheel, or toolbar buttons');
   </script>
 </body>
 </html>
