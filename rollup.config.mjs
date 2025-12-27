@@ -80,7 +80,16 @@ export default [
             preserveModules: true,
             entryFileNames: '[name].min.mjs',
             sourcemap: true,
-            plugins: [terser()],
+            plugins: [
+              terser({
+                keep_classnames: true,
+                keep_fnames: true,
+                mangle: {
+                  keep_classnames: true,
+                  keep_fnames: true,
+                },
+              }),
+            ],
           }
         : null,
     ],
@@ -103,7 +112,21 @@ export default [
             name: 'fabric',
             format: 'es',
             sourcemap: true,
-            plugins: [terser()],
+            plugins: [
+              terser({
+                keep_classnames: true,
+                keep_fnames: true,
+                mangle: {
+                  keep_classnames: true,
+                  keep_fnames: true,
+                },
+                compress: {
+                  unused: false,
+                  dead_code: false,
+                  pure_getters: false,
+                },
+              }),
+            ],
           }
         : null,
       // umd module in bundle, the cdn one for fiddles
@@ -120,7 +143,21 @@ export default [
             name: 'fabric',
             format: 'umd',
             sourcemap: true,
-            plugins: [terser()],
+            plugins: [
+              terser({
+                keep_classnames: true,
+                keep_fnames: true,
+                mangle: {
+                  keep_classnames: true,
+                  keep_fnames: true,
+                },
+                compress: {
+                  unused: false,
+                  dead_code: false,
+                  pure_getters: false,
+                },
+              }),
+            ],
           }
         : null,
     ],
