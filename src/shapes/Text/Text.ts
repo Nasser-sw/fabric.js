@@ -619,8 +619,6 @@ export class FabricText<
    * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    // console.log('=== enlargeSpaces START ===');
-    // console.log('this.kashida:', this.kashida);
 
     // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
     const kashidaRatios: Record<string, number> = {
@@ -654,17 +652,23 @@ export class FabricText<
         this.textAlign.includes('justify') && !isLastLine;
 
       if (!shouldJustifyLine) {
-        // console.log(`  Line ${i}: skipped (not justified)`);
         continue;
       }
 
       const line = this._textLines[i];
+
+      // For advanced layout, the layout engine already set line.width = containerWidth
+      // So we need to remeasure to get the natural line width before space expansion
+      if (this.enableAdvancedLayout) {
+        this.__charBounds[i] = [];
+        this.__lineWidths[i] = undefined as any;
+        this._measureLine(i);
+      }
+
       const currentLineWidth = this.getLineWidth(i);
       const totalExtraSpace = this.width - currentLineWidth;
-      // console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
 
       if (totalExtraSpace <= 0) {
-        // console.log(`  Line ${i}: skipped (no extra space)`);
         continue;
       }
 
@@ -858,9 +862,9 @@ export class FabricText<
     // Convert layout to legacy format for compatibility
     this._convertLayoutToLegacyFormat(layout);
 
-    // Apply kashida if enabled for justify alignment
+    // Apply space expansion for justify alignment
     // This must be called after _convertLayoutToLegacyFormat to ensure __charBounds exists
-    if (this.textAlign.includes(JUSTIFY) && this.kashida && this.kashida !== 'none') {
+    if (this.textAlign.includes(JUSTIFY)) {
       if (this.__charBounds && this.__charBounds.length > 0) {
         this.enlargeSpaces();
       }
@@ -1676,22 +1680,6 @@ export class FabricText<
       ctx.restore();
       return;
     }
-    // Debug: Log charBounds being used for first line only during justify
-    if (isJustify && lineIndex === 0 && method === 'fillText') {
-      // console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
-      // console.log('Initial left:', left.toFixed(2), 'sign:', sign);
-      // console.log('_justifyApplied flag:', (this as any)._justifyApplied);
-      const lineBounds = this.__charBounds[lineIndex];
-      const totalKW = lineBounds?.reduce((s, b) => s + (b?.kernedWidth || 0), 0) || 0;
-      // console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
-      // Log first few space widths to verify expansion
-      const spaceIndices = [3, 9, 15, 23, 31];
-      spaceIndices.forEach(idx => {
-        const b = lineBounds?.[idx];
-        if (b) console.log(`  Space at idx ${idx}: kernedWidth=${b.kernedWidth?.toFixed(2)}`);
-      });
-    }
-
     for (let i = 0, len = line.length - 1; i <= len; i++) {
       timeToRender = i === len || this.charSpacing || path;
       charsToRender += line[i];

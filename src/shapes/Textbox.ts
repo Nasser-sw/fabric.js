@@ -309,9 +309,22 @@ export class Textbox<
     // Generate style map for compatibility
     this._styleMap = this._generateStyleMapFromLayout(layout);
 
-    // Apply kashida for justified text in advanced layout mode
-    if (this.textAlign.includes(JUSTIFY) && this.kashida !== 'none') {
-      this._applyKashidaToLayout();
+    // Apply justify alignment
+    if (this.textAlign.includes(JUSTIFY)) {
+      // Ensure charBounds are populated
+      for (let i = 0; i < this._textLines.length; i++) {
+        this.getLineWidth(i);
+      }
+
+      if (this.kashida !== 'none') {
+        // Use kashida for Arabic text justification
+        this._applyKashidaToLayout();
+      } else {
+        // Use space expansion for regular justify
+        if (this.__charBounds && this.__charBounds.length > 0) {
+          this.enlargeSpaces();
+        }
+      }
     }
 
     this.dirty = true;

@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta42";
+var version = "7.0.1-beta45";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -22069,9 +22069,6 @@ class FabricText extends StyledText {
    * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    // console.log('=== enlargeSpaces START ===');
-    // console.log('this.kashida:', this.kashida);
-
     // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
     const kashidaRatios = {
       none: 0,
@@ -22098,16 +22095,20 @@ class FabricText extends StyledText {
       const isLastLine = i === len - 1 || this.isEndOfWrapping(i) || isVisualLastLine;
       const shouldJustifyLine = this.textAlign.includes('justify') && !isLastLine;
       if (!shouldJustifyLine) {
-        // console.log(`  Line ${i}: skipped (not justified)`);
         continue;
       }
       const line = this._textLines[i];
+
+      // For advanced layout, the layout engine already set line.width = containerWidth
+      // So we need to remeasure to get the natural line width before space expansion
+      if (this.enableAdvancedLayout) {
+        this.__charBounds[i] = [];
+        this.__lineWidths[i] = undefined;
+        this._measureLine(i);
+      }
       const currentLineWidth = this.getLineWidth(i);
       const totalExtraSpace = this.width - currentLineWidth;
-      // console.log(`  Line ${i}: width=${this.width}, lineWidth=${currentLineWidth}, extraSpace=${totalExtraSpace}`);
-
       if (totalExtraSpace <= 0) {
-        // console.log(`  Line ${i}: skipped (no extra space)`);
         continue;
       }
 
@@ -22289,9 +22290,9 @@ class FabricText extends StyledText {
     // Convert layout to legacy format for compatibility
     this._convertLayoutToLegacyFormat(layout);
 
-    // Apply kashida if enabled for justify alignment
+    // Apply space expansion for justify alignment
     // This must be called after _convertLayoutToLegacyFormat to ensure __charBounds exists
-    if (this.textAlign.includes(JUSTIFY) && this.kashida && this.kashida !== 'none') {
+    if (this.textAlign.includes(JUSTIFY)) {
       if (this.__charBounds && this.__charBounds.length > 0) {
         this.enlargeSpaces();
       }
@@ -22967,22 +22968,6 @@ class FabricText extends StyledText {
       this._renderChar(method, ctx, lineIndex, 0, line.join(''), left, top);
       ctx.restore();
       return;
-    }
-    // Debug: Log charBounds being used for first line only during justify
-    if (isJustify && lineIndex === 0 && method === 'fillText') {
-      // console.log(`\n=== RENDER _renderChars line ${lineIndex} ===`);
-      // console.log('Initial left:', left.toFixed(2), 'sign:', sign);
-      // console.log('_justifyApplied flag:', (this as any)._justifyApplied);
-      const lineBounds = this.__charBounds[lineIndex];
-      (lineBounds === null || lineBounds === void 0 ? void 0 : lineBounds.reduce((s, b) => s + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0)) || 0;
-      // console.log('Total kernedWidth in charBounds:', totalKW.toFixed(2), '(should be ~300 if justify was applied)');
-      // Log first few space widths to verify expansion
-      const spaceIndices = [3, 9, 15, 23, 31];
-      spaceIndices.forEach(idx => {
-        var _b$kernedWidth;
-        const b = lineBounds === null || lineBounds === void 0 ? void 0 : lineBounds[idx];
-        if (b) console.log(`  Space at idx ${idx}: kernedWidth=${(_b$kernedWidth = b.kernedWidth) === null || _b$kernedWidth === void 0 ? void 0 : _b$kernedWidth.toFixed(2)}`);
-      });
     }
     for (let i = 0, len = line.length - 1; i <= len; i++) {
       timeToRender = i === len || this.charSpacing || path;
@@ -28582,9 +28567,21 @@ class Textbox extends IText {
     // Generate style map for compatibility
     this._styleMap = this._generateStyleMapFromLayout(layout);
 
-    // Apply kashida for justified text in advanced layout mode
-    if (this.textAlign.includes(JUSTIFY) && this.kashida !== 'none') {
-      this._applyKashidaToLayout();
+    // Apply justify alignment
+    if (this.textAlign.includes(JUSTIFY)) {
+      // Ensure charBounds are populated
+      for (let i = 0; i < this._textLines.length; i++) {
+        this.getLineWidth(i);
+      }
+      if (this.kashida !== 'none') {
+        // Use kashida for Arabic text justification
+        this._applyKashidaToLayout();
+      } else {
+        // Use space expansion for regular justify
+        if (this.__charBounds && this.__charBounds.length > 0) {
+          this.enlargeSpaces();
+        }
+      }
     }
     this.dirty = true;
   }
@@ -31322,44 +31319,33 @@ class FabricImage extends FabricObject {
     const fullH = elHeight / scaleY;
 
     // Position of the full image (crop area is centered at 0,0)
-    // The crop window starts at (cropX, cropY) in the original image
-    // We want the crop window to be at (-w/2, -h/2) to (w/2, h/2)
-    // So the full image starts at (-w/2 - cropX, -h/2 - cropY)
     const fullX = -w / 2 - cropX;
     const fullY = -h / 2 - cropY;
 
     // Draw the FULL image dimmed (outside crop area)
     ctx.save();
-    ctx.globalAlpha = 0.3;
-    ctx.drawImage(elementToDraw, 0, 0, elWidth, elHeight,
-    // source: full image
-    fullX, fullY, fullW, fullH // dest: positioned so crop area is centered
-    );
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(elementToDraw, 0, 0, elWidth, elHeight, fullX, fullY, fullW, fullH);
     ctx.restore();
 
-    // Draw dark overlay on the dimmed parts (outside crop area)
+    // Draw dark overlay covering ENTIRE canvas with crop area cut out (like Frame edit mode)
     ctx.save();
+    ctx.beginPath();
+
+    // Large outer rectangle covering entire visible area
+    const padding = 10000;
+    ctx.rect(-padding, -padding, padding * 2, padding * 2);
+
+    // Cut out the crop area (counter-clockwise to create hole with evenodd)
+    const cropLeft = -w / 2;
+    const cropTop = -h / 2;
+    ctx.moveTo(cropLeft + w, cropTop);
+    ctx.lineTo(cropLeft, cropTop);
+    ctx.lineTo(cropLeft, cropTop + h);
+    ctx.lineTo(cropLeft + w, cropTop + h);
+    ctx.closePath();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    // Left side
-    if (cropX > 0) {
-      ctx.fillRect(fullX, fullY, cropX, fullH);
-    }
-    // Right side
-    const rightStart = -w / 2 + w;
-    const rightWidth = fullW - cropX - w;
-    if (rightWidth > 0) {
-      ctx.fillRect(rightStart, fullY, rightWidth, fullH);
-    }
-    // Top side (between left and right)
-    if (cropY > 0) {
-      ctx.fillRect(-w / 2, fullY, w, cropY);
-    }
-    // Bottom side (between left and right)
-    const bottomStart = -h / 2 + h;
-    const bottomHeight = fullH - cropY - h;
-    if (bottomHeight > 0) {
-      ctx.fillRect(-w / 2, bottomStart, w, bottomHeight);
-    }
+    ctx.fill('evenodd');
     ctx.restore();
 
     // Draw the crop area at FULL opacity

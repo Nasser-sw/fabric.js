@@ -852,45 +852,38 @@ export class FabricImage<
     const fullH = elHeight / scaleY;
 
     // Position of the full image (crop area is centered at 0,0)
-    // The crop window starts at (cropX, cropY) in the original image
-    // We want the crop window to be at (-w/2, -h/2) to (w/2, h/2)
-    // So the full image starts at (-w/2 - cropX, -h/2 - cropY)
     const fullX = -w / 2 - cropX;
     const fullY = -h / 2 - cropY;
 
     // Draw the FULL image dimmed (outside crop area)
     ctx.save();
-    ctx.globalAlpha = 0.3;
+    ctx.globalAlpha = 0.5;
     ctx.drawImage(
       elementToDraw,
-      0, 0, elWidth, elHeight,  // source: full image
-      fullX, fullY, fullW, fullH,  // dest: positioned so crop area is centered
+      0, 0, elWidth, elHeight,
+      fullX, fullY, fullW, fullH,
     );
     ctx.restore();
 
-    // Draw dark overlay on the dimmed parts (outside crop area)
+    // Draw dark overlay covering ENTIRE canvas with crop area cut out (like Frame edit mode)
     ctx.save();
+    ctx.beginPath();
+
+    // Large outer rectangle covering entire visible area
+    const padding = 10000;
+    ctx.rect(-padding, -padding, padding * 2, padding * 2);
+
+    // Cut out the crop area (counter-clockwise to create hole with evenodd)
+    const cropLeft = -w / 2;
+    const cropTop = -h / 2;
+    ctx.moveTo(cropLeft + w, cropTop);
+    ctx.lineTo(cropLeft, cropTop);
+    ctx.lineTo(cropLeft, cropTop + h);
+    ctx.lineTo(cropLeft + w, cropTop + h);
+    ctx.closePath();
+
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    // Left side
-    if (cropX > 0) {
-      ctx.fillRect(fullX, fullY, cropX, fullH);
-    }
-    // Right side
-    const rightStart = -w / 2 + w;
-    const rightWidth = fullW - cropX - w;
-    if (rightWidth > 0) {
-      ctx.fillRect(rightStart, fullY, rightWidth, fullH);
-    }
-    // Top side (between left and right)
-    if (cropY > 0) {
-      ctx.fillRect(-w / 2, fullY, w, cropY);
-    }
-    // Bottom side (between left and right)
-    const bottomStart = -h / 2 + h;
-    const bottomHeight = fullH - cropY - h;
-    if (bottomHeight > 0) {
-      ctx.fillRect(-w / 2, bottomStart, w, bottomHeight);
-    }
+    ctx.fill('evenodd');
     ctx.restore();
 
     // Draw the crop area at FULL opacity
