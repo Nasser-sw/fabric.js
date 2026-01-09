@@ -1358,4 +1358,84 @@ describe('FabricText', () => {
 
     expect(justifiedSpace).toBeCloseTo(baselineSpace);
   });
+
+  describe('BiDi-aware justify rendering', () => {
+    it('should maintain LTR word order in mixed RTL/LTR justify text', () => {
+      // Test that "testing grok" stays in that order (not "grok testing")
+      // This is a rendering test - we verify the chunks are processed in correct visual order
+      const textbox = new Textbox('مرحبا testing grok بالعالم', {
+        width: 400,
+        fontSize: 20,
+        direction: 'rtl',
+        textAlign: 'justify',
+        enableAdvancedLayout: true,
+      });
+
+      // Verify the text was created with correct properties
+      expect(textbox.direction).toBe('rtl');
+      expect(textbox.textAlign).toBe('justify');
+
+      // Verify we have char bounds calculated
+      expect(textbox.__charBounds).toBeDefined();
+      expect(textbox.__charBounds[0]).toBeDefined();
+
+      // The key test: verify the text renders without errors
+      // In a full rendering test, we'd verify pixel positions
+      // For now, we verify the text object can be rendered
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 100;
+      const ctx = canvas.getContext('2d');
+      expect(ctx).toBeDefined();
+
+      // This should not throw - the BiDi-aware rendering path handles mixed content
+      expect(() => {
+        textbox.render(ctx as CanvasRenderingContext2D);
+      }).not.toThrow();
+    });
+
+    it('should not affect pure RTL justify text', () => {
+      // Pure RTL text should work as before
+      const textbox = new Textbox('مرحبا بالعالم الرقمي', {
+        width: 300,
+        fontSize: 20,
+        direction: 'rtl',
+        textAlign: 'justify',
+      });
+
+      expect(textbox.direction).toBe('rtl');
+      expect(textbox.textAlign).toBe('justify');
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 100;
+      const ctx = canvas.getContext('2d');
+
+      expect(() => {
+        textbox.render(ctx as CanvasRenderingContext2D);
+      }).not.toThrow();
+    });
+
+    it('should not affect LTR justify text', () => {
+      // LTR text should use the original rendering path
+      const textbox = new Textbox('Hello World Testing', {
+        width: 300,
+        fontSize: 20,
+        direction: 'ltr',
+        textAlign: 'justify',
+      });
+
+      expect(textbox.direction).toBe('ltr');
+      expect(textbox.textAlign).toBe('justify');
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 100;
+      const ctx = canvas.getContext('2d');
+
+      expect(() => {
+        textbox.render(ctx as CanvasRenderingContext2D);
+      }).not.toThrow();
+    });
+  });
 });

@@ -23025,6 +23025,39 @@ class FabricText extends StyledText {
       ctx.restore();
       return;
     }
+
+    // For RTL justify with mixed BiDi content, pre-compute which characters are in LTR runs
+    // so we can avoid splitting LTR runs by spaces (which would reverse word order)
+    let isInLtrRun = null;
+    if (isJustify && !isLtr && !path) {
+      const lineText = line.join('');
+      const biDiRuns = analyzeBiDi(lineText, 'rtl');
+      const hasLtrContent = biDiRuns.some(run => run.direction === 'ltr');
+      if (hasLtrContent) {
+        // Mark which character positions are in LTR runs
+        isInLtrRun = new Array(line.length).fill(false);
+        for (const run of biDiRuns) {
+          if (run.direction === 'ltr') {
+            // Mark all characters in this LTR run
+            for (let j = run.start; j < run.end; j++) {
+              // Map string position to grapheme position
+              let graphemeIdx = 0;
+              let strPos = 0;
+              for (let g = 0; g < line.length; g++) {
+                if (strPos === j) {
+                  graphemeIdx = g;
+                  break;
+                }
+                strPos += line[g].length;
+              }
+              if (graphemeIdx < isInLtrRun.length) {
+                isInLtrRun[graphemeIdx] = true;
+              }
+            }
+          }
+        }
+      }
+    }
     for (let i = 0, len = line.length - 1; i <= len; i++) {
       timeToRender = i === len || this.charSpacing || path;
       charsToRender += line[i];
@@ -23044,7 +23077,31 @@ class FabricText extends StyledText {
       }
       if (isJustify && !timeToRender) {
         if (this._reSpaceAndTab.test(line[i])) {
-          timeToRender = true;
+          // For RTL with mixed BiDi: don't split on spaces between LTR words
+          // This keeps LTR word sequences like "testing grok" together
+          if (isInLtrRun) {
+            // Find previous non-space char
+            let prevNonSpaceIdx = i - 1;
+            while (prevNonSpaceIdx >= 0 && this._reSpaceAndTab.test(line[prevNonSpaceIdx])) {
+              prevNonSpaceIdx--;
+            }
+            // Find next non-space char
+            let nextNonSpaceIdx = i + 1;
+            while (nextNonSpaceIdx <= len && this._reSpaceAndTab.test(line[nextNonSpaceIdx])) {
+              nextNonSpaceIdx++;
+            }
+            // Check if we're between two LTR words (space between LTR content)
+            const prevIsLtr = prevNonSpaceIdx >= 0 && isInLtrRun[prevNonSpaceIdx];
+            const nextIsLtr = nextNonSpaceIdx <= len && isInLtrRun[nextNonSpaceIdx];
+            if (prevIsLtr && nextIsLtr) {
+              // Don't trigger render - keep accumulating the LTR run
+              timeToRender = false;
+            } else {
+              timeToRender = true;
+            }
+          } else {
+            timeToRender = true;
+          }
         }
       }
       if (!timeToRender) {
