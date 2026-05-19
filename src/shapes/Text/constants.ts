@@ -34,6 +34,7 @@ export const textLayoutProperties: string[] = [
   'enableAdvancedLayout',
   'verticalAlign',
   'kashida',
+  'direction', // RTL/LTR affects layout and selection
 ];
 
 export const additionalProps = [

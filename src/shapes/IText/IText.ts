@@ -672,19 +672,24 @@ export class IText<
    * Should be called when text content or dimensions change
    */
   _clearVisualPositionsCache() {
-    this._visualPositionsCache.clear();
+    // Guard against calls during construction before the Map is initialized
+    if (this._visualPositionsCache) {
+      this._visualPositionsCache.clear();
+    }
   }
 
   /**
-   * Measure visual character positions for hit testing using BiDi analysis
-   * This properly handles mixed RTL/LTR text by analyzing BiDi runs
-   * Results are cached per line for consistency during selection operations
+   * Measure visual character positions for hit testing using BiDi analysis.
+   * Results are cached per line for consistency during selection operations.
+   *
+   * NOTE: For accurate RTL/Arabic text selection, use useOverlayEditing: true
+   * which provides a native HTML textarea that handles complex scripts correctly.
    */
   _measureVisualPositions(lineIndex: number, lineText: string): Array<{
     logicalIndex: number;
     visualX: number;
     width: number;
-    isRtl: boolean;  // Direction of this character's run
+    isRtl: boolean;
   }> {
     // Check cache first
     if (this._visualPositionsCache.has(lineIndex)) {
@@ -700,7 +705,7 @@ export class IText<
       return positions;
     }
 
-    // For LTR direction, use logical positions directly
+    // For LTR direction, use logical positions directly (fast path)
     if (this.direction !== 'rtl') {
       for (let i = 0; i < line.length; i++) {
         positions.push({
@@ -714,12 +719,30 @@ export class IText<
       return positions;
     }
 
-    // For RTL, use BiDi analysis to determine visual positions
+    // For RTL text with complex scripts (Arabic, Hebrew), canvas-based hit testing
+    // cannot match browser's native text shaping. Use useOverlayEditing: true for
+    // accurate RTL selection - it uses a native HTML textarea.
+
+    // Use BiDi analysis for basic RTL support
+    return this._measureVisualPositionsWithBiDi(lineIndex, lineText, line, chars);
+  }
+
+  /**
+   * Measure visual positions using BiDi analysis and canvas measurements
+   * @private
+   */
+  private _measureVisualPositionsWithBiDi(
+    lineIndex: number,
+    lineText: string,
+    line: string[],
+    chars: Array<{left: number; kernedWidth: number; [key: string]: any}>
+  ): Array<{logicalIndex: number; visualX: number; width: number; isRtl: boolean}> {
+    const positions: Array<{logicalIndex: number; visualX: number; width: number; isRtl: boolean}> = [];
+
+    // Use BiDi analysis to determine visual positions
     const runs = analyzeBiDi(lineText, 'rtl');
 
     // Build mapping from string position to grapheme index
-    // This is needed because analyzeBiDi works on string positions (code points)
-    // but we need grapheme indices for charBounds
     const stringPosToGrapheme: number[] = [];
     let strPos = 0;
     for (let gi = 0; gi < line.length; gi++) {
@@ -744,7 +767,6 @@ export class IText<
       let runWidth = 0;
       const seenGraphemes = new Set<number>();
 
-      // Map string positions in this run to grapheme indices
       for (let sp = run.start; sp < run.end; sp++) {
         const gi = stringPosToGrapheme[sp];
         if (gi !== undefined && !seenGraphemes.has(gi)) {
@@ -762,17 +784,14 @@ export class IText<
     }
 
     // For RTL base direction, runs are displayed right-to-left
-    // So first run appears on the right, last run on the left
     const totalWidth = this.getLineWidth(lineIndex);
-    let visualX = totalWidth; // Start from right edge
+    let visualX = totalWidth;
 
     for (const runInfo of runInfos) {
-      visualX -= runInfo.width; // Move left by run width
+      visualX -= runInfo.width;
 
       const isRtlRun = runInfo.run.direction === 'rtl';
       if (isRtlRun) {
-        // RTL run: characters displayed right-to-left within run
-        // First char of run at visual right of run, last at visual left
         let charX = visualX + runInfo.width;
         for (const idx of runInfo.charIndices) {
           const charWidth = chars[idx]?.kernedWidth || 0;
@@ -785,8 +804,6 @@ export class IText<
           });
         }
       } else {
-        // LTR run: characters displayed left-to-right within run
-        // First char of run at visual left of run, last at visual right
         let charX = visualX;
         for (const idx of runInfo.charIndices) {
           const charWidth = chars[idx]?.kernedWidth || 0;
@@ -804,6 +821,17 @@ export class IText<
     // Cache the result
     this._visualPositionsCache.set(lineIndex, positions);
     return positions;
+  }
+
+  /**
+   * Override _clearCache to also clear visual positions cache
+   * This ensures cache consistency when text layout properties change
+   * @override
+   * @private
+   */
+  _clearCache() {
+    super._clearCache();
+    this._clearVisualPositionsCache();
   }
 
   /**

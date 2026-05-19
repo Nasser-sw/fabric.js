@@ -354,7 +354,7 @@ class Cache {
 }
 const cache = new Cache();
 
-var version = "7.0.1-beta45";
+var version = "7.0.1-beta47";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
@@ -4800,7 +4800,8 @@ function getSvgRegex(arr) {
 const TEXT_DECORATION_THICKNESS = 'textDecorationThickness';
 const fontProperties = ['fontSize', 'fontWeight', 'fontFamily', 'fontStyle'];
 const textDecorationProperties = ['underline', 'overline', 'linethrough'];
-const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign', 'kashida'];
+const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign', 'kashida', 'direction' // RTL/LTR affects layout and selection
+];
 const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS, 'useOverlayEditing'];
 const styleProperties = [...fontProperties, ...textDecorationProperties, STROKE, 'strokeWidth', FILL, 'deltaY', 'textBackgroundColor', TEXT_DECORATION_THICKNESS];
 
@@ -18365,7 +18366,10 @@ class Line extends FabricObject {
     this.selectable = true;
     this.hoverCursor = 'move';
     this.perPixelTargetFind = false;
-    this.strokeLineCap = 'butt';
+    // Only set default if not provided in options (fixes deserialization bug)
+    if (options.strokeLineCap === undefined) {
+      this.strokeLineCap = 'butt';
+    }
     this._setWidthHeight();
     const {
       left,
@@ -27871,13 +27875,18 @@ class IText extends ITextClickBehavior {
    * Should be called when text content or dimensions change
    */
   _clearVisualPositionsCache() {
-    this._visualPositionsCache.clear();
+    // Guard against calls during construction before the Map is initialized
+    if (this._visualPositionsCache) {
+      this._visualPositionsCache.clear();
+    }
   }
 
   /**
-   * Measure visual character positions for hit testing using BiDi analysis
-   * This properly handles mixed RTL/LTR text by analyzing BiDi runs
-   * Results are cached per line for consistency during selection operations
+   * Measure visual character positions for hit testing using BiDi analysis.
+   * Results are cached per line for consistency during selection operations.
+   *
+   * NOTE: For accurate RTL/Arabic text selection, use useOverlayEditing: true
+   * which provides a native HTML textarea that handles complex scripts correctly.
    */
   _measureVisualPositions(lineIndex, lineText) {
     // Check cache first
@@ -27892,7 +27901,7 @@ class IText extends ITextClickBehavior {
       return positions;
     }
 
-    // For LTR direction, use logical positions directly
+    // For LTR direction, use logical positions directly (fast path)
     if (this.direction !== 'rtl') {
       for (let i = 0; i < line.length; i++) {
         var _chars$i, _chars$i2;
@@ -27907,12 +27916,25 @@ class IText extends ITextClickBehavior {
       return positions;
     }
 
-    // For RTL, use BiDi analysis to determine visual positions
+    // For RTL text with complex scripts (Arabic, Hebrew), canvas-based hit testing
+    // cannot match browser's native text shaping. Use useOverlayEditing: true for
+    // accurate RTL selection - it uses a native HTML textarea.
+
+    // Use BiDi analysis for basic RTL support
+    return this._measureVisualPositionsWithBiDi(lineIndex, lineText, line, chars);
+  }
+
+  /**
+   * Measure visual positions using BiDi analysis and canvas measurements
+   * @private
+   */
+  _measureVisualPositionsWithBiDi(lineIndex, lineText, line, chars) {
+    const positions = [];
+
+    // Use BiDi analysis to determine visual positions
     const runs = analyzeBiDi(lineText, 'rtl');
 
     // Build mapping from string position to grapheme index
-    // This is needed because analyzeBiDi works on string positions (code points)
-    // but we need grapheme indices for charBounds
     const stringPosToGrapheme = [];
     let strPos = 0;
     for (let gi = 0; gi < line.length; gi++) {
@@ -27930,8 +27952,6 @@ class IText extends ITextClickBehavior {
       const runChars = [];
       let runWidth = 0;
       const seenGraphemes = new Set();
-
-      // Map string positions in this run to grapheme indices
       for (let sp = run.start; sp < run.end; sp++) {
         const gi = stringPosToGrapheme[sp];
         if (gi !== undefined && !seenGraphemes.has(gi)) {
@@ -27949,17 +27969,12 @@ class IText extends ITextClickBehavior {
     }
 
     // For RTL base direction, runs are displayed right-to-left
-    // So first run appears on the right, last run on the left
     const totalWidth = this.getLineWidth(lineIndex);
-    let visualX = totalWidth; // Start from right edge
-
+    let visualX = totalWidth;
     for (const runInfo of runInfos) {
-      visualX -= runInfo.width; // Move left by run width
-
+      visualX -= runInfo.width;
       const isRtlRun = runInfo.run.direction === 'rtl';
       if (isRtlRun) {
-        // RTL run: characters displayed right-to-left within run
-        // First char of run at visual right of run, last at visual left
         let charX = visualX + runInfo.width;
         for (const idx of runInfo.charIndices) {
           var _chars$idx;
@@ -27973,8 +27988,6 @@ class IText extends ITextClickBehavior {
           });
         }
       } else {
-        // LTR run: characters displayed left-to-right within run
-        // First char of run at visual left of run, last at visual right
         let charX = visualX;
         for (const idx of runInfo.charIndices) {
           var _chars$idx2;
@@ -27993,6 +28006,17 @@ class IText extends ITextClickBehavior {
     // Cache the result
     this._visualPositionsCache.set(lineIndex, positions);
     return positions;
+  }
+
+  /**
+   * Override _clearCache to also clear visual positions cache
+   * This ensures cache consistency when text layout properties change
+   * @override
+   * @private
+   */
+  _clearCache() {
+    super._clearCache();
+    this._clearVisualPositionsCache();
   }
 
   /**

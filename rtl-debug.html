@@ -337,7 +337,7 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
 
         function showRTLText() {
             clearCanvas();
-            currentText = new fabric.Textbox('تجــــربه مرحبا بك في العالم الرقمي', {
+            currentText = new fabric.Textbox('مرحبا بكم في عالم', {
                 left: 400,
                 top: 150,
                 width: 600,
@@ -348,8 +348,7 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
                 fill: '#333',
                 editable: true,
                 selectable: true,
-                enableAdvancedLayout: true,
-                splitByGrapheme: true
+                useOverlayEditing: true,  // Use native HTML textarea for accurate RTL selection
             });
 
             canvas.add(currentText);
@@ -398,7 +397,7 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
                 fill: '#333',
                 editable: true,
                 selectable: true,
-                enableAdvancedLayout: true
+                useOverlayEditing: true,
             });
 
             canvas.add(currentText);
@@ -455,7 +454,8 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
                 fill: 'green',
                 fontFamily: 'Arial',
                 direction: 'rtl',
-                editable: true
+                editable: true,
+                useOverlayEditing: true,
             });
             canvas.add(rtlText);
             console.log('RTL text added:', rtlText.getBoundingRect());
@@ -727,7 +727,8 @@ Text Align: ${text.textAlign}
                 textAlign: 'right',
                 fill: '#333',
                 editable: true,
-                selectable: true
+                selectable: true,
+                useOverlayEditing: true,
             });
 
             canvas.add(currentText);
@@ -752,7 +753,8 @@ Text Align: ${text.textAlign}
                 textAlign: 'right',
                 fill: '#333',
                 editable: true,
-                selectable: true
+                selectable: true,
+                useOverlayEditing: true,
             });
 
             canvas.add(currentText);
@@ -777,7 +779,8 @@ Text Align: ${text.textAlign}
                 textAlign: 'right',
                 fill: '#333',
                 editable: true,
-                selectable: true
+                selectable: true,
+                useOverlayEditing: true,
             });
 
             canvas.add(currentText);
@@ -870,7 +873,7 @@ Text Align: ${text.textAlign}
                 editable: true,
                 selectable: true,
                 kashida: kashidaLevel,
-                enableAdvancedLayout: true
+                enableAdvancedLayout: true,  // Required for kashida to work
             });
 
             canvas.add(currentText);

@@ -69,7 +69,10 @@ export class Line<
     this.selectable = true;
     this.hoverCursor = 'move';
     this.perPixelTargetFind = false;
-    this.strokeLineCap = 'butt';
+    // Only set default if not provided in options (fixes deserialization bug)
+    if (options.strokeLineCap === undefined) {
+      this.strokeLineCap = 'butt';
+    }
 
     this._setWidthHeight();
     const { left, top } = options;
