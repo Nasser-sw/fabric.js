@@ -2,28 +2,21 @@
 <html>
 
 <head>
+    <meta charset="UTF-8">
     <title>RTL Text Debug - Visual Bounding Box and Text Position</title>
     <style>
         @font-face {
             font-family: 'STV';
-            src: url('./fonts/STV Regular.ttf') format('truetype');
-            font-weight: normal;
+            src: url('./STVRegular.ttf') format('truetype');
+            font-weight: 400;
             font-style: normal;
             font-display: swap;
         }
 
         @font-face {
             font-family: 'STV';
-            src: url('./fonts/STV Bold.ttf') format('truetype');
-            font-weight: bold;
-            font-style: normal;
-            font-display: swap;
-        }
-
-        @font-face {
-            font-family: 'STV';
-            src: url('./fonts/STV Light.ttf') format('truetype');
-            font-weight: 300;
+            src: url('./STV%20Bold.ttf') format('truetype');
+            font-weight: 700;
             font-style: normal;
             font-display: swap;
         }
@@ -114,7 +107,6 @@
         <button onclick="showSimpleTest()">Simple Test</button>
         <button onclick="showSTVFont()">Show STV Regular</button>
         <button onclick="showSTVBold()">Show STV Bold</button>
-        <button onclick="showSTVLight()">Show STV Light</button>
         <button onclick="clearCanvas()">Clear Canvas</button>
         <button onclick="toggleDebugMode()">Toggle Debug Mode</button>
         <button onclick="exportJSON()">Export JSON</button>
@@ -155,7 +147,7 @@
     <div id="debug-info" class="debug-info">Debug information will appear here...</div>
     <div id="click-info" class="debug-info">Click on text to see selection coordinates...</div>
 
-    <script src="./dist/index.js?v=37"></script>
+    <script src="./dist/index.js?v=39"></script>
     <script>
         console.log("DEBUG: Updated rtl-debug.html loaded");
         // alert("DEBUG: Updated RTL Page Loaded - Please check console for 'Hit Testing Debug' when clicking");
@@ -634,7 +626,8 @@ Text Align: ${text.textAlign}
         });
 
         // Add STV font test functions
-        function showSTVFont() {
+        async function showSTVFont() {
+            await document.fonts.load('400 28px STV');
             clearCanvas();
             currentText = new fabric.Textbox('هذا نص تجريبي بخط STV العادي للاختبار', {
                 left: 400,
@@ -642,7 +635,7 @@ Text Align: ${text.textAlign}
                 width: 400,
                 fontFamily: 'STV',
                 fontSize: 28,
-                fontWeight: 'normal',
+                fontWeight: 400,
                 direction: 'rtl',
                 textAlign: 'right',
                 fill: '#333',
@@ -659,7 +652,8 @@ Text Align: ${text.textAlign}
             }, 300);
         }
 
-        function showSTVBold() {
+        async function showSTVBold() {
+            await document.fonts.load('700 28px STV');
             clearCanvas();
             currentText = new fabric.Textbox('هذا نص تجريبي بخط STV الغامق للاختبار', {
                 left: 400,
@@ -667,7 +661,7 @@ Text Align: ${text.textAlign}
                 width: 400,
                 fontFamily: 'STV',
                 fontSize: 28,
-                fontWeight: 'bold',
+                fontWeight: 700,
                 direction: 'rtl',
                 textAlign: 'right',
                 fill: '#333',
@@ -681,31 +675,6 @@ Text Align: ${text.textAlign}
             setTimeout(() => {
                 drawBoundingBoxOverlay(currentText);
                 updateDebugInfo(currentText, 'STV Bold Font Arabic Text');
-            }, 300);
-        }
-
-        function showSTVLight() {
-            clearCanvas();
-            currentText = new fabric.Textbox('هذا نص تجريبي بخط STV الخفيف للاختبار', {
-                left: 400,
-                top: 150,
-                width: 400,
-                fontFamily: 'STV',
-                fontSize: 28,
-                fontWeight: 300,
-                direction: 'rtl',
-                textAlign: 'right',
-                fill: '#333',
-                editable: true,
-                selectable: true
-            });
-
-            canvas.add(currentText);
-            canvas.renderAll();
-
-            setTimeout(() => {
-                drawBoundingBoxOverlay(currentText);
-                updateDebugInfo(currentText, 'STV Light Font Arabic Text');
             }, 300);
         }
 

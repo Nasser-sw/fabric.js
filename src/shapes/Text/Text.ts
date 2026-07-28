@@ -22,7 +22,8 @@ import { createCanvasElementFor } from '../../util/misc/dom';
 import { layoutText, type LayoutResult, type TextLayoutOptions } from '../../text/layout';
 import { measureGrapheme, measureGraphemeWithKerning } from '../../text/measure';
 import { applyEllipsis } from '../../text/ellipsis';
-import { segmentGraphemes, findKashidaPoints, ARABIC_TATWEEL, type KashidaPoint } from '../../text/unicode';
+import { segmentGraphemes, ARABIC_TATWEEL } from '../../text/unicode';
+import { planKashida, type KashidaLevel } from '../../text/kashida';
 import type { TextStyleArray } from '../../util/misc/textStyles';
 import {
   hasStyleChanged,
@@ -622,17 +623,6 @@ export class FabricText<
     // console.log('=== enlargeSpaces START ===');
     // console.log('this.kashida:', this.kashida);
 
-    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
-    const kashidaRatios: Record<string, number> = {
-      none: 0,
-      short: 0.25,
-      medium: 0.5,
-      long: 0.75,
-      stylistic: 1.0,
-    };
-    const kashidaRatio = kashidaRatios[this.kashida] || 0;
-    // console.log('kashidaRatio:', kashidaRatio);
-
     // Reset kashida info
     this.__kashidaInfo = [];
 
@@ -672,82 +662,48 @@ export class FabricText<
       const spaces = this.textLines[i].match(this._reSpacesAndTabs);
       const numberOfSpaces = spaces ? spaces.length : 0;
 
-      // Find kashida points if enabled
-      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
-      const hasKashidaPoints = kashidaPoints.length > 0;
-
-      // Calculate space distribution
-      let kashidaSpace = 0;
-      let spaceExpansion = totalExtraSpace;
-
-      if (hasKashidaPoints && kashidaRatio > 0) {
-        // Distribute between kashida and spaces
-        kashidaSpace = totalExtraSpace * kashidaRatio;
-        spaceExpansion = totalExtraSpace * (1 - kashidaRatio);
-      }
-
-      // Calculate per-kashida and per-space widths
-      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
-      const perSpaceWidth = numberOfSpaces > 0 ? spaceExpansion / numberOfSpaces : 0;
-
-      // If kashida is enabled, insert tatweel characters into the text
-      if (hasKashidaPoints && perKashidaWidth > 0) {
-        // console.log(`=== Inserting kashida for line ${i} ===`);
-        // console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
-
-        // Sort by charIndex descending to insert from end (so indices stay valid)
-        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
-
-        // Calculate how many tatweels to insert per point
-        // Measure tatweel width to determine count
+      if (this.kashida !== 'none') {
         const ctx = getMeasuringContext();
-        // console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
 
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          // console.log(`  tatweelWidth: ${tatweelWidth}`);
 
           if (tatweelWidth > 0) {
+            const plan = planKashida(
+              line,
+              totalExtraSpace,
+              tatweelWidth,
+              this.kashida as KashidaLevel,
+            );
+            const sortedPoints = [...plan.points].sort(
+              (a, b) => b.charIndex - a.charIndex,
+            );
             const newLine = [...line];
-            let insertedCount = 0;
 
             for (const point of sortedPoints) {
-              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
-
-              // Insert tatweels after the character
-              for (let t = 0; t < tatweelCount; t++) {
-                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
-                insertedCount++;
-              }
-
-              // Store kashida info with updated indices and tatweel count
+              newLine.splice(
+                point.charIndex + 1,
+                0,
+                ...Array(point.tatweelCount).fill(ARABIC_TATWEEL),
+              );
               this.__kashidaInfo[i].push({
                 charIndex: point.charIndex,
-                width: perKashidaWidth,
-                tatweelCount: tatweelCount,
+                width: point.width,
+                tatweelCount: point.tatweelCount,
               });
             }
 
-            // console.log(`  Total inserted: ${insertedCount} tatweels`);
-            // console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
-            // console.log(`  New line: ${newLine.join('')}`);
+            if (plan.points.length > 0) {
+              this._textLines[i] = newLine;
+              if (this.textLines && this.textLines[i] !== undefined) {
+                (this as any).textLines[i] = newLine.join('');
+              }
 
-            // Update _textLines with the new line containing tatweels
-            this._textLines[i] = newLine;
-
-            // Update textLines string version
-            if (this.textLines && this.textLines[i] !== undefined) {
-              (this as any).textLines[i] = newLine.join('');
+              this.__charBounds[i] = [];
+              this.__lineWidths[i] = undefined as any;
+              this._measureLine(i);
             }
-
-            // Recalculate charBounds for this line since text changed
-            this.__charBounds[i] = [];
-            this.__lineWidths[i] = undefined as any;
-            this._measureLine(i);
-
-            // console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
           }
         }
       }
@@ -773,6 +729,10 @@ export class FabricText<
           }
         }
       }
+    }
+
+    if (this.kashida !== 'none') {
+      this._text = this._textLines.flat();
     }
 
     // Final debug log showing kashida state

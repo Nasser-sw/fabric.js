@@ -6,6 +6,7 @@ change-output.md
 fabric-test2.html
 /debug/
 /fonts/
+/STV*.ttf
 ._*
 **/._*
 fabric-test-editor.html
