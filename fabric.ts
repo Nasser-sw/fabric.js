@@ -1,3 +1,7 @@
+import { installNativeRtlEditing } from './src/text/installNativeRtlEditing';
+
+installNativeRtlEditing();
+
 export { getEnv, getFabricDocument, getFabricWindow, setEnv } from './src/env';
 export { cache } from './src/cache';
 export { VERSION as version, iMatrix } from './src/constants';

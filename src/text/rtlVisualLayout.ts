@@ -38,6 +38,11 @@ export interface VisualLineLayout {
   width: number;
 }
 
+export interface GraphemeAdvance {
+  width?: number;
+  kernedWidth?: number;
+}
+
 const ARABIC_LETTER = /\p{Script=Arabic}/u;
 const HEBREW_LETTER = /\p{Script=Hebrew}/u;
 const LETTER = /\p{Letter}/u;
@@ -55,14 +60,16 @@ const classify = (grapheme: string): BidiType => {
   if (WHITESPACE.test(grapheme)) {
     return 'WS';
   }
-  if (MARK.test(grapheme)) {
-    return 'NSM';
-  }
   if (/^[\u0660-\u0669]+$/u.test(grapheme)) {
     return 'AN';
   }
   if (NUMBER.test(grapheme)) {
     return 'EN';
+  }
+  // U+0640 ARABIC TATWEEL has the Unicode Script=Common property even though
+  // its BiDi class is AL. Handle it before the generic Letter rule.
+  if (/^\u0640+$/u.test(grapheme)) {
+    return 'AL';
   }
   if (ARABIC_LETTER.test(grapheme)) {
     return 'AL';
@@ -72,6 +79,12 @@ const classify = (grapheme: string): BidiType => {
   }
   if (LETTER.test(grapheme)) {
     return 'L';
+  }
+  // Fabric segments a base letter and its combining marks as one grapheme.
+  // Test scripts/letters before marks so Arabic tashkeel inherits its base
+  // letter's direction rather than the preceding paragraph character.
+  if (MARK.test(grapheme)) {
+    return 'NSM';
   }
   if (/^[+\-\u2212]$/u.test(grapheme)) {
     return 'ES';
@@ -173,7 +186,11 @@ export const resolveBidiLevels = (
 
   // W6: remaining separators and terminators become neutral.
   for (let index = 0; index < types.length; index++) {
-    if (types[index] === 'ES' || types[index] === 'ET' || types[index] === 'CS') {
+    if (
+      types[index] === 'ES' ||
+      types[index] === 'ET' ||
+      types[index] === 'CS'
+    ) {
       types[index] = 'ON';
     }
   }
@@ -341,6 +358,127 @@ export const createVisualLineLayout = (
   };
 };
 
+/**
+ * Fabric's legacy pair measurement can produce negative advances for joined
+ * Arabic glyphs because appending a letter reshapes the previous letter.
+ * Caret geometry must remain monotonic, so fall back to positive glyph widths
+ * and scale them to the measured line width whenever the cached advances are
+ * not safe to use.
+ */
+export const normalizeVisualAdvances = (
+  bounds: GraphemeAdvance[],
+  lineWidth: number,
+): number[] => {
+  if (bounds.length === 0) {
+    return [];
+  }
+
+  const measuredWidth = Math.max(0, lineWidth);
+  const rawAdvances = bounds.map(({ kernedWidth }) =>
+    Number.isFinite(kernedWidth) ? Math.max(0, kernedWidth || 0) : 0,
+  );
+  const rawTotal = rawAdvances.reduce((sum, width) => sum + width, 0);
+  const hasInvalidAdvance = bounds.some(
+    ({ kernedWidth }) =>
+      !Number.isFinite(kernedWidth) || (kernedWidth || 0) <= 0,
+  );
+
+  let weights = rawAdvances;
+  if (hasInvalidAdvance || rawTotal === 0) {
+    weights = bounds.map(({ width }) =>
+      Number.isFinite(width) ? Math.max(0, width || 0) : 0,
+    );
+  }
+
+  let weightTotal = weights.reduce((sum, width) => sum + width, 0);
+  if (weightTotal === 0) {
+    weights = bounds.map(() => 1);
+    weightTotal = bounds.length;
+  }
+
+  const targetWidth = measuredWidth || weightTotal;
+  const scale = targetWidth / weightTotal;
+  const advances = weights.map((width) => width * scale);
+
+  // Keep the right edge bit-for-bit aligned with Fabric's measured line.
+  const roundingDelta =
+    targetWidth - advances.reduce((sum, width) => sum + width, 0);
+  advances[advances.length - 1] += roundingDelta;
+  return advances;
+};
+
+/**
+ * Converts Fabric's direction-dependent line anchor into a visual offset from
+ * the object's left edge.
+ */
+export const getVisualLineOffset = (
+  objectWidth: number,
+  lineWidth: number,
+  lineLeftOffset: number,
+  direction: BaseDirection,
+): number =>
+  direction === 'rtl'
+    ? objectWidth + lineLeftOffset - lineWidth
+    : lineLeftOffset;
+
+/**
+ * Resolve a pointer to the insertion caret belonging to the glyph half that
+ * was clicked. This avoids ambiguous equal-position carets at BiDi run edges.
+ */
+export const hitTestVisualCaret = (
+  layout: VisualLineLayout,
+  x: number,
+): VisualCaret => {
+  const clusters = layout.clusters;
+  if (clusters.length === 0) {
+    return {
+      displayIndex: 0,
+      visualX: 0,
+      affinity: 'before',
+      clusterDisplayIndex: 0,
+    };
+  }
+
+  const caretAtSide = (
+    cluster: VisualCluster,
+    side: 'left' | 'right',
+  ): VisualCaret => {
+    const isBefore = cluster.isRtl ? side === 'right' : side === 'left';
+    return {
+      displayIndex: cluster.displayIndex + (isBefore ? 0 : 1),
+      visualX:
+        side === 'left' ? cluster.visualX : cluster.visualX + cluster.width,
+      affinity: isBefore ? 'before' : 'after',
+      clusterDisplayIndex: cluster.displayIndex,
+    };
+  };
+
+  const first = clusters[0];
+  if (x <= first.visualX) {
+    return caretAtSide(first, 'left');
+  }
+
+  for (let index = 0; index < clusters.length; index++) {
+    const cluster = clusters[index];
+    const right = cluster.visualX + cluster.width;
+    if (x <= right) {
+      return caretAtSide(
+        cluster,
+        x <= cluster.visualX + cluster.width / 2 ? 'left' : 'right',
+      );
+    }
+
+    const next = clusters[index + 1];
+    if (next && x < next.visualX) {
+      return x - right <= next.visualX - x
+        ? caretAtSide(cluster, 'right')
+        : caretAtSide(next, 'left');
+    }
+  }
+
+  return caretAtSide(clusters[clusters.length - 1], 'right');
+};
+
 export const mergeVisualIntervals = (
   intervals: Array<{ x: number; width: number }>,
   tolerance = 0.75,
@@ -366,4 +504,43 @@ export const mergeVisualIntervals = (
   }
 
   return result;
+};
+
+/**
+ * Splits a visually measured cursive run into independent grapheme cells.
+ *
+ * Browsers may expose repeated Arabic tatweels as one shaping cluster even
+ * though native editors still provide a caret stop for every U+0640. The run's
+ * outer bounds are authoritative; equal subdivision preserves those stops
+ * without changing the rendered extent.
+ */
+export const subdivideVisualClusterRun = (
+  clusters: VisualCluster[],
+  displayStart: number,
+  displayEnd: number,
+  visualX: number,
+  width: number,
+): VisualCluster[] => {
+  const count = displayEnd - displayStart;
+  if (count <= 0 || !Number.isFinite(width) || width <= 0) {
+    return clusters;
+  }
+
+  const cellWidth = width / count;
+  return clusters.map((cluster) => {
+    if (
+      cluster.displayIndex < displayStart ||
+      cluster.displayIndex >= displayEnd
+    ) {
+      return cluster;
+    }
+
+    const logicalSlot = cluster.displayIndex - displayStart;
+    const visualSlot = cluster.isRtl ? count - logicalSlot - 1 : logicalSlot;
+    return {
+      ...cluster,
+      visualX: visualX + visualSlot * cellWidth,
+      width: cellWidth,
+    };
+  });
 };

@@ -2,25 +2,38 @@ import { IText } from '../shapes/IText/IText';
 import { invertTransform } from '../util/misc/matrix';
 import {
   createVisualLineLayout,
+  getVisualLineOffset,
+  hitTestVisualCaret,
   mergeVisualIntervals,
+  normalizeVisualAdvances,
+  resolveBidiLevels,
+  subdivideVisualClusterRun,
   type VisualCaret,
+  type VisualCluster,
   type VisualLineLayout,
 } from './rtlVisualLayout';
 
-type EditableText = IText & Record<string, any>;
+type EditableText = Record<string, any>;
 
 type CaretState = {
   globalIndex: number;
   lineIndex: number;
   displayIndex: number;
+  clusterDisplayIndex: number;
   visualX: number;
   affinity: 'before' | 'after';
 };
 
-const layoutCache = new WeakMap<object, Map<number, { hash: string; layout: VisualLineLayout }>>();
+const layoutCache = new WeakMap<
+  object,
+  Map<number, { hash: string; layout: VisualLineLayout }>
+>();
 let installed = false;
 
-const getOriginalLineLength = (target: EditableText, lineIndex: number): number =>
+const getOriginalLineLength = (
+  target: EditableText,
+  lineIndex: number,
+): number =>
   typeof target._getOriginalLineLength === 'function'
     ? target._getOriginalLineLength(lineIndex)
     : target._textLines[lineIndex]?.length || 0;
@@ -46,7 +59,8 @@ const originalToDisplay = (
 const getLineStart = (target: EditableText, lineIndex: number): number => {
   let start = 0;
   for (let index = 0; index < lineIndex; index++) {
-    start += getOriginalLineLength(target, index) + target.missingNewlineOffset(index);
+    start +=
+      getOriginalLineLength(target, index) + target.missingNewlineOffset(index);
   }
   return start;
 };
@@ -60,7 +74,10 @@ const getLineLocation = (
 
   for (let lineIndex = 0; lineIndex < target._textLines.length; lineIndex++) {
     const lineLength = getOriginalLineLength(target, lineIndex);
-    if (clamped <= lineStart + lineLength || lineIndex === target._textLines.length - 1) {
+    if (
+      clamped <= lineStart + lineLength ||
+      lineIndex === target._textLines.length - 1
+    ) {
       return {
         lineIndex,
         originalIndex: Math.max(0, Math.min(lineLength, clamped - lineStart)),
@@ -93,30 +110,214 @@ const getLineTop = (target: EditableText, lineIndex: number): number => {
   return top;
 };
 
-const getAlignmentOffset = (target: EditableText, lineIndex: number): number => {
+const getAlignmentOffset = (
+  target: EditableText,
+  lineIndex: number,
+): number => {
   const lineWidth = target.getLineWidth(lineIndex);
-  if (target.textAlign === 'center' || target.textAlign === 'justify-center') {
-    return (target.width - lineWidth) / 2;
-  }
-  if (target.textAlign === 'right' || target.textAlign === 'justify-right') {
-    return target.width - lineWidth;
-  }
-  if (
-    target.direction === 'rtl' &&
-    (target.textAlign === 'left' || target.textAlign === 'justify')
-  ) {
-    return target.width - lineWidth;
-  }
-  return 0;
+  return getVisualLineOffset(
+    target.width,
+    lineWidth,
+    target._getLineLeftOffset(lineIndex),
+    target.direction === 'rtl' ? 'rtl' : 'ltr',
+  );
 };
 
-const getLayout = (target: EditableText, lineIndex: number): VisualLineLayout => {
+/**
+ * Canvas TextMetrics exposes only a run's total width, not the shaped glyph
+ * advances needed for character-accurate Arabic carets. In browsers, measure
+ * grapheme ranges in an invisible inline box so the same native shaping engine
+ * supplies the visual cluster rectangles. The editor and selection remain
+ * entirely canvas-rendered.
+ */
+const getBrowserShapedLayout = (
+  target: EditableText,
+  lineIndex: number,
+  line: string[],
+  lineWidth: number,
+): VisualLineLayout | undefined => {
+  const element = target.canvas?.getElement?.();
+  const doc = element?.ownerDocument;
+  if (
+    !doc?.body ||
+    typeof doc.createRange !== 'function' ||
+    target.path ||
+    !target.isEmptyStyles?.(lineIndex) ||
+    line.length === 0
+  ) {
+    return undefined;
+  }
+
+  const measurer = doc.createElement('span');
+  const textNode = doc.createTextNode(line.join(''));
+  const direction = target.direction === 'rtl' ? 'rtl' : 'ltr';
+  Object.assign(measurer.style, {
+    position: 'fixed',
+    left: '-100000px',
+    top: '0',
+    display: 'inline-block',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    whiteSpace: 'pre',
+    padding: '0',
+    margin: '0',
+    border: '0',
+    font: target._getFontDeclaration(),
+    fontKerning: 'normal',
+    fontVariantLigatures: 'normal',
+    letterSpacing: `${target._getWidthOfCharSpacing?.() || 0}px`,
+    direction,
+    // Keep the measurement isolated from surrounding DOM while honoring
+    // Fabric's explicit paragraph direction. `plaintext` would instead choose
+    // the base direction from the first strong character ("Hello" => LTR).
+    unicodeBidi: 'isolate',
+  });
+  measurer.appendChild(textNode);
+  doc.body.appendChild(measurer);
+
+  try {
+    const containerRect = measurer.getBoundingClientRect();
+    if (!Number.isFinite(containerRect.width) || containerRect.width <= 0) {
+      return undefined;
+    }
+
+    const scale = lineWidth > 0 ? lineWidth / containerRect.width : 1;
+    const levels = resolveBidiLevels(line, direction);
+    let clusters: VisualCluster[] = [];
+    const utf16Offsets = [0];
+    for (const grapheme of line) {
+      utf16Offsets.push(
+        utf16Offsets[utf16Offsets.length - 1] + grapheme.length,
+      );
+    }
+
+    const measureRange = (
+      utf16Start: number,
+      utf16End: number,
+    ): { visualX: number; width: number } | undefined => {
+      const range = doc.createRange();
+      if (typeof range.getClientRects !== 'function') {
+        return undefined;
+      }
+      range.setStart(textNode, utf16Start);
+      range.setEnd(textNode, utf16End);
+      const rects: DOMRect[] = Array.from(range.getClientRects());
+      range.detach?.();
+
+      if (rects.length === 0) {
+        return undefined;
+      }
+
+      const left = Math.min(...rects.map((rect) => rect.left));
+      const right = Math.max(...rects.map((rect) => rect.right));
+      const width = (right - left) * scale;
+      if (!Number.isFinite(width) || width <= 0) {
+        return undefined;
+      }
+      return {
+        visualX: (left - containerRect.left) * scale,
+        width,
+      };
+    };
+
+    for (let displayIndex = 0; displayIndex < line.length; displayIndex++) {
+      const measurement = measureRange(
+        utf16Offsets[displayIndex],
+        utf16Offsets[displayIndex + 1],
+      );
+      if (!measurement) {
+        return undefined;
+      }
+
+      clusters.push({
+        displayIndex,
+        ...measurement,
+        level: levels[displayIndex],
+        isRtl: (levels[displayIndex] & 1) === 1,
+      });
+    }
+
+    // Chromium exposes consecutive tatweels as overlapping pieces of one
+    // cursive shaping cluster. Measure the full stretch once, then restore a
+    // native-editor caret cell for each U+0640 without altering its total span.
+    for (let start = 0; start < line.length; ) {
+      if (line[start].codePointAt(0) !== 0x0640) {
+        start++;
+        continue;
+      }
+      let end = start + 1;
+      while (end < line.length && line[end].codePointAt(0) === 0x0640) {
+        end++;
+      }
+      if (end - start > 1) {
+        const run = measureRange(utf16Offsets[start], utf16Offsets[end]);
+        if (run) {
+          clusters = subdivideVisualClusterRun(
+            clusters,
+            start,
+            end,
+            run.visualX,
+            run.width,
+          );
+        }
+      }
+      start = end;
+    }
+
+    clusters.sort((a, b) => a.visualX - b.visualX);
+    const carets: VisualCaret[] = [];
+    for (const cluster of clusters) {
+      carets.push({
+        displayIndex: cluster.displayIndex,
+        visualX: cluster.isRtl
+          ? cluster.visualX + cluster.width
+          : cluster.visualX,
+        affinity: 'before',
+        clusterDisplayIndex: cluster.displayIndex,
+      });
+      carets.push({
+        displayIndex: cluster.displayIndex + 1,
+        visualX: cluster.isRtl
+          ? cluster.visualX
+          : cluster.visualX + cluster.width,
+        affinity: 'after',
+        clusterDisplayIndex: cluster.displayIndex,
+      });
+    }
+
+    return {
+      clusters,
+      carets,
+      visualOrder: clusters.map(({ displayIndex }) => displayIndex),
+      levels,
+      width: lineWidth,
+    };
+  } finally {
+    measurer.remove();
+  }
+};
+
+const getLayout = (
+  target: EditableText,
+  lineIndex: number,
+): VisualLineLayout => {
   const line = target._textLines[lineIndex] || [];
   // Ensure __charBounds has been populated lazily by Fabric.
   target._getLineLeftOffset(lineIndex);
   const bounds = target.__charBounds[lineIndex] || [];
-  const widths = line.map((_: string, index: number) => bounds[index]?.kernedWidth || 0);
-  const hash = `${target.direction}|${line.join('')}|${widths.join(',')}`;
+  const lineWidth = target.getLineWidth(lineIndex);
+  const widths = normalizeVisualAdvances(
+    line.map((_: string, index: number) => bounds[index] || {}),
+    lineWidth,
+  );
+  const hash = [
+    target.direction,
+    line.join(''),
+    lineWidth,
+    target._getFontDeclaration?.(),
+    target._getWidthOfCharSpacing?.(),
+    widths.join(','),
+  ].join('|');
   let targetCache = layoutCache.get(target);
   if (!targetCache) {
     targetCache = new Map();
@@ -126,11 +327,13 @@ const getLayout = (target: EditableText, lineIndex: number): VisualLineLayout =>
   if (cached?.hash === hash) {
     return cached.layout;
   }
-  const layout = createVisualLineLayout(
-    line,
-    widths,
-    target.direction === 'rtl' ? 'rtl' : 'ltr',
-  );
+  const layout =
+    getBrowserShapedLayout(target, lineIndex, line, lineWidth) ||
+    createVisualLineLayout(
+      line,
+      widths,
+      target.direction === 'rtl' ? 'rtl' : 'ltr',
+    );
   targetCache.set(lineIndex, { hash, layout });
   return layout;
 };
@@ -138,7 +341,8 @@ const getLayout = (target: EditableText, lineIndex: number): VisualLineLayout =>
 const getCaretCandidates = (
   layout: VisualLineLayout,
   displayIndex: number,
-): VisualCaret[] => layout.carets.filter((caret) => caret.displayIndex === displayIndex);
+): VisualCaret[] =>
+  layout.carets.filter((caret) => caret.displayIndex === displayIndex);
 
 const chooseCaret = (
   target: EditableText,
@@ -165,15 +369,25 @@ const chooseCaret = (
   if (candidates.length > 0) {
     if (originalIndex === 0) {
       return target.direction === 'rtl'
-        ? candidates.reduce((best, caret) => (caret.visualX > best.visualX ? caret : best))
-        : candidates.reduce((best, caret) => (caret.visualX < best.visualX ? caret : best));
+        ? candidates.reduce((best, caret) =>
+            caret.visualX > best.visualX ? caret : best,
+          )
+        : candidates.reduce((best, caret) =>
+            caret.visualX < best.visualX ? caret : best,
+          );
     }
     if (originalIndex >= getOriginalLineLength(target, lineIndex)) {
       return target.direction === 'rtl'
-        ? candidates.reduce((best, caret) => (caret.visualX < best.visualX ? caret : best))
-        : candidates.reduce((best, caret) => (caret.visualX > best.visualX ? caret : best));
+        ? candidates.reduce((best, caret) =>
+            caret.visualX < best.visualX ? caret : best,
+          )
+        : candidates.reduce((best, caret) =>
+            caret.visualX > best.visualX ? caret : best,
+          );
     }
-    return candidates.find((caret) => caret.affinity === 'before') || candidates[0];
+    return (
+      candidates.find((caret) => caret.affinity === 'before') || candidates[0]
+    );
   }
 
   return {
@@ -194,28 +408,10 @@ const rememberCaret = (
     globalIndex,
     lineIndex,
     displayIndex: caret.displayIndex,
+    clusterDisplayIndex: caret.clusterDisplayIndex,
     visualX: caret.visualX,
     affinity: caret.affinity,
   } satisfies CaretState;
-};
-
-const nearestCaret = (layout: VisualLineLayout, x: number): VisualCaret => {
-  let nearest = layout.carets[0] || {
-    displayIndex: 0,
-    visualX: 0,
-    affinity: 'before' as const,
-    clusterDisplayIndex: 0,
-  };
-  let distance = Math.abs(x - nearest.visualX);
-  for (let index = 1; index < layout.carets.length; index++) {
-    const candidate = layout.carets[index];
-    const candidateDistance = Math.abs(x - candidate.visualX);
-    if (candidateDistance < distance) {
-      nearest = candidate;
-      distance = candidateDistance;
-    }
-  }
-  return nearest;
 };
 
 const setCollapsedSelection = (
@@ -234,7 +430,13 @@ const moveVisualCaret = (
   direction: -1 | 1,
   event: KeyboardEvent,
 ): boolean => {
-  if (event.altKey || event.metaKey || event.ctrlKey || event.keyCode === 35 || event.keyCode === 36) {
+  if (
+    event.altKey ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.keyCode === 35 ||
+    event.keyCode === 36
+  ) {
     return false;
   }
 
@@ -271,13 +473,14 @@ const moveVisualCaret = (
       end.originalIndex,
       layout,
     );
-    const chosen = direction < 0
-      ? startCaret.visualX <= endCaret.visualX
-        ? { index: target.selectionStart, caret: startCaret }
-        : { index: target.selectionEnd, caret: endCaret }
-      : startCaret.visualX >= endCaret.visualX
-        ? { index: target.selectionStart, caret: startCaret }
-        : { index: target.selectionEnd, caret: endCaret };
+    const chosen =
+      direction < 0
+        ? startCaret.visualX <= endCaret.visualX
+          ? { index: target.selectionStart, caret: startCaret }
+          : { index: target.selectionEnd, caret: endCaret }
+        : startCaret.visualX >= endCaret.visualX
+          ? { index: target.selectionStart, caret: startCaret }
+          : { index: target.selectionEnd, caret: endCaret };
     setCollapsedSelection(target, chosen.index, start.lineIndex, chosen.caret);
     return true;
   }
@@ -298,9 +501,10 @@ const moveVisualCaret = (
   );
   const ordered = [...layout.carets].sort((a, b) => a.visualX - b.visualX);
   const epsilon = 0.5;
-  const candidates = direction < 0
-    ? ordered.filter((caret) => caret.visualX < current.visualX - epsilon)
-    : ordered.filter((caret) => caret.visualX > current.visualX + epsilon);
+  const candidates =
+    direction < 0
+      ? ordered.filter((caret) => caret.visualX < current.visualX - epsilon)
+      : ordered.filter((caret) => caret.visualX > current.visualX + epsilon);
   let next = direction < 0 ? candidates[candidates.length - 1] : candidates[0];
   let nextLine = location.lineIndex;
 
@@ -310,7 +514,9 @@ const moveVisualCaret = (
       return false;
     }
     const nextLayout = getLayout(target, nextLine);
-    const nextOrdered = [...nextLayout.carets].sort((a, b) => a.visualX - b.visualX);
+    const nextOrdered = [...nextLayout.carets].sort(
+      (a, b) => a.visualX - b.visualX,
+    );
     next = direction < 0 ? nextOrdered[nextOrdered.length - 1] : nextOrdered[0];
   }
 
@@ -337,7 +543,7 @@ export const installNativeRtlEditing = () => {
   }
   installed = true;
 
-  const prototype = IText.prototype as EditableText;
+  const prototype = IText.prototype as unknown as EditableText;
   const originalSelectWord = prototype.selectWord;
   const originalInitHiddenTextarea = prototype.initHiddenTextarea;
   const originalMoveCursorLeft = prototype.moveCursorLeft;
@@ -350,27 +556,40 @@ export const installNativeRtlEditing = () => {
     originalInitHiddenTextarea.call(this);
     if (this.hiddenTextarea) {
       this.hiddenTextarea.dir = this.direction === 'rtl' ? 'rtl' : 'ltr';
-      this.hiddenTextarea.style.direction = this.direction === 'rtl' ? 'rtl' : 'ltr';
-      this.hiddenTextarea.style.unicodeBidi = 'plaintext';
+      this.hiddenTextarea.style.direction =
+        this.direction === 'rtl' ? 'rtl' : 'ltr';
+      this.hiddenTextarea.style.unicodeBidi = 'isolate';
     }
   };
 
   prototype.getSelectionStartFromPointer = function (event: any): number {
-    const scenePoint = this.canvas.getScenePoint(event);
-    const localPoint = scenePoint.transform(invertTransform(this.calcTransformMatrix()));
+    const scenePoint = this.canvas!.getScenePoint(event);
+    const localPoint = scenePoint.transform(
+      invertTransform(this.calcTransformMatrix()),
+    );
     const xFromLeft = localPoint.x + this.width / 2;
     const yFromTop = localPoint.y + this.height / 2;
     const lineIndex = getLineFromY(this, yFromTop);
     const layout = getLayout(this, lineIndex);
     const lineX = xFromLeft - getAlignmentOffset(this, lineIndex);
-    const caret = nearestCaret(layout, lineX);
-    const originalIndex = displayToOriginal(this, lineIndex, caret.displayIndex);
+    const caret = hitTestVisualCaret(layout, lineX);
+    const originalIndex = displayToOriginal(
+      this,
+      lineIndex,
+      caret.displayIndex,
+    );
     const globalIndex = Math.min(
       getLineStart(this, lineIndex) + originalIndex,
       this._text.length,
     );
     rememberCaret(this, globalIndex, lineIndex, caret);
     return globalIndex;
+  };
+
+  prototype._getNativeVisualLineLayout = function (
+    lineIndex: number,
+  ): VisualLineLayout {
+    return getLayout(this, lineIndex);
   };
 
   prototype.__getCursorBoundariesOffsets = function (globalIndex: number) {
@@ -383,7 +602,8 @@ export const installNativeRtlEditing = () => {
       location.originalIndex,
       layout,
     );
-    const visualX = getAlignmentOffset(this, location.lineIndex) + caret.visualX;
+    const visualX =
+      getAlignmentOffset(this, location.lineIndex) + caret.visualX;
     const left = this.direction === 'rtl' ? visualX - this.width : visualX;
     return {
       top: getLineTop(this, location.lineIndex),
@@ -394,10 +614,21 @@ export const installNativeRtlEditing = () => {
   prototype._renderSelection = function (
     context: CanvasRenderingContext2D,
     selection: { selectionStart: number; selectionEnd: number },
-    boundaries: { left: number; top: number; leftOffset: number; topOffset: number },
+    boundaries: {
+      left: number;
+      top: number;
+      leftOffset: number;
+      topOffset: number;
+    },
   ) {
-    const selectionStart = Math.min(selection.selectionStart, selection.selectionEnd);
-    const selectionEnd = Math.max(selection.selectionStart, selection.selectionEnd);
+    const selectionStart = Math.min(
+      selection.selectionStart,
+      selection.selectionEnd,
+    );
+    const selectionEnd = Math.max(
+      selection.selectionStart,
+      selection.selectionEnd,
+    );
     if (selectionStart === selectionEnd) {
       return;
     }
@@ -405,10 +636,18 @@ export const installNativeRtlEditing = () => {
     const startLocation = getLineLocation(this, selectionStart);
     const endLocation = getLineLocation(this, selectionEnd);
 
-    for (let lineIndex = startLocation.lineIndex; lineIndex <= endLocation.lineIndex; lineIndex++) {
+    for (
+      let lineIndex = startLocation.lineIndex;
+      lineIndex <= endLocation.lineIndex;
+      lineIndex++
+    ) {
       const originalLength = getOriginalLineLength(this, lineIndex);
-      const originalStart = lineIndex === startLocation.lineIndex ? startLocation.originalIndex : 0;
-      const originalEnd = lineIndex === endLocation.lineIndex ? endLocation.originalIndex : originalLength;
+      const originalStart =
+        lineIndex === startLocation.lineIndex ? startLocation.originalIndex : 0;
+      const originalEnd =
+        lineIndex === endLocation.lineIndex
+          ? endLocation.originalIndex
+          : originalLength;
       const displayStart = originalToDisplay(this, lineIndex, originalStart);
       const displayEnd = originalToDisplay(this, lineIndex, originalEnd);
       const layout = getLayout(this, lineIndex);
@@ -416,14 +655,16 @@ export const installNativeRtlEditing = () => {
         layout.clusters
           .filter(
             (cluster) =>
-              cluster.displayIndex >= displayStart && cluster.displayIndex < displayEnd,
+              cluster.displayIndex >= displayStart &&
+              cluster.displayIndex < displayEnd,
           )
           .map((cluster) => ({ x: cluster.visualX, width: cluster.width })),
       );
 
       const lineHeight = this.getHeightOfLine(lineIndex);
       const drawHeight =
-        this.lineHeight < 1 || (lineIndex === endLocation.lineIndex && this.lineHeight > 1)
+        this.lineHeight < 1 ||
+        (lineIndex === endLocation.lineIndex && this.lineHeight > 1)
           ? lineHeight / this.lineHeight
           : lineHeight;
       const extraTop = this.inCompositionMode ? lineHeight : 0;
@@ -435,18 +676,37 @@ export const installNativeRtlEditing = () => {
       const y = boundaries.top + getLineTop(this, lineIndex) + extraTop;
 
       for (const interval of intervals) {
-        context.fillRect(baseX + interval.x, y, interval.width, effectiveHeight);
+        context.fillRect(
+          baseX + interval.x,
+          y,
+          interval.width,
+          effectiveHeight,
+        );
       }
     }
   };
 
   prototype.selectWord = function (selectionStart?: number) {
-    const graphemeIndex = selectionStart ?? this.selectionStart;
+    let graphemeIndex = selectionStart ?? this.selectionStart;
     if (typeof Intl === 'undefined' || !('Segmenter' in Intl)) {
       return originalSelectWord.call(this, graphemeIndex);
     }
 
     const graphemes: string[] = this.graphemeSplit(this.text);
+    const caretState = this.__nativeRtlCaretState as CaretState | undefined;
+    if (caretState && caretState.globalIndex === graphemeIndex) {
+      const clickedOriginalIndex = displayToOriginal(
+        this,
+        caretState.lineIndex,
+        Math.max(0, caretState.clusterDisplayIndex),
+      );
+      graphemeIndex =
+        getLineStart(this, caretState.lineIndex) +
+        Math.min(
+          clickedOriginalIndex,
+          Math.max(0, getOriginalLineLength(this, caretState.lineIndex) - 1),
+        );
+    }
     const offsets = new Array<number>(graphemes.length + 1);
     let utf16Offset = 0;
     for (let index = 0; index < graphemes.length; index++) {
@@ -454,14 +714,15 @@ export const installNativeRtlEditing = () => {
       utf16Offset += graphemes[index].length;
     }
     offsets[graphemes.length] = utf16Offset;
-    const targetOffset = offsets[Math.max(0, Math.min(graphemes.length, graphemeIndex))];
+    const targetOffset =
+      offsets[Math.max(0, Math.min(graphemes.length, graphemeIndex))];
     const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
     let found: { start: number; end: number } | undefined;
 
     for (const segment of segmenter.segment(this.text) as any) {
       const start = segment.index;
       const end = start + segment.segment.length;
-      if (targetOffset >= start && targetOffset <= end && segment.isWordLike) {
+      if (targetOffset >= start && targetOffset < end && segment.isWordLike) {
         const startIndex = offsets.findIndex((offset) => offset >= start);
         const endIndex = offsets.findIndex((offset) => offset >= end);
         found = {
