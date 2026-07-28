@@ -335,122 +335,6 @@ const getEnv = () => {
   };
 };
 
-class Cache {
-  constructor() {
-    /**
-     * Cache of widths of chars in text rendering.
-     */
-    _defineProperty(this, "charWidthsCache", {});
-    /**
-     * This object keeps the results of the boundsOfCurve calculation mapped by the joined arguments necessary to calculate it.
-     * It does speed up calculation, if you parse and add always the same paths, but in case of heavy usage of freedrawing
-     * you do not get any speed benefit and you get a big object in memory.
-     * The object was a private variable before, while now is appended to the lib so that you have access to it and you
-     * can eventually clear it.
-     * It was an internal variable, is accessible since version 2.3.4
-     */
-    _defineProperty(this, "boundsOfCurveCache", {});
-  }
-  /**
-   * @return {Object} reference to cache
-   */
-  getFontCache(_ref) {
-    let {
-      fontFamily,
-      fontStyle,
-      fontWeight
-    } = _ref;
-    fontFamily = fontFamily.toLowerCase();
-    if (!this.charWidthsCache[fontFamily]) {
-      this.charWidthsCache[fontFamily] = {};
-    }
-    const fontCache = this.charWidthsCache[fontFamily];
-    const cacheKey = `${fontStyle.toLowerCase()}_${(fontWeight + '').toLowerCase()}`;
-    if (!fontCache[cacheKey]) {
-      fontCache[cacheKey] = {};
-    }
-    return fontCache[cacheKey];
-  }
-
-  /**
-   * Clear char widths cache for the given font family or all the cache if no
-   * fontFamily is specified.
-   * Use it if you know you are loading fonts in a lazy way and you are not waiting
-   * for custom fonts to load properly when adding text objects to the canvas.
-   * If a text object is added when its own font is not loaded yet, you will get wrong
-   * measurement and so wrong bounding boxes.
-   * After the font cache is cleared, either change the textObject text content or call
-   * initDimensions() to trigger a recalculation
-   * @param {String} [fontFamily] font family to clear
-   */
-  clearFontCache(fontFamily) {
-    fontFamily = (fontFamily || '').toLowerCase();
-    if (!fontFamily) {
-      this.charWidthsCache = {};
-    } else if (this.charWidthsCache[fontFamily]) {
-      delete this.charWidthsCache[fontFamily];
-    }
-  }
-
-  /**
-   * Given current aspect ratio, determines the max width and height that can
-   * respect the total allowed area for the cache.
-   * @param {number} ar aspect ratio
-   * @return {number[]} Limited dimensions X and Y
-   */
-  limitDimsByArea(ar) {
-    const {
-      perfLimitSizeTotal
-    } = config;
-    const roughWidth = Math.sqrt(perfLimitSizeTotal * ar);
-    // we are not returning a point on purpose, to avoid circular dependencies
-    // this is an internal utility
-    return [Math.floor(roughWidth), Math.floor(perfLimitSizeTotal / roughWidth)];
-  }
-}
-const cache = new Cache();
-
-var version = "7.0.1-beta47";
-
-// use this syntax so babel plugin see this import here
-const VERSION = version;
-// eslint-disable-next-line @typescript-eslint/no-empty-function
-function noop() {}
-const halfPI = Math.PI / 2;
-const quarterPI = Math.PI / 4;
-const twoMathPi = Math.PI * 2;
-const PiBy180 = Math.PI / 180;
-const iMatrix = Object.freeze([1, 0, 0, 1, 0, 0]);
-const DEFAULT_SVG_FONT_SIZE = 16;
-const ALIASING_LIMIT = 2;
-
-/* "magic number" for bezier approximations of arcs (http://itc.ktu.lt/itc354/Riskus354.pdf) */
-const kRect = 1 - 0.5522847498;
-const CENTER = 'center';
-const LEFT = 'left';
-const TOP = 'top';
-const BOTTOM = 'bottom';
-const RIGHT = 'right';
-const NONE = 'none';
-const reNewline = /\r?\n/;
-const MOVING = 'moving';
-const SCALING = 'scaling';
-const ROTATING = 'rotating';
-const ROTATE = 'rotate';
-const SKEWING = 'skewing';
-const RESIZING = 'resizing';
-const MODIFY_POLY = 'modifyPoly';
-const MODIFY_PATH = 'modifyPath';
-const CHANGED = 'changed';
-const SCALE = 'scale';
-const SCALE_X = 'scaleX';
-const SCALE_Y = 'scaleY';
-const SKEW_X = 'skewX';
-const SKEW_Y = 'skewY';
-const FILL = 'fill';
-const STROKE = 'stroke';
-const MODIFIED = 'modified';
-
 /*
  * This Map connects the objects type value with their
  * class implementation. It used from any object to understand which are
@@ -499,228 +383,46 @@ class ClassRegistry {
 }
 const classRegistry = new ClassRegistry();
 
-/**
- * Array holding all running animations
- */
-class AnimationRegistry extends Array {
-  /**
-   * Remove a single animation using an animation context
-   * @param {AnimationBase} context
-   */
-  remove(context) {
-    const index = this.indexOf(context);
-    index > -1 && this.splice(index, 1);
-  }
+var version = "7.0.1-beta48";
 
-  /**
-   * Cancel all running animations on the next frame
-   */
-  cancelAll() {
-    const animations = this.splice(0);
-    animations.forEach(animation => animation.abort());
-    return animations;
-  }
+// use this syntax so babel plugin see this import here
+const VERSION = version;
+// eslint-disable-next-line @typescript-eslint/no-empty-function
+function noop() {}
+const halfPI = Math.PI / 2;
+const quarterPI = Math.PI / 4;
+const twoMathPi = Math.PI * 2;
+const PiBy180 = Math.PI / 180;
+const iMatrix = Object.freeze([1, 0, 0, 1, 0, 0]);
+const DEFAULT_SVG_FONT_SIZE = 16;
+const ALIASING_LIMIT = 2;
 
-  /**
-   * Cancel all running animations attached to a canvas on the next frame
-   * @param {StaticCanvas} canvas
-   */
-  cancelByCanvas(canvas) {
-    if (!canvas) {
-      return [];
-    }
-    const animations = this.filter(animation => {
-      var _animation$target;
-      return animation.target === canvas || typeof animation.target === 'object' && ((_animation$target = animation.target) === null || _animation$target === void 0 ? void 0 : _animation$target.canvas) === canvas;
-    });
-    animations.forEach(animation => animation.abort());
-    return animations;
-  }
-
-  /**
-   * Cancel all running animations for target on the next frame
-   * @param target
-   */
-  cancelByTarget(target) {
-    if (!target) {
-      return [];
-    }
-    const animations = this.filter(animation => animation.target === target);
-    animations.forEach(animation => animation.abort());
-    return animations;
-  }
-}
-const runningAnimations = new AnimationRegistry();
-
-/**
- * @see {@link http://fabricjs.com/fabric-intro-part-2#events}
- * @see {@link http://fabricjs.com/events|Events demo}
- */
-class Observable {
-  constructor() {
-    _defineProperty(this, "__eventListeners", {});
-  }
-  /**
-   * Observes specified event
-   * @alias on
-   * @param {string} eventName Event name (eg. 'after:render')
-   * @param {EventRegistryObject} handlers key/value pairs (eg. {'after:render': handler, 'selection:cleared': handler})
-   * @param {Function} handler Function that receives a notification when an event of the specified type occurs
-   * @return {Function} disposer
-   */
-  on(arg0, handler) {
-    if (!this.__eventListeners) {
-      this.__eventListeners = {};
-    }
-    if (typeof arg0 === 'object') {
-      // one object with key/value pairs was passed
-      Object.entries(arg0).forEach(_ref => {
-        let [eventName, handler] = _ref;
-        this.on(eventName, handler);
-      });
-      return () => this.off(arg0);
-    } else if (handler) {
-      const eventName = arg0;
-      if (!this.__eventListeners[eventName]) {
-        this.__eventListeners[eventName] = [];
-      }
-      this.__eventListeners[eventName].push(handler);
-      return () => this.off(eventName, handler);
-    } else {
-      // noop
-      return () => false;
-    }
-  }
-
-  /**
-   * Observes specified event **once**
-   * @alias once
-   * @param {string} eventName Event name (eg. 'after:render')
-   * @param {EventRegistryObject} handlers key/value pairs (eg. {'after:render': handler, 'selection:cleared': handler})
-   * @param {Function} handler Function that receives a notification when an event of the specified type occurs
-   * @return {Function} disposer
-   */
-
-  once(arg0, handler) {
-    if (typeof arg0 === 'object') {
-      // one object with key/value pairs was passed
-      const disposers = [];
-      Object.entries(arg0).forEach(_ref2 => {
-        let [eventName, handler] = _ref2;
-        disposers.push(this.once(eventName, handler));
-      });
-      return () => disposers.forEach(d => d());
-    } else if (handler) {
-      const disposer = this.on(arg0, function onceHandler() {
-        for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
-          args[_key] = arguments[_key];
-        }
-        handler.call(this, ...args);
-        disposer();
-      });
-      return disposer;
-    } else {
-      // noop
-      return () => false;
-    }
-  }
-
-  /**
-   * @private
-   * @param {string} eventName
-   * @param {Function} [handler]
-   */
-  _removeEventListener(eventName, handler) {
-    if (!this.__eventListeners[eventName]) {
-      return;
-    }
-    if (handler) {
-      const eventListener = this.__eventListeners[eventName];
-      const index = eventListener.indexOf(handler);
-      index > -1 && eventListener.splice(index, 1);
-    } else {
-      this.__eventListeners[eventName] = [];
-    }
-  }
-
-  /**
-   * Unsubscribe all event listeners for eventname.
-   * Do not use this pattern. You could kill internal fabricJS events.
-   * We know we should have protected events for internal flows, but we don't have yet
-   * @deprecated
-   * @param {string} eventName event name (eg. 'after:render')
-   */
-
-  /**
-   * unsubscribe an event listener
-   * @param {string} eventName event name (eg. 'after:render')
-   * @param {TEventCallback} handler event listener to unsubscribe
-   */
-
-  /**
-   * unsubscribe event listeners
-   * @param handlers handlers key/value pairs (eg. {'after:render': handler, 'selection:cleared': handler})
-   */
-
-  /**
-   * unsubscribe all event listeners
-   */
-
-  off(arg0, handler) {
-    if (!this.__eventListeners) {
-      return;
-    }
-
-    // remove all key/value pairs (event name -> event handler)
-    if (typeof arg0 === 'undefined') {
-      for (const eventName in this.__eventListeners) {
-        this._removeEventListener(eventName);
-      }
-    }
-    // one object with key/value pairs was passed
-    else if (typeof arg0 === 'object') {
-      Object.entries(arg0).forEach(_ref3 => {
-        let [eventName, handler] = _ref3;
-        this._removeEventListener(eventName, handler);
-      });
-    } else {
-      this._removeEventListener(arg0, handler);
-    }
-  }
-
-  /**
-   * Fires event with an optional options object
-   * @param {String} eventName Event name to fire
-   * @param {Object} [options] Options object
-   */
-  fire(eventName, options) {
-    var _this$__eventListener;
-    if (!this.__eventListeners) {
-      return;
-    }
-    const listenersForEvent = (_this$__eventListener = this.__eventListeners[eventName]) === null || _this$__eventListener === void 0 ? void 0 : _this$__eventListener.concat();
-    if (listenersForEvent) {
-      for (let i = 0; i < listenersForEvent.length; i++) {
-        listenersForEvent[i].call(this, options || {});
-      }
-    }
-  }
-}
-
-/**
- * Removes value from an array.
- * Presence of value (and its position in an array) is determined via `Array.prototype.indexOf`
- * @param {Array} array
- * @param {*} value
- * @return {Array} original array
- */
-const removeFromArray = (array, value) => {
-  const idx = array.indexOf(value);
-  if (idx !== -1) {
-    array.splice(idx, 1);
-  }
-  return array;
-};
+/* "magic number" for bezier approximations of arcs (http://itc.ktu.lt/itc354/Riskus354.pdf) */
+const kRect = 1 - 0.5522847498;
+const CENTER = 'center';
+const LEFT = 'left';
+const TOP = 'top';
+const BOTTOM = 'bottom';
+const RIGHT = 'right';
+const NONE = 'none';
+const reNewline = /\r?\n/;
+const MOVING = 'moving';
+const SCALING = 'scaling';
+const ROTATING = 'rotating';
+const ROTATE = 'rotate';
+const SKEWING = 'skewing';
+const RESIZING = 'resizing';
+const MODIFY_POLY = 'modifyPoly';
+const MODIFY_PATH = 'modifyPath';
+const CHANGED = 'changed';
+const SCALE = 'scale';
+const SCALE_X = 'scaleX';
+const SCALE_Y = 'scaleY';
+const SKEW_X = 'skewX';
+const SKEW_Y = 'skewY';
+const FILL = 'fill';
+const STROKE = 'stroke';
+const MODIFIED = 'modified';
 
 /**
  * Calculate the cos of an angle, avoiding returning floats for known results
@@ -1121,6 +823,2381 @@ class Point {
 }
 const ZERO = new Point(0, 0);
 
+/**
+ * Returns element scroll offsets
+ * @param {HTMLElement} element Element to operate on
+ * @return {Object} Object with left/top values
+ */
+function getScrollLeftTop(element) {
+  const doc = element && getDocumentFromElement(element);
+  let left = 0,
+    top = 0;
+  if (!element || !doc) {
+    return {
+      left,
+      top
+    };
+  }
+  let elementLoop = element;
+  const docElement = doc.documentElement,
+    body = doc.body || {
+      scrollLeft: 0,
+      scrollTop: 0
+    };
+  // While loop checks (and then sets element to) .parentNode OR .host
+  //  to account for ShadowDOM. We still want to traverse up out of ShadowDOM,
+  //  but the .parentNode of a root ShadowDOM node will always be null, instead
+  //  it should be accessed through .host. See http://stackoverflow.com/a/24765528/4383938
+  while (elementLoop && (elementLoop.parentNode || elementLoop.host)) {
+    elementLoop = elementLoop.parentNode || elementLoop.host;
+    if (elementLoop === doc) {
+      left = body.scrollLeft || docElement.scrollLeft || 0;
+      top = body.scrollTop || docElement.scrollTop || 0;
+    } else {
+      left += elementLoop.scrollLeft || 0;
+      top += elementLoop.scrollTop || 0;
+    }
+    if (elementLoop.nodeType === 1 && elementLoop.style.position === 'fixed') {
+      break;
+    }
+  }
+  return {
+    left,
+    top
+  };
+}
+const getDocumentFromElement = el => el.ownerDocument || null;
+const getWindowFromElement = el => {
+  var _el$ownerDocument;
+  return ((_el$ownerDocument = el.ownerDocument) === null || _el$ownerDocument === void 0 ? void 0 : _el$ownerDocument.defaultView) || null;
+};
+
+const touchEvents = ['touchstart', 'touchmove', 'touchend'];
+function getTouchInfo(event) {
+  const touchProp = event.changedTouches;
+  if (touchProp && touchProp[0]) {
+    return touchProp[0];
+  }
+  return event;
+}
+const getPointer = event => {
+  const element = event.target,
+    scroll = getScrollLeftTop(element),
+    _evt = getTouchInfo(event);
+  return new Point(_evt.clientX + scroll.left, _evt.clientY + scroll.top);
+};
+const isTouchEvent = event => touchEvents.includes(event.type) || event.pointerType === 'touch';
+const stopEvent = e => {
+  e.preventDefault();
+  e.stopPropagation();
+};
+
+/**
+ * Transforms degrees to radians.
+ * @param {TDegree} degrees value in degrees
+ * @return {TRadian} value in radians
+ */
+const degreesToRadians = degrees => degrees * PiBy180;
+
+/**
+ * Transforms radians to degrees.
+ * @param {TRadian} radians value in radians
+ * @return {TDegree} value in degrees
+ */
+const radiansToDegrees = radians => radians / PiBy180;
+
+const isIdentityMatrix = mat => mat.every((value, index) => value === iMatrix[index]);
+
+/**
+ * Apply transform t to point p
+ * @deprecated use {@link Point#transform}
+ * @param  {Point | XY} p The point to transform
+ * @param  {Array} t The transform
+ * @param  {Boolean} [ignoreOffset] Indicates that the offset should not be applied
+ * @return {Point} The transformed point
+ */
+const transformPoint = (p, t, ignoreOffset) => new Point(p).transform(t, ignoreOffset);
+
+/**
+ * Invert transformation t
+ * @param {Array} t The transform
+ * @return {Array} The inverted transform
+ */
+const invertTransform = t => {
+  const a = 1 / (t[0] * t[3] - t[1] * t[2]),
+    r = [a * t[3], -a * t[1], -a * t[2], a * t[0], 0, 0],
+    {
+      x,
+      y
+    } = new Point(t[4], t[5]).transform(r, true);
+  r[4] = -x;
+  r[5] = -y;
+  return r;
+};
+
+/**
+ * Multiply matrix A by matrix B to nest transformations
+ * @param  {TMat2D} a First transformMatrix
+ * @param  {TMat2D} b Second transformMatrix
+ * @param  {Boolean} is2x2 flag to multiply matrices as 2x2 matrices
+ * @return {TMat2D} The product of the two transform matrices
+ */
+const multiplyTransformMatrices = (a, b, is2x2) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], is2x2 ? 0 : a[0] * b[4] + a[2] * b[5] + a[4], is2x2 ? 0 : a[1] * b[4] + a[3] * b[5] + a[5]];
+
+/**
+ * Multiplies the matrices array such that a matrix defines the plane for the rest of the matrices **after** it
+ *
+ * `multiplyTransformMatrixArray([A, B, C, D])` is equivalent to `A(B(C(D)))`
+ *
+ * @param matrices an array of matrices
+ * @param [is2x2] flag to multiply matrices as 2x2 matrices
+ * @returns the multiplication product
+ */
+const multiplyTransformMatrixArray = (matrices, is2x2) => matrices.reduceRight((product, curr) => curr && product ? multiplyTransformMatrices(curr, product, is2x2) : curr || product, undefined) || iMatrix.concat();
+const calcPlaneRotation = _ref => {
+  let [a, b] = _ref;
+  return Math.atan2(b, a);
+};
+
+/**
+ * Decomposes standard 2x3 matrix into transform components
+ * @param  {TMat2D} a transformMatrix
+ * @return {Object} Components of transform
+ */
+const qrDecompose = a => {
+  const angle = calcPlaneRotation(a),
+    denom = Math.pow(a[0], 2) + Math.pow(a[1], 2),
+    scaleX = Math.sqrt(denom),
+    scaleY = (a[0] * a[3] - a[2] * a[1]) / scaleX,
+    skewX = Math.atan2(a[0] * a[2] + a[1] * a[3], denom);
+  return {
+    angle: radiansToDegrees(angle),
+    scaleX,
+    scaleY,
+    skewX: radiansToDegrees(skewX),
+    skewY: 0,
+    translateX: a[4] || 0,
+    translateY: a[5] || 0
+  };
+};
+
+/**
+ * Generate a translation matrix
+ *
+ * A translation matrix in the form of
+ * [ 1 0 x ]
+ * [ 0 1 y ]
+ * [ 0 0 1 ]
+ *
+ * See {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#translate} for more details
+ *
+ * @param {number} x translation on X axis
+ * @param {number} [y] translation on Y axis
+ * @returns {TMat2D} matrix
+ */
+const createTranslateMatrix = function (x) {
+  let y = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
+  return [1, 0, 0, 1, x, y];
+};
+
+/**
+ * Generate a rotation matrix around around a point (x,y), defaulting to (0,0)
+ *
+ * A matrix in the form of
+ * [cos(a) -sin(a) -x*cos(a)+y*sin(a)+x]
+ * [sin(a)  cos(a) -x*sin(a)-y*cos(a)+y]
+ * [0       0      1                 ]
+ *
+ *
+ * @param {TDegree} angle rotation in degrees
+ * @param {XY} [pivotPoint] pivot point to rotate around
+ * @returns {TMat2D} matrix
+ */
+function createRotateMatrix() {
+  let {
+    angle = 0
+  } = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+  let {
+    x = 0,
+    y = 0
+  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+  const angleRadiant = degreesToRadians(angle),
+    cosValue = cos(angleRadiant),
+    sinValue = sin(angleRadiant);
+  return [cosValue, sinValue, -sinValue, cosValue, x ? x - (cosValue * x - sinValue * y) : 0, y ? y - (sinValue * x + cosValue * y) : 0];
+}
+
+/**
+ * Generate a scale matrix around the point (0,0)
+ *
+ * A matrix in the form of
+ * [x 0 0]
+ * [0 y 0]
+ * [0 0 1]
+ *
+ * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#scale}
+ *
+ * @param {number} x scale on X axis
+ * @param {number} [y] scale on Y axis
+ * @returns {TMat2D} matrix
+ */
+const createScaleMatrix = function (x) {
+  let y = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : x;
+  return [x, 0, 0, y, 0, 0];
+};
+const angleToSkew = angle => Math.tan(degreesToRadians(angle));
+
+/**
+ * Generate a skew matrix for the X axis
+ *
+ * A matrix in the form of
+ * [1 x 0]
+ * [0 1 0]
+ * [0 0 1]
+ *
+ * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#skewx}
+ *
+ * @param {TDegree} skewValue translation on X axis
+ * @returns {TMat2D} matrix
+ */
+const createSkewXMatrix = skewValue => [1, 0, angleToSkew(skewValue), 1, 0, 0];
+
+/**
+ * Generate a skew matrix for the Y axis
+ *
+ * A matrix in the form of
+ * [1 0 0]
+ * [y 1 0]
+ * [0 0 1]
+ *
+ * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#skewy}
+ *
+ * @param {TDegree} skewValue translation on Y axis
+ * @returns {TMat2D} matrix
+ */
+const createSkewYMatrix = skewValue => [1, angleToSkew(skewValue), 0, 1, 0, 0];
+
+/**
+ * Returns a transform matrix starting from an object of the same kind of
+ * the one returned from qrDecompose, useful also if you want to calculate some
+ * transformations from an object that is not enlived yet.
+ * is called DimensionsTransformMatrix because those properties are the one that influence
+ * the size of the resulting box of the object.
+ * @param  {Object} options
+ * @param  {Number} [options.scaleX]
+ * @param  {Number} [options.scaleY]
+ * @param  {Boolean} [options.flipX]
+ * @param  {Boolean} [options.flipY]
+ * @param  {Number} [options.skewX]
+ * @param  {Number} [options.skewY]
+ * @return {Number[]} transform matrix
+ */
+const calcDimensionsMatrix = _ref2 => {
+  let {
+    scaleX = 1,
+    scaleY = 1,
+    flipX = false,
+    flipY = false,
+    skewX = 0,
+    skewY = 0
+  } = _ref2;
+  let matrix = createScaleMatrix(flipX ? -scaleX : scaleX, flipY ? -scaleY : scaleY);
+  if (skewX) {
+    matrix = multiplyTransformMatrices(matrix, createSkewXMatrix(skewX), true);
+  }
+  if (skewY) {
+    matrix = multiplyTransformMatrices(matrix, createSkewYMatrix(skewY), true);
+  }
+  return matrix;
+};
+
+/**
+ * Returns a transform matrix starting from an object of the same kind of
+ * the one returned from qrDecompose, useful also if you want to calculate some
+ * transformations from an object that is not enlived yet
+ * Before changing this function look at: src/benchmarks/calcTransformMatrix.mjs
+ * @param  {Object} options
+ * @param  {Number} [options.angle]
+ * @param  {Number} [options.scaleX]
+ * @param  {Number} [options.scaleY]
+ * @param  {Boolean} [options.flipX]
+ * @param  {Boolean} [options.flipY]
+ * @param  {Number} [options.skewX]
+ * @param  {Number} [options.skewY]
+ * @param  {Number} [options.translateX]
+ * @param  {Number} [options.translateY]
+ * @return {Number[]} transform matrix
+ */
+const composeMatrix = options => {
+  const {
+    translateX = 0,
+    translateY = 0,
+    angle = 0
+  } = options;
+  let matrix = createTranslateMatrix(translateX, translateY);
+  if (angle) {
+    matrix = multiplyTransformMatrices(matrix, createRotateMatrix({
+      angle
+    }));
+  }
+  const scaleMatrix = calcDimensionsMatrix(options);
+  if (!isIdentityMatrix(scaleMatrix)) {
+    matrix = multiplyTransformMatrices(matrix, scaleMatrix);
+  }
+  return matrix;
+};
+
+/**
+ * Calculates bounding box (left, top, width, height) from given `points`
+ * @param {XY[]} points
+ * @return {Object} Object with left, top, width, height properties
+ */
+const makeBoundingBoxFromPoints = points => {
+  let left = 0,
+    top = 0,
+    width = 0,
+    height = 0;
+  for (let i = 0, len = points.length; i < len; i++) {
+    const {
+      x,
+      y
+    } = points[i];
+    if (x > width || !i) width = x;
+    if (x < left || !i) left = x;
+    if (y > height || !i) height = y;
+    if (y < top || !i) top = y;
+  }
+  return {
+    left,
+    top,
+    width: width - left,
+    height: height - top
+  };
+};
+
+/**
+ * given an object and a transform, apply the inverse transform to the object,
+ * this is equivalent to remove from that object that transformation, so that
+ * added in a space with the removed transform, the object will be the same as before.
+ * Removing from an object a transform that scale by 2 is like scaling it by 1/2.
+ * Removing from an object a transform that rotate by 30deg is like rotating by 30deg
+ * in the opposite direction.
+ * This util is used to add objects inside transformed groups or nested groups.
+ * @param {FabricObject} object the object you want to transform
+ * @param {TMat2D} transform the destination transform
+ */
+const removeTransformFromObject = (object, transform) => {
+  const inverted = invertTransform(transform),
+    finalTransform = multiplyTransformMatrices(inverted, object.calcOwnMatrix());
+  applyTransformToObject(object, finalTransform);
+};
+
+/**
+ * given an object and a transform, apply the transform to the object.
+ * this is equivalent to change the space where the object is drawn.
+ * Adding to an object a transform that scale by 2 is like scaling it by 2.
+ * This is used when removing an object from an active selection for example.
+ * @param {FabricObject} object the object you want to transform
+ * @param {Array} transform the destination transform
+ */
+const addTransformToObject = (object, transform) => applyTransformToObject(object, multiplyTransformMatrices(transform, object.calcOwnMatrix()));
+
+/**
+ * discard an object transform state and apply the one from the matrix.
+ * @param {FabricObject} object the object you want to transform
+ * @param {Array} transform the destination transform
+ */
+const applyTransformToObject = (object, transform) => {
+  const {
+      translateX,
+      translateY,
+      scaleX,
+      scaleY,
+      ...otherOptions
+    } = qrDecompose(transform),
+    center = new Point(translateX, translateY);
+  object.flipX = false;
+  object.flipY = false;
+  Object.assign(object, otherOptions);
+  object.set({
+    scaleX,
+    scaleY
+  });
+  object.setPositionByOrigin(center, CENTER, CENTER);
+};
+/**
+ * reset an object transform state to neutral. Top and left are not accounted for
+ * @param  {FabricObject} target object to transform
+ */
+const resetObjectTransform = target => {
+  target.scaleX = 1;
+  target.scaleY = 1;
+  target.skewX = 0;
+  target.skewY = 0;
+  target.flipX = false;
+  target.flipY = false;
+  target.rotate(0);
+};
+
+/**
+ * Extract Object transform values
+ * @param  {FabricObject} target object to read from
+ * @return {Object} Components of transform
+ */
+const saveObjectTransform = target => ({
+  scaleX: target.scaleX,
+  scaleY: target.scaleY,
+  skewX: target.skewX,
+  skewY: target.skewY,
+  angle: target.angle,
+  left: target.left,
+  flipX: target.flipX,
+  flipY: target.flipY,
+  top: target.top
+});
+
+/**
+ * given a width and height, return the size of the bounding box
+ * that can contains the box with width/height with applied transform.
+ * Use to calculate the boxes around objects for controls.
+ * @param {Number} width
+ * @param {Number} height
+ * @param {TMat2D} t
+ * @returns {Point} size
+ */
+const sizeAfterTransform = (width, height, t) => {
+  const dimX = width / 2,
+    dimY = height / 2,
+    points = [new Point(-dimX, -dimY), new Point(dimX, -dimY), new Point(-dimX, dimY), new Point(dimX, dimY)].map(p => p.transform(t)),
+    bbox = makeBoundingBoxFromPoints(points);
+  return new Point(bbox.width, bbox.height);
+};
+
+/**
+ * We are actually looking for the transformation from the destination plane to the source plane (change of basis matrix)\
+ * The object will exist on the destination plane and we want it to seem unchanged by it so we invert the destination matrix (`to`) and then apply the source matrix (`from`)
+ * @param [from]
+ * @param [to]
+ * @returns
+ */
+const calcPlaneChangeMatrix = function () {
+  let from = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : iMatrix;
+  let to = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : iMatrix;
+  return multiplyTransformMatrices(invertTransform(to), from);
+};
+
+/**
+ * Sends a point from the source coordinate plane to the destination coordinate plane.\
+ * From the canvas/viewer's perspective the point remains unchanged.
+ *
+ * @example <caption>Send point from canvas plane to group plane</caption>
+ * var obj = new Rect({ left: 20, top: 20, width: 60, height: 60, strokeWidth: 0 });
+ * var group = new Group([obj], { strokeWidth: 0 });
+ * var sentPoint1 = sendPointToPlane(new Point(50, 50), undefined, group.calcTransformMatrix());
+ * var sentPoint2 = sendPointToPlane(new Point(50, 50), iMatrix, group.calcTransformMatrix());
+ * console.log(sentPoint1, sentPoint2) //  both points print (0,0) which is the center of group
+ *
+ * @param {Point} point
+ * @param {TMat2D} [from] plane matrix containing object. Passing `undefined` is equivalent to passing the identity matrix, which means `point` exists in the canvas coordinate plane.
+ * @param {TMat2D} [to] destination plane matrix to contain object. Passing `undefined` means `point` should be sent to the canvas coordinate plane.
+ * @returns {Point} transformed point
+ */
+const sendPointToPlane = function (point) {
+  let from = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : iMatrix;
+  let to = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : iMatrix;
+  return point.transform(calcPlaneChangeMatrix(from, to));
+};
+
+/**
+ * See {@link sendPointToPlane}
+ */
+const sendVectorToPlane = function (point) {
+  let from = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : iMatrix;
+  let to = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : iMatrix;
+  return point.transform(calcPlaneChangeMatrix(from, to), true);
+};
+
+/**
+ *
+ * A util that abstracts applying transform to objects.\
+ * Sends `object` to the destination coordinate plane by applying the relevant transformations.\
+ * Changes the space/plane where `object` is drawn.\
+ * From the canvas/viewer's perspective `object` remains unchanged.
+ *
+ * @example <caption>Move clip path from one object to another while preserving it's appearance as viewed by canvas/viewer</caption>
+ * let obj, obj2;
+ * let clipPath = new Circle({ radius: 50 });
+ * obj.clipPath = clipPath;
+ * // render
+ * sendObjectToPlane(clipPath, obj.calcTransformMatrix(), obj2.calcTransformMatrix());
+ * obj.clipPath = undefined;
+ * obj2.clipPath = clipPath;
+ * // render, clipPath now clips obj2 but seems unchanged from the eyes of the viewer
+ *
+ * @example <caption>Clip an object's clip path with an existing object</caption>
+ * let obj, existingObj;
+ * let clipPath = new Circle({ radius: 50 });
+ * obj.clipPath = clipPath;
+ * let transformTo = multiplyTransformMatrices(obj.calcTransformMatrix(), clipPath.calcTransformMatrix());
+ * sendObjectToPlane(existingObj, existingObj.group?.calcTransformMatrix(), transformTo);
+ * clipPath.clipPath = existingObj;
+ *
+ * @param {FabricObject} object
+ * @param {Matrix} [from] plane matrix containing object. Passing `undefined` is equivalent to passing the identity matrix, which means `object` is a direct child of canvas.
+ * @param {Matrix} [to] destination plane matrix to contain object. Passing `undefined` means `object` should be sent to the canvas coordinate plane.
+ * @returns {Matrix} the transform matrix that was applied to `object`
+ */
+const sendObjectToPlane = (object, from, to) => {
+  const t = calcPlaneChangeMatrix(from, to);
+  applyTransformToObject(object, multiplyTransformMatrices(t, object.calcOwnMatrix()));
+  return t;
+};
+
+const isFiller = filler => {
+  return !!filler && filler.toLive !== undefined;
+};
+const isSerializableFiller = filler => {
+  return !!filler && typeof filler.toObject === 'function';
+};
+const isPattern = filler => {
+  return !!filler && filler.offsetX !== undefined && 'source' in filler;
+};
+const isTextObject = fabricObject => {
+  return !!fabricObject && typeof fabricObject._renderText === 'function';
+};
+const isPath = fabricObject => {
+  // we could use instanceof but that would mean pulling in Text code for a simple check
+  // @todo discuss what to do and how to do
+  return !!fabricObject && typeof fabricObject._renderPathCommands === 'function';
+};
+const isActiveSelection = fabricObject => !!fabricObject && 'multiSelectionStacking' in fabricObject;
+
+const fireEvent = (eventName, options) => {
+  var _target$canvas;
+  const {
+    transform: {
+      target
+    }
+  } = options;
+  (_target$canvas = target.canvas) === null || _target$canvas === void 0 || _target$canvas.fire(`object:${eventName}`, {
+    ...options,
+    target
+  });
+  target.fire(eventName, options);
+};
+
+const originOffset = {
+  left: -0.5,
+  top: -0.5,
+  center: 0,
+  bottom: 0.5,
+  right: 0.5
+};
+/**
+ * Resolves origin value relative to center
+ * @private
+ * @param {TOriginX | TOriginY} originValue originX / originY
+ * @returns number
+ */
+
+const resolveOrigin = originValue => typeof originValue === 'string' ? originOffset[originValue] : originValue - 0.5;
+
+const unitVectorX = new Point(1, 0);
+const zero = new Point();
+
+/**
+ * Rotates `vector` with `radians`
+ * @param {Point} vector The vector to rotate (x and y)
+ * @param {Number} radians The radians of the angle for the rotation
+ * @return {Point} The new rotated point
+ */
+const rotateVector = (vector, radians) => vector.rotate(radians);
+
+/**
+ * Creates a vector from points represented as a point
+ *
+ * @param {Point} from
+ * @param {Point} to
+ * @returns {Point} vector
+ */
+const createVector = (from, to) => new Point(to).subtract(from);
+
+/**
+ * return the magnitude of a vector
+ * @return {number}
+ */
+const magnitude = point => point.distanceFrom(zero);
+
+/**
+ * Calculates the angle between 2 vectors
+ * @param {Point} a
+ * @param {Point} b
+ * @returns the angle in radians from `a` to `b`
+ */
+const calcAngleBetweenVectors = (a, b) => Math.atan2(crossProduct(a, b), dotProduct(a, b));
+
+/**
+ * Calculates the angle between the x axis and the vector
+ * @param {Point} v
+ * @returns the angle in radians of `v`
+ */
+const calcVectorRotation = v => calcAngleBetweenVectors(unitVectorX, v);
+
+/**
+ * @param {Point} v
+ * @returns {Point} vector representing the unit vector pointing to the direction of `v`
+ */
+const getUnitVector = v => v.eq(zero) ? v : v.scalarDivide(magnitude(v));
+
+/**
+ * @param {Point} v
+ * @param {Boolean} [counterClockwise] the direction of the orthogonal vector, defaults to `true`
+ * @returns {Point} the unit orthogonal vector
+ */
+const getOrthonormalVector = function (v) {
+  let counterClockwise = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
+  return getUnitVector(new Point(-v.y, v.x).scalarMultiply(counterClockwise ? 1 : -1));
+};
+
+/**
+ * Cross product of two vectors in 2D
+ * @param {Point} a
+ * @param {Point} b
+ * @returns {number} the magnitude of Z vector
+ */
+const crossProduct = (a, b) => a.x * b.y - a.y * b.x;
+
+/**
+ * Dot product of two vectors in 2D
+ * @param {Point} a
+ * @param {Point} b
+ * @returns {number}
+ */
+const dotProduct = (a, b) => a.x * b.x + a.y * b.y;
+
+/**
+ * Checks if the vector is between two others. It is considered
+ * to be inside when the vector to be tested is between the
+ * initial vector and the final vector (included) in a counterclockwise direction.
+ * @param {Point} t vector to be tested
+ * @param {Point} a initial vector
+ * @param {Point} b final vector
+ * @returns {boolean} true if the vector is among the others
+ */
+const isBetweenVectors = (t, a, b) => {
+  if (t.eq(a) || t.eq(b)) return true;
+  const AxB = crossProduct(a, b),
+    AxT = crossProduct(a, t),
+    BxT = crossProduct(b, t);
+  return AxB >= 0 ? AxT >= 0 && BxT <= 0 : !(AxT <= 0 && BxT >= 0);
+};
+
+const NOT_ALLOWED_CURSOR = 'not-allowed';
+
+/**
+ * @param {Boolean} alreadySelected true if target is already selected
+ * @param {String} corner a string representing the corner ml, mr, tl ...
+ * @param {Event} e Event object
+ * @param {FabricObject} [target] inserted back to help overriding. Unused
+ */
+const getActionFromCorner = (alreadySelected, corner, e, target) => {
+  if (!corner || !alreadySelected) {
+    return 'drag';
+  }
+  const control = target.controls[corner];
+  return control.getActionName(e, control, target);
+};
+
+/**
+ * Checks if transform is centered
+ * @param {Object} transform transform data
+ * @return {Boolean} true if transform is centered
+ */
+function isTransformCentered(transform) {
+  return resolveOrigin(transform.originX) === resolveOrigin(CENTER) && resolveOrigin(transform.originY) === resolveOrigin(CENTER);
+}
+function invertOrigin(origin) {
+  return -resolveOrigin(origin) + 0.5;
+}
+const isLocked = (target, lockingKey) => target[lockingKey];
+const commonEventInfo = (eventData, transform, x, y) => {
+  return {
+    e: eventData,
+    transform,
+    pointer: new Point(x, y)
+  };
+};
+
+/**
+ * Combine control position and object angle to find the control direction compared
+ * to the object center.
+ * @param {FabricObject} fabricObject the fabric object for which we are rendering controls
+ * @param {Control} control the control class
+ * @return {Number} 0 - 7 a quadrant number
+ */
+function findCornerQuadrant(fabricObject, control, coord) {
+  const target = coord;
+  const center = sendPointToPlane(fabricObject.getCenterPoint(), fabricObject.canvas.viewportTransform, undefined);
+  const angle = calcVectorRotation(createVector(center, target)) + twoMathPi;
+  return Math.round(angle % twoMathPi / quarterPI);
+}
+
+/**
+ * @returns the normalized point (rotated relative to center) in local coordinates
+ */
+function normalizePoint(target, point, originX, originY) {
+  const center = target.getRelativeCenterPoint(),
+    p = typeof originX !== 'undefined' && typeof originY !== 'undefined' ? target.translateToGivenOrigin(center, CENTER, CENTER, originX, originY) : new Point(target.left, target.top),
+    p2 = target.angle ? point.rotate(-degreesToRadians(target.angle), center) : point;
+  return p2.subtract(p);
+}
+
+/**
+ * Transforms a point to the offset from the given origin
+ * @param {Object} transform
+ * @param {String} originX
+ * @param {String} originY
+ * @param {number} x
+ * @param {number} y
+ * @return {Fabric.Point} the normalized point
+ */
+function getLocalPoint(_ref, originX, originY, x, y) {
+  var _target$canvas;
+  let {
+    target,
+    corner
+  } = _ref;
+  const control = target.controls[corner],
+    zoom = ((_target$canvas = target.canvas) === null || _target$canvas === void 0 ? void 0 : _target$canvas.getZoom()) || 1,
+    padding = target.padding / zoom,
+    localPoint = normalizePoint(target, new Point(x, y), originX, originY);
+  if (localPoint.x >= padding) {
+    localPoint.x -= padding;
+  }
+  if (localPoint.x <= -padding) {
+    localPoint.x += padding;
+  }
+  if (localPoint.y >= padding) {
+    localPoint.y -= padding;
+  }
+  if (localPoint.y <= padding) {
+    localPoint.y += padding;
+  }
+  localPoint.x -= control.offsetX;
+  localPoint.y -= control.offsetY;
+  return localPoint;
+}
+
+/**
+ * Action handler
+ * @private
+ * @param {Event} eventData javascript event that is doing the transform
+ * @param {Object} transform javascript object containing a series of information around the current transform
+ * @param {number} x current mouse x position, canvas normalized
+ * @param {number} y current mouse y position, canvas normalized
+ * @return {Boolean} true if the translation occurred
+ */
+const dragHandler = (eventData, transform, x, y) => {
+  const {
+      target,
+      offsetX,
+      offsetY
+    } = transform,
+    newLeft = x - offsetX,
+    newTop = y - offsetY,
+    moveX = !isLocked(target, 'lockMovementX') && target.left !== newLeft,
+    moveY = !isLocked(target, 'lockMovementY') && target.top !== newTop;
+  moveX && target.set(LEFT, newLeft);
+  moveY && target.set(TOP, newTop);
+  if (moveX || moveY) {
+    fireEvent(MOVING, commonEventInfo(eventData, transform, x, y));
+  }
+  return moveX || moveY;
+};
+
+let id = 0;
+const uid = () => id++;
+
+/**
+ * Map of the 148 color names with HEX code
+ * @see: https://www.w3.org/TR/css3-color/#svg-color
+ */
+const ColorNameMap = {
+  aliceblue: '#F0F8FF',
+  antiquewhite: '#FAEBD7',
+  aqua: '#0FF',
+  aquamarine: '#7FFFD4',
+  azure: '#F0FFFF',
+  beige: '#F5F5DC',
+  bisque: '#FFE4C4',
+  black: '#000',
+  blanchedalmond: '#FFEBCD',
+  blue: '#00F',
+  blueviolet: '#8A2BE2',
+  brown: '#A52A2A',
+  burlywood: '#DEB887',
+  cadetblue: '#5F9EA0',
+  chartreuse: '#7FFF00',
+  chocolate: '#D2691E',
+  coral: '#FF7F50',
+  cornflowerblue: '#6495ED',
+  cornsilk: '#FFF8DC',
+  crimson: '#DC143C',
+  cyan: '#0FF',
+  darkblue: '#00008B',
+  darkcyan: '#008B8B',
+  darkgoldenrod: '#B8860B',
+  darkgray: '#A9A9A9',
+  darkgrey: '#A9A9A9',
+  darkgreen: '#006400',
+  darkkhaki: '#BDB76B',
+  darkmagenta: '#8B008B',
+  darkolivegreen: '#556B2F',
+  darkorange: '#FF8C00',
+  darkorchid: '#9932CC',
+  darkred: '#8B0000',
+  darksalmon: '#E9967A',
+  darkseagreen: '#8FBC8F',
+  darkslateblue: '#483D8B',
+  darkslategray: '#2F4F4F',
+  darkslategrey: '#2F4F4F',
+  darkturquoise: '#00CED1',
+  darkviolet: '#9400D3',
+  deeppink: '#FF1493',
+  deepskyblue: '#00BFFF',
+  dimgray: '#696969',
+  dimgrey: '#696969',
+  dodgerblue: '#1E90FF',
+  firebrick: '#B22222',
+  floralwhite: '#FFFAF0',
+  forestgreen: '#228B22',
+  fuchsia: '#F0F',
+  gainsboro: '#DCDCDC',
+  ghostwhite: '#F8F8FF',
+  gold: '#FFD700',
+  goldenrod: '#DAA520',
+  gray: '#808080',
+  grey: '#808080',
+  green: '#008000',
+  greenyellow: '#ADFF2F',
+  honeydew: '#F0FFF0',
+  hotpink: '#FF69B4',
+  indianred: '#CD5C5C',
+  indigo: '#4B0082',
+  ivory: '#FFFFF0',
+  khaki: '#F0E68C',
+  lavender: '#E6E6FA',
+  lavenderblush: '#FFF0F5',
+  lawngreen: '#7CFC00',
+  lemonchiffon: '#FFFACD',
+  lightblue: '#ADD8E6',
+  lightcoral: '#F08080',
+  lightcyan: '#E0FFFF',
+  lightgoldenrodyellow: '#FAFAD2',
+  lightgray: '#D3D3D3',
+  lightgrey: '#D3D3D3',
+  lightgreen: '#90EE90',
+  lightpink: '#FFB6C1',
+  lightsalmon: '#FFA07A',
+  lightseagreen: '#20B2AA',
+  lightskyblue: '#87CEFA',
+  lightslategray: '#789',
+  lightslategrey: '#789',
+  lightsteelblue: '#B0C4DE',
+  lightyellow: '#FFFFE0',
+  lime: '#0F0',
+  limegreen: '#32CD32',
+  linen: '#FAF0E6',
+  magenta: '#F0F',
+  maroon: '#800000',
+  mediumaquamarine: '#66CDAA',
+  mediumblue: '#0000CD',
+  mediumorchid: '#BA55D3',
+  mediumpurple: '#9370DB',
+  mediumseagreen: '#3CB371',
+  mediumslateblue: '#7B68EE',
+  mediumspringgreen: '#00FA9A',
+  mediumturquoise: '#48D1CC',
+  mediumvioletred: '#C71585',
+  midnightblue: '#191970',
+  mintcream: '#F5FFFA',
+  mistyrose: '#FFE4E1',
+  moccasin: '#FFE4B5',
+  navajowhite: '#FFDEAD',
+  navy: '#000080',
+  oldlace: '#FDF5E6',
+  olive: '#808000',
+  olivedrab: '#6B8E23',
+  orange: '#FFA500',
+  orangered: '#FF4500',
+  orchid: '#DA70D6',
+  palegoldenrod: '#EEE8AA',
+  palegreen: '#98FB98',
+  paleturquoise: '#AFEEEE',
+  palevioletred: '#DB7093',
+  papayawhip: '#FFEFD5',
+  peachpuff: '#FFDAB9',
+  peru: '#CD853F',
+  pink: '#FFC0CB',
+  plum: '#DDA0DD',
+  powderblue: '#B0E0E6',
+  purple: '#800080',
+  rebeccapurple: '#639',
+  red: '#F00',
+  rosybrown: '#BC8F8F',
+  royalblue: '#4169E1',
+  saddlebrown: '#8B4513',
+  salmon: '#FA8072',
+  sandybrown: '#F4A460',
+  seagreen: '#2E8B57',
+  seashell: '#FFF5EE',
+  sienna: '#A0522D',
+  silver: '#C0C0C0',
+  skyblue: '#87CEEB',
+  slateblue: '#6A5ACD',
+  slategray: '#708090',
+  slategrey: '#708090',
+  snow: '#FFFAFA',
+  springgreen: '#00FF7F',
+  steelblue: '#4682B4',
+  tan: '#D2B48C',
+  teal: '#008080',
+  thistle: '#D8BFD8',
+  tomato: '#FF6347',
+  turquoise: '#40E0D0',
+  violet: '#EE82EE',
+  wheat: '#F5DEB3',
+  white: '#FFF',
+  whitesmoke: '#F5F5F5',
+  yellow: '#FF0',
+  yellowgreen: '#9ACD32'
+};
+
+/**
+ * Regex matching color in RGB or RGBA formats (ex: `rgb(0, 0, 0)`, `rgba(255, 100, 10, 0.5)`, `rgba( 255 , 100 , 10 , 0.5 )`, `rgb(1,1,1)`, `rgba(100%, 60%, 10%, 0.5)`)
+ * Also matching rgba(r g b / a) as per new specs
+ * https://developer.mozilla.org/en-US/docs/Web/CSS/color_value/rgb
+ * Formal syntax at the time of writing:
+ * <rgb()> =
+ *  rgb( [ <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )  |
+ *  rgb( [ <number> | none ]{3} [ / [ <alpha-value> | none ] ]? )
+ * <alpha-value> = <number> | <percentage>
+ *
+ * For learners this is how you can read this regex
+ * Regular expression for matching an rgba or rgb CSS color value
+ *
+ * /^          # Beginning of the string
+ * rgba?       # "rgb" or "rgba"
+ * \(\s*       # Opening parenthesis and optional whitespace
+ * (\d{0,3}    # 0 to three digits R channel
+ *  (?:\.\d+)? # Optional decimal with one or more digits
+ * )           # End of capturing group for the first color component
+ * %?          # Optional percent sign after the first color component
+ * \s*         # Optional whitespace
+ * [\s|,]      # Separator between color components can be a space or comma
+ * \s*         # Optional whitespace
+ * (\d{0,3}    # 0 to three digits G channel
+ *  (?:\.\d+)? # Optional decimal with one or more digits
+ * )           # End of capturing group for the second color component
+ * %?          # Optional percent sign after the second color component
+ * \s*         # Optional whitespace
+ * [\s|,]      # Separator between color components can be a space or comma
+ * \s*         # Optional whitespace
+ * (\d{0,3}    # 0 to three digits B channel
+ *  (?:\.\d+)? # Optional decimal with one or more digits
+ * )           # End of capturing group for the third color component
+ * %?          # Optional percent sign after the third color component
+ * \s*         # Optional whitespace
+ * (?:         # Beginning of non-capturing group for alpha value
+ *  \s*        # Optional whitespace
+ *  [,/]       # Comma or slash separator for alpha value
+ *  \s*        # Optional whitespace
+ *  (\d{0,3}   # Zero to three digits
+ *    (?:\.\d+)? # Optional decimal with one or more digits
+ *  )          # End of capturing group for alpha value
+ *  %?         # Optional percent sign after alpha value
+ *  \s*        # Optional whitespace
+ * )?          # End of non-capturing group for alpha value (optional)
+ * \)          # Closing parenthesis
+ * $           # End of the string
+ *
+ * The alpha channel can be in the format 0.4 .7 or 1 or 73%
+ *
+ * WARNING this regex doesn't fail on off spec colors. it matches everything that could be a color.
+ * So the spec does not allow for `rgba(30 , 45%  35, 49%)` but this will work anyways for us
+ */
+const reRGBa = () => /^rgba?\(\s*(\d{0,3}(?:\.\d+)?%?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*(?:\s*[,/]\s*(\d{0,3}(?:\.\d+)?%?)\s*)?\)$/i;
+
+/**
+ * Regex matching color in HSL or HSLA formats (ex: hsl(0, 0, 0), rgba(255, 100, 10, 0.5), rgba( 255 , 100 , 10 , 0.5 ), rgb(1,1,1), rgba(100%, 60%, 10%, 0.5))
+ * Also matching rgba(r g b / a) as per new specs
+ * https://developer.mozilla.org/en-US/docs/Web/CSS/color_value/hsl
+ * Formal syntax at the time of writing:
+ * <hsl()> =
+ *   hsl( [ <hue> | none ] [ <percentage> | none ] [ <percentage> | none ] [ / [ <alpha-value> | none ] ]? )
+ *
+ * <hue> =
+ *   <number>  |
+ *   <angle>
+ *
+ * <alpha-value> =
+ *   <number>      |
+ *   <percentage>
+ *
+ * For learners this is how you can read this regex
+ * Regular expression for matching an hsla or hsl CSS color value
+ *
+ * /^hsla?\(         // Matches the beginning of the string and the opening parenthesis of "hsl" or "hsla"
+ * \s*               // Matches any whitespace characters (space, tab, etc.) zero or more times
+ * (\d{0,3}          // Hue: 0 to three digits - start capture in a group
+ * (?:\.\d+)?        // Hue: Optional (non capture group) decimal with one or more digits.
+ * (?:deg|turn|rad)? // Hue: Optionally include suffix deg or turn or rad
+ * )                 // Hue: End capture group
+ * \s*               // Matches any whitespace characters zero or more times
+ * [\s|,]            // Matches a space, tab or comma
+ * \s*               // Matches any whitespace characters zero or more times
+ * (\d{0,3}          // Saturation: 0 to three digits - start capture in a group
+ * (?:\.\d+)?        // Saturation: Optional decimal with one or more digits in a non-capturing group
+ * %?)               // Saturation: match optional % character and end capture group
+ * \s*               // Matches any whitespace characters zero or more times
+ * [\s|,]            // Matches a space, tab or comma
+ * \s*               // Matches any whitespace characters zero or more times
+ * (\d{0,3}          // Lightness: 0 to three digits - start capture in a group
+ * (?:\.\d+)?        // Lightness: Optional decimal with one or more digits in a non-capturing group
+ * %?)                // Lightness: match % character and end capture group
+ * \s*               // Matches any whitespace characters zero or more times
+ * (?:               // Alpha: Begins a non-capturing group for the alpha value
+ *   \s*             // Matches any whitespace characters zero or more times
+ *   [,/]            // Matches a comma or forward slash
+ *   \s*             // Matches any whitespace characters zero or more times
+ *   (\d*(?:\.\d+)?%?) // Matches zero or more digits, optionally followed by a decimal point and one or more digits, followed by an optional percentage sign and captures it in a group
+ *   \s*             // Matches any whitespace characters zero or more times
+ * )?                // Makes the alpha value group optional
+ * \)                // Matches the closing parenthesis
+ * $/i               // Matches the end of the string and sets the regular expression to case-insensitive mode
+ *
+ * WARNING this regex doesn't fail on off spec colors. It matches everything that could be a color.
+ * So the spec does not allow `hsl(30 , 45%  35, 49%)` but this will work anyways for us.
+ */
+const reHSLa = () => /^hsla?\(\s*([+-]?\d{0,3}(?:\.\d+)?(?:deg|turn|rad)?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*(?:\s*[,/]\s*(\d*(?:\.\d+)?%?)\s*)?\)$/i;
+
+/**
+ * Regex matching color in HEX format (ex: #FF5544CC, #FF5555, 010155, aff)
+ */
+const reHex = () => /^#?(([0-9a-f]){3,4}|([0-9a-f]{2}){3,4})$/i;
+
+/**
+ * @param {Number} p
+ * @param {Number} q
+ * @param {Number} t
+ * @return {Number}
+ */
+const hue2rgb = (p, q, t) => {
+  if (t < 0) {
+    t += 1;
+  }
+  if (t > 1) {
+    t -= 1;
+  }
+  if (t < 1 / 6) {
+    return p + (q - p) * 6 * t;
+  }
+  if (t < 1 / 2) {
+    return q;
+  }
+  if (t < 2 / 3) {
+    return p + (q - p) * (2 / 3 - t) * 6;
+  }
+  return p;
+};
+
+/**
+ * Adapted from {@link https://gist.github.com/mjackson/5311256 https://gist.github.com/mjackson}
+ * @param {Number} r Red color value
+ * @param {Number} g Green color value
+ * @param {Number} b Blue color value
+ * @param {Number} a Alpha color value pass through
+ * @return {TRGBColorSource} Hsl color
+ */
+const rgb2Hsl = (r, g, b, a) => {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const maxValue = Math.max(r, g, b),
+    minValue = Math.min(r, g, b);
+  let h, s;
+  const l = (maxValue + minValue) / 2;
+  if (maxValue === minValue) {
+    h = s = 0; // achromatic
+  } else {
+    const d = maxValue - minValue;
+    s = l > 0.5 ? d / (2 - maxValue - minValue) : d / (maxValue + minValue);
+    switch (maxValue) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100), a];
+};
+const fromAlphaToFloat = function () {
+  let value = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : '1';
+  return parseFloat(value) / (value.endsWith('%') ? 100 : 1);
+};
+
+/**
+ * Convert a value in the inclusive range [0, 255] to hex
+ */
+const hexify = value => Math.min(Math.round(value), 255).toString(16).toUpperCase().padStart(2, '0');
+
+/**
+ * Calculate the grey average value for rgb and pass through alpha
+ */
+const greyAverage = _ref => {
+  let [r, g, b, a = 1] = _ref;
+  const avg = Math.round(r * 0.3 + g * 0.59 + b * 0.11);
+  return [avg, avg, avg, a];
+};
+
+/**
+ * @class Color common color operations
+ * @see {@link http://fabricjs.com/fabric-intro-part-2/#colors colors}
+ */
+class Color {
+  /**
+   *
+   * @param {string} [color] optional in hex or rgb(a) or hsl format or from known color list
+   */
+  constructor(color) {
+    _defineProperty(this, "isUnrecognised", false);
+    if (!color) {
+      // we default to black as canvas does
+      this.setSource([0, 0, 0, 1]);
+    } else if (color instanceof Color) {
+      this.setSource([...color._source]);
+    } else if (Array.isArray(color)) {
+      const [r, g, b, a = 1] = color;
+      this.setSource([r, g, b, a]);
+    } else {
+      this.setSource(this._tryParsingColor(color));
+    }
+  }
+
+  /**
+   * @private
+   * @param {string} [color] Color value to parse
+   * @returns {TRGBAColorSource}
+   */
+  _tryParsingColor(color) {
+    color = color.toLowerCase();
+    if (color in ColorNameMap) {
+      color = ColorNameMap[color];
+    }
+    return color === 'transparent' ? [255, 255, 255, 0] : Color.sourceFromHex(color) || Color.sourceFromRgb(color) || Color.sourceFromHsl(color) ||
+    // color is not recognized
+    // we default to black as canvas does
+    // eslint-disable-next-line no-constant-binary-expression
+    (this.isUnrecognised = true) && [0, 0, 0, 1];
+  }
+
+  /**
+   * Returns source of this color (where source is an array representation; ex: [200, 200, 100, 1])
+   * @return {TRGBAColorSource}
+   */
+  getSource() {
+    return this._source;
+  }
+
+  /**
+   * Sets source of this color (where source is an array representation; ex: [200, 200, 100, 1])
+   * @param {TRGBAColorSource} source
+   */
+  setSource(source) {
+    this._source = source;
+  }
+
+  /**
+   * Returns color representation in RGB format
+   * @return {String} ex: rgb(0-255,0-255,0-255)
+   */
+  toRgb() {
+    const [r, g, b] = this.getSource();
+    return `rgb(${r},${g},${b})`;
+  }
+
+  /**
+   * Returns color representation in RGBA format
+   * @return {String} ex: rgba(0-255,0-255,0-255,0-1)
+   */
+  toRgba() {
+    return `rgba(${this.getSource().join(',')})`;
+  }
+
+  /**
+   * Returns color representation in HSL format
+   * @return {String} ex: hsl(0-360,0%-100%,0%-100%)
+   */
+  toHsl() {
+    const [h, s, l] = rgb2Hsl(...this.getSource());
+    return `hsl(${h},${s}%,${l}%)`;
+  }
+
+  /**
+   * Returns color representation in HSLA format
+   * @return {String} ex: hsla(0-360,0%-100%,0%-100%,0-1)
+   */
+  toHsla() {
+    const [h, s, l, a] = rgb2Hsl(...this.getSource());
+    return `hsla(${h},${s}%,${l}%,${a})`;
+  }
+
+  /**
+   * Returns color representation in HEX format
+   * @return {String} ex: FF5555
+   */
+  toHex() {
+    const fullHex = this.toHexa();
+    return fullHex.slice(0, 6);
+  }
+
+  /**
+   * Returns color representation in HEXA format
+   * @return {String} ex: FF5555CC
+   */
+  toHexa() {
+    const [r, g, b, a] = this.getSource();
+    return `${hexify(r)}${hexify(g)}${hexify(b)}${hexify(Math.round(a * 255))}`;
+  }
+
+  /**
+   * Gets value of alpha channel for this color
+   * @return {Number} 0-1
+   */
+  getAlpha() {
+    return this.getSource()[3];
+  }
+
+  /**
+   * Sets value of alpha channel for this color
+   * @param {Number} alpha Alpha value 0-1
+   * @return {Color} thisArg
+   */
+  setAlpha(alpha) {
+    this._source[3] = alpha;
+    return this;
+  }
+
+  /**
+   * Transforms color to its grayscale representation
+   * @return {Color} thisArg
+   */
+  toGrayscale() {
+    this.setSource(greyAverage(this.getSource()));
+    return this;
+  }
+
+  /**
+   * Transforms color to its black and white representation
+   * @param {Number} threshold
+   * @return {Color} thisArg
+   */
+  toBlackWhite(threshold) {
+    const [average,,, a] = greyAverage(this.getSource()),
+      bOrW = average < (threshold || 127) ? 0 : 255;
+    this.setSource([bOrW, bOrW, bOrW, a]);
+    return this;
+  }
+
+  /**
+   * Overlays color with another color
+   * @param {String|Color} otherColor
+   * @return {Color} thisArg
+   */
+  overlayWith(otherColor) {
+    if (!(otherColor instanceof Color)) {
+      otherColor = new Color(otherColor);
+    }
+    const source = this.getSource(),
+      otherAlpha = 0.5,
+      otherSource = otherColor.getSource(),
+      [R, G, B] = source.map((value, index) => Math.round(value * (1 - otherAlpha) + otherSource[index] * otherAlpha));
+    this.setSource([R, G, B, source[3]]);
+    return this;
+  }
+
+  /**
+   * Returns new color object, when given a color in RGB format
+   * @param {String} color Color value ex: rgb(0-255,0-255,0-255)
+   * @return {Color}
+   */
+  static fromRgb(color) {
+    return Color.fromRgba(color);
+  }
+
+  /**
+   * Returns new color object, when given a color in RGBA format
+   * @param {String} color
+   * @return {Color}
+   */
+  static fromRgba(color) {
+    return new Color(Color.sourceFromRgb(color));
+  }
+
+  /**
+   * Returns array representation (ex: [100, 100, 200, 1]) of a color that's in RGB or RGBA format
+   * @param {String} color Color value ex: rgb(0-255,0-255,0-255), rgb(0%-100%,0%-100%,0%-100%)
+   * @return {TRGBAColorSource | undefined} source
+   */
+  static sourceFromRgb(color) {
+    const match = color.match(reRGBa());
+    if (match) {
+      const [r, g, b] = match.slice(1, 4).map(value => {
+        const parsedValue = parseFloat(value);
+        return value.endsWith('%') ? Math.round(parsedValue * 2.55) : parsedValue;
+      });
+      return [r, g, b, fromAlphaToFloat(match[4])];
+    }
+  }
+
+  /**
+   * Returns new color object, when given a color in HSL format
+   * @param {String} color Color value ex: hsl(0-260,0%-100%,0%-100%)
+   * @return {Color}
+   */
+  static fromHsl(color) {
+    return Color.fromHsla(color);
+  }
+
+  /**
+   * Returns new color object, when given a color in HSLA format
+   * @param {String} color
+   * @return {Color}
+   */
+  static fromHsla(color) {
+    return new Color(Color.sourceFromHsl(color));
+  }
+
+  /**
+   * Returns array representation (ex: [100, 100, 200, 1]) of a color that's in HSL or HSLA format.
+   * Adapted from <a href="https://rawgithub.com/mjijackson/mjijackson.github.com/master/2008/02/rgb-to-hsl-and-rgb-to-hsv-color-model-conversion-algorithms-in-javascript.html">https://github.com/mjijackson</a>
+   * @param {String} color Color value ex: hsl(0-360,0%-100%,0%-100%) or hsla(0-360,0%-100%,0%-100%, 0-1)
+   * @return {TRGBAColorSource | undefined} source
+   * @see http://http://www.w3.org/TR/css3-color/#hsl-color
+   */
+  static sourceFromHsl(color) {
+    const match = color.match(reHSLa());
+    if (!match) {
+      return;
+    }
+    const match1degrees = Color.parseAngletoDegrees(match[1]);
+    const h = (match1degrees % 360 + 360) % 360 / 360,
+      s = parseFloat(match[2]) / 100,
+      l = parseFloat(match[3]) / 100;
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const q = l <= 0.5 ? l * (s + 1) : l + s - l * s,
+        p = l * 2 - q;
+      r = hue2rgb(p, q, h + 1 / 3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1 / 3);
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), fromAlphaToFloat(match[4])];
+  }
+
+  /**
+   * Returns new color object, when given a color in HEX format
+   * @param {String} color Color value ex: FF5555
+   * @return {Color}
+   */
+  static fromHex(color) {
+    return new Color(Color.sourceFromHex(color));
+  }
+
+  /**
+   * Returns array representation (ex: [100, 100, 200, 1]) of a color that's in HEX format
+   * @param {String} color ex: FF5555 or FF5544CC (RGBa)
+   * @return {TRGBAColorSource | undefined} source
+   */
+  static sourceFromHex(color) {
+    if (color.match(reHex())) {
+      const value = color.slice(color.indexOf('#') + 1),
+        isShortNotation = value.length <= 4;
+      let expandedValue;
+      if (isShortNotation) {
+        expandedValue = value.split('').map(hex => hex + hex);
+      } else {
+        expandedValue = value.match(/.{2}/g);
+      }
+      const [r, g, b, a = 255] = expandedValue.map(hexCouple => parseInt(hexCouple, 16));
+      return [r, g, b, a / 255];
+    }
+  }
+
+  /**
+   * Converts a string that could be any angle notation (50deg, 0.5turn, 2rad)
+   * into degrees without the 'deg' suffix
+   * @param {String} value ex: 0deg, 0.5turn, 2rad
+   * @return {Number} number in degrees or NaN if inputs are invalid
+   */
+  static parseAngletoDegrees(value) {
+    const lowercase = value.toLowerCase();
+    const numeric = parseFloat(lowercase);
+    if (lowercase.includes('rad')) {
+      return radiansToDegrees(numeric);
+    }
+    if (lowercase.includes('turn')) {
+      return numeric * 360;
+    }
+
+    // Value is probably just a number already in degrees eg '50'
+    return numeric;
+  }
+}
+
+/**
+ * A wrapper around Number#toFixed, which contrary to native method returns number, not string.
+ * @param {number|string} number number to operate on
+ * @param {number} fractionDigits number of fraction digits to "leave"
+ * @return {number}
+ */
+const toFixed = (number, fractionDigits) => parseFloat(Number(number).toFixed(fractionDigits));
+
+/**
+ * Returns array of attributes for given svg that fabric parses
+ * @param {SVGElementName} type Type of svg element (eg. 'circle')
+ * @return {Array} string names of supported attributes
+ */
+const getSvgAttributes = type => {
+  const commonAttributes = ['instantiated_by_use', 'style', 'id', 'class'];
+  switch (type) {
+    case 'linearGradient':
+      return commonAttributes.concat(['x1', 'y1', 'x2', 'y2', 'gradientUnits', 'gradientTransform']);
+    case 'radialGradient':
+      return commonAttributes.concat(['gradientUnits', 'gradientTransform', 'cx', 'cy', 'r', 'fx', 'fy', 'fr']);
+    case 'stop':
+      return commonAttributes.concat(['offset', 'stop-color', 'stop-opacity']);
+  }
+  return commonAttributes;
+};
+
+/**
+ * Converts from attribute value to pixel value if applicable.
+ * Returns converted pixels or original value not converted.
+ * @param {string} value number to operate on
+ * @param {number} fontSize
+ * @return {number}
+ */
+const parseUnit = function (value) {
+  let fontSize = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : DEFAULT_SVG_FONT_SIZE;
+  const unit = /\D{0,2}$/.exec(value),
+    number = parseFloat(value);
+  const dpi = config.DPI;
+  switch (unit === null || unit === void 0 ? void 0 : unit[0]) {
+    case 'mm':
+      return number * dpi / 25.4;
+    case 'cm':
+      return number * dpi / 2.54;
+    case 'in':
+      return number * dpi;
+    case 'pt':
+      return number * dpi / 72;
+    // or * 4 / 3
+
+    case 'pc':
+      return number * dpi / 72 * 12;
+    // or * 16
+
+    case 'em':
+      return number * fontSize;
+    default:
+      return number;
+  }
+};
+// align can be either none or undefined or a combination of mid/max
+const parseAlign = align => {
+  //divide align in alignX and alignY
+  if (align && align !== NONE) {
+    return [align.slice(1, 4), align.slice(5, 8)];
+  } else if (align === NONE) {
+    return [align, align];
+  }
+  return ['Mid', 'Mid'];
+};
+
+/**
+ * Parse preserveAspectRatio attribute from element
+ * https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/preserveAspectRatio
+ * @param {string} attribute to be parsed
+ * @return {Object} an object containing align and meetOrSlice attribute
+ */
+const parsePreserveAspectRatioAttribute = attribute => {
+  const [firstPart, secondPart] = attribute.trim().split(' ');
+  const [alignX, alignY] = parseAlign(firstPart);
+  return {
+    meetOrSlice: secondPart || 'meet',
+    alignX,
+    alignY
+  };
+};
+
+/**
+ * Adobe Illustrator (at least CS5) is unable to render rgba()-based fill values
+ * we work around it by "moving" alpha channel into opacity attribute and setting fill's alpha to 1
+ * @param prop
+ * @param value
+ * @param {boolean} inlineStyle The default is inline style, the separator used is ":", The other is "="
+ * @returns
+ */
+const colorPropToSVG = function (prop, value) {
+  let inlineStyle = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
+  let colorValue;
+  let opacityValue;
+  if (!value) {
+    colorValue = 'none';
+  } else if (value.toLive) {
+    colorValue = `url(#SVGID_${value.id})`;
+  } else {
+    const color = new Color(value),
+      opacity = color.getAlpha();
+    colorValue = color.toRgb();
+    if (opacity !== 1) {
+      opacityValue = opacity.toString();
+    }
+  }
+  if (inlineStyle) {
+    return `${prop}: ${colorValue}; ${opacityValue ? `${prop}-opacity: ${opacityValue}; ` : ''}`;
+  } else {
+    return `${prop}="${colorValue}" ${opacityValue ? `${prop}-opacity="${opacityValue}" ` : ''}`;
+  }
+};
+const createSVGRect = function (color, _ref) {
+  let {
+    left,
+    top,
+    width,
+    height
+  } = _ref;
+  let precision = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : config.NUM_FRACTION_DIGITS;
+  const svgColor = colorPropToSVG(FILL, color, false);
+  const [x, y, w, h] = [left, top, width, height].map(value => toFixed(value, precision));
+  return `<rect ${svgColor} x="${x}" y="${y}" width="${w}" height="${h}"></rect>`;
+};
+
+/**
+ * given an array of 6 number returns something like `"matrix(...numbers)"`
+ * @param {TMat2D} transform an array with 6 numbers
+ * @return {String} transform matrix for svg
+ */
+const matrixToSVG = transform => 'matrix(' + transform.map(value => toFixed(value, config.NUM_FRACTION_DIGITS)).join(' ') + ')';
+
+class FabricObjectSVGExportMixin {
+  /**
+   * When an object is being exported as SVG as a clippath, a reference inside the SVG is needed.
+   * This reference is a UID in the fabric namespace and is temporary stored here.
+   * @type {String}
+   */
+
+  /**
+   * Returns styles-string for svg-export
+   * @param {Boolean} skipShadow a boolean to skip shadow filter output
+   * @return {String}
+   */
+  getSvgStyles(skipShadow) {
+    const fillRule = this.fillRule ? this.fillRule : 'nonzero',
+      strokeWidth = this.strokeWidth ? this.strokeWidth : '0',
+      strokeDashArray = this.strokeDashArray ? this.strokeDashArray.join(' ') : NONE,
+      strokeDashOffset = this.strokeDashOffset ? this.strokeDashOffset : '0',
+      strokeLineCap = this.strokeLineCap ? this.strokeLineCap : 'butt',
+      strokeLineJoin = this.strokeLineJoin ? this.strokeLineJoin : 'miter',
+      strokeMiterLimit = this.strokeMiterLimit ? this.strokeMiterLimit : '4',
+      opacity = typeof this.opacity !== 'undefined' ? this.opacity : '1',
+      visibility = this.visible ? '' : ' visibility: hidden;',
+      filter = skipShadow ? '' : this.getSvgFilter(),
+      fill = colorPropToSVG(FILL, this.fill),
+      stroke = colorPropToSVG(STROKE, this.stroke);
+    return [stroke, 'stroke-width: ', strokeWidth, '; ', 'stroke-dasharray: ', strokeDashArray, '; ', 'stroke-linecap: ', strokeLineCap, '; ', 'stroke-dashoffset: ', strokeDashOffset, '; ', 'stroke-linejoin: ', strokeLineJoin, '; ', 'stroke-miterlimit: ', strokeMiterLimit, '; ', fill, 'fill-rule: ', fillRule, '; ', 'opacity: ', opacity, ';', filter, visibility].join('');
+  }
+
+  /**
+   * Returns filter for svg shadow
+   * @return {String}
+   */
+  getSvgFilter() {
+    return this.shadow ? `filter: url(#SVGID_${this.shadow.id});` : '';
+  }
+
+  /**
+   * Returns id attribute for svg output
+   * @return {String}
+   */
+  getSvgCommons() {
+    return [this.id ? `id="${this.id}" ` : '', this.clipPath ? `clip-path="url(#${this.clipPath.clipPathId})" ` : ''].join('');
+  }
+
+  /**
+   * Returns transform-string for svg-export
+   * @param {Boolean} use the full transform or the single object one.
+   * @return {String}
+   */
+  getSvgTransform(full) {
+    let additionalTransform = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : '';
+    const transform = full ? this.calcTransformMatrix() : this.calcOwnMatrix(),
+      svgTransform = `transform="${matrixToSVG(transform)}`;
+    return `${svgTransform}${additionalTransform}" `;
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * This function is implemented in each subclass
+   * This is just because typescript otherwise cryies all the time
+   * @return {Array} an array of strings with the specific svg representation
+   * of the instance
+   */
+  _toSVG(_reviver) {
+    return [''];
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * @param {TSVGReviver} [reviver] Method for further parsing of svg representation.
+   * @return {String} svg representation of an instance
+   */
+  toSVG(reviver) {
+    return this._createBaseSVGMarkup(this._toSVG(reviver), {
+      reviver
+    });
+  }
+
+  /**
+   * Returns svg clipPath representation of an instance
+   * @param {TSVGReviver} [reviver] Method for further parsing of svg representation.
+   * @return {String} svg representation of an instance
+   */
+  toClipPathSVG(reviver) {
+    return '\t' + this._createBaseClipPathSVGMarkup(this._toSVG(reviver), {
+      reviver
+    });
+  }
+
+  /**
+   * @private
+   */
+  _createBaseClipPathSVGMarkup(objectMarkup) {
+    let {
+      reviver,
+      additionalTransform = ''
+    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    const commonPieces = [this.getSvgTransform(true, additionalTransform), this.getSvgCommons()].join(''),
+      // insert commons in the markup, style and svgCommons
+      index = objectMarkup.indexOf('COMMON_PARTS');
+    objectMarkup[index] = commonPieces;
+    return reviver ? reviver(objectMarkup.join('')) : objectMarkup.join('');
+  }
+
+  /**
+   * @private
+   */
+  _createBaseSVGMarkup(objectMarkup) {
+    let {
+      noStyle,
+      reviver,
+      withShadow,
+      additionalTransform
+    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    const styleInfo = noStyle ? '' : `style="${this.getSvgStyles()}" `,
+      shadowInfo = withShadow ? `style="${this.getSvgFilter()}" ` : '',
+      clipPath = this.clipPath,
+      vectorEffect = this.strokeUniform ? 'vector-effect="non-scaling-stroke" ' : '',
+      absoluteClipPath = clipPath && clipPath.absolutePositioned,
+      stroke = this.stroke,
+      fill = this.fill,
+      shadow = this.shadow,
+      markup = [],
+      // insert commons in the markup, style and svgCommons
+      index = objectMarkup.indexOf('COMMON_PARTS');
+    let clipPathMarkup;
+    if (clipPath) {
+      clipPath.clipPathId = `CLIPPATH_${uid()}`;
+      clipPathMarkup = `<clipPath id="${clipPath.clipPathId}" >\n${clipPath.toClipPathSVG(reviver)}</clipPath>\n`;
+    }
+    if (absoluteClipPath) {
+      markup.push('<g ', shadowInfo, this.getSvgCommons(), ' >\n');
+    }
+    markup.push('<g ', this.getSvgTransform(false), !absoluteClipPath ? shadowInfo + this.getSvgCommons() : '', ' >\n');
+    const commonPieces = [styleInfo, vectorEffect, noStyle ? '' : this.addPaintOrder(), ' ', additionalTransform ? `transform="${additionalTransform}" ` : ''].join('');
+    objectMarkup[index] = commonPieces;
+    if (isFiller(fill)) {
+      markup.push(fill.toSVG(this));
+    }
+    if (isFiller(stroke)) {
+      markup.push(stroke.toSVG(this));
+    }
+    if (shadow) {
+      markup.push(shadow.toSVG(this));
+    }
+    if (clipPath) {
+      markup.push(clipPathMarkup);
+    }
+    markup.push(objectMarkup.join(''));
+    markup.push('</g>\n');
+    absoluteClipPath && markup.push('</g>\n');
+    return reviver ? reviver(markup.join('')) : markup.join('');
+  }
+  addPaintOrder() {
+    return this.paintFirst !== FILL ? ` paint-order="${this.paintFirst}" ` : '';
+  }
+}
+
+class Cache {
+  constructor() {
+    /**
+     * Cache of widths of chars in text rendering.
+     */
+    _defineProperty(this, "charWidthsCache", {});
+    /**
+     * This object keeps the results of the boundsOfCurve calculation mapped by the joined arguments necessary to calculate it.
+     * It does speed up calculation, if you parse and add always the same paths, but in case of heavy usage of freedrawing
+     * you do not get any speed benefit and you get a big object in memory.
+     * The object was a private variable before, while now is appended to the lib so that you have access to it and you
+     * can eventually clear it.
+     * It was an internal variable, is accessible since version 2.3.4
+     */
+    _defineProperty(this, "boundsOfCurveCache", {});
+  }
+  /**
+   * @return {Object} reference to cache
+   */
+  getFontCache(_ref) {
+    let {
+      fontFamily,
+      fontStyle,
+      fontWeight
+    } = _ref;
+    fontFamily = fontFamily.toLowerCase();
+    if (!this.charWidthsCache[fontFamily]) {
+      this.charWidthsCache[fontFamily] = {};
+    }
+    const fontCache = this.charWidthsCache[fontFamily];
+    const cacheKey = `${fontStyle.toLowerCase()}_${(fontWeight + '').toLowerCase()}`;
+    if (!fontCache[cacheKey]) {
+      fontCache[cacheKey] = {};
+    }
+    return fontCache[cacheKey];
+  }
+
+  /**
+   * Clear char widths cache for the given font family or all the cache if no
+   * fontFamily is specified.
+   * Use it if you know you are loading fonts in a lazy way and you are not waiting
+   * for custom fonts to load properly when adding text objects to the canvas.
+   * If a text object is added when its own font is not loaded yet, you will get wrong
+   * measurement and so wrong bounding boxes.
+   * After the font cache is cleared, either change the textObject text content or call
+   * initDimensions() to trigger a recalculation
+   * @param {String} [fontFamily] font family to clear
+   */
+  clearFontCache(fontFamily) {
+    fontFamily = (fontFamily || '').toLowerCase();
+    if (!fontFamily) {
+      this.charWidthsCache = {};
+    } else if (this.charWidthsCache[fontFamily]) {
+      delete this.charWidthsCache[fontFamily];
+    }
+  }
+
+  /**
+   * Given current aspect ratio, determines the max width and height that can
+   * respect the total allowed area for the cache.
+   * @param {number} ar aspect ratio
+   * @return {number[]} Limited dimensions X and Y
+   */
+  limitDimsByArea(ar) {
+    const {
+      perfLimitSizeTotal
+    } = config;
+    const roughWidth = Math.sqrt(perfLimitSizeTotal * ar);
+    // we are not returning a point on purpose, to avoid circular dependencies
+    // this is an internal utility
+    return [Math.floor(roughWidth), Math.floor(perfLimitSizeTotal / roughWidth)];
+  }
+}
+const cache = new Cache();
+
+function getSvgRegex(arr) {
+  return new RegExp('^(' + arr.join('|') + ')\\b', 'i');
+}
+
+const TEXT_DECORATION_THICKNESS = 'textDecorationThickness';
+const fontProperties = ['fontSize', 'fontWeight', 'fontFamily', 'fontStyle'];
+const textDecorationProperties = ['underline', 'overline', 'linethrough'];
+const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign', 'kashida', 'direction' // RTL/LTR affects layout and selection
+];
+const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS, 'useOverlayEditing'];
+const styleProperties = [...fontProperties, ...textDecorationProperties, STROKE, 'strokeWidth', FILL, 'deltaY', 'textBackgroundColor', TEXT_DECORATION_THICKNESS];
+
+// @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
+// regexes, list of properties that are not suppose to change by instances, magic consts.
+// this will be a separated effort
+const textDefaultValues = {
+  _reNewline: reNewline,
+  _reSpacesAndTabs: /[ \t\r]/g,
+  _reSpaceAndTab: /[ \t\r]/,
+  _reWords: /\S+/g,
+  fontSize: 40,
+  fontWeight: 'normal',
+  fontFamily: 'Times New Roman',
+  underline: false,
+  overline: false,
+  linethrough: false,
+  textAlign: LEFT,
+  fontStyle: 'normal',
+  lineHeight: 1.16,
+  textBackgroundColor: '',
+  stroke: null,
+  shadow: null,
+  path: undefined,
+  pathStartOffset: 0,
+  pathSide: LEFT,
+  pathAlign: 'baseline',
+  charSpacing: 0,
+  deltaY: 0,
+  direction: 'ltr',
+  // New Konva-compatible properties
+  wrap: 'word',
+  ellipsis: false,
+  letterSpacing: 0,
+  enableAdvancedLayout: false,
+  verticalAlign: 'top',
+  kashida: 'none',
+  // Overlay editor properties
+  useOverlayEditing: false,
+  CACHE_FONT_SIZE: 400,
+  MIN_TEXT_WIDTH: 2,
+  // Text magic numbers
+  superscript: {
+    size: 0.6,
+    // fontSize factor
+    baseline: -0.35 // baseline-shift factor (upwards)
+  },
+  subscript: {
+    size: 0.6,
+    // fontSize factor
+    baseline: 0.11 // baseline-shift factor (downwards)
+  },
+  _fontSizeFraction: 0.222,
+  offsets: {
+    underline: 0.1,
+    linethrough: -0.28167,
+    // added 1/30 to original number
+    overline: -0.81333 // added 1/15 to original number
+  },
+  _fontSizeMult: 1.13,
+  [TEXT_DECORATION_THICKNESS]: 66.667 // before implementation was 1/15
+};
+const JUSTIFY = 'justify';
+const JUSTIFY_LEFT = 'justify-left';
+const JUSTIFY_RIGHT = 'justify-right';
+const JUSTIFY_CENTER = 'justify-center';
+
+// matches, e.g.: +14.56e-12, etc.
+const reNum = String.raw`[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?`;
+const viewportSeparator = String.raw`(?:\s*,?\s+|\s*,\s*)`;
+const svgNS = 'http://www.w3.org/2000/svg';
+const reFontDeclaration = new RegExp('(normal|italic)?\\s*(normal|small-caps)?\\s*' + '(normal|bold|bolder|lighter|100|200|300|400|500|600|700|800|900)?\\s*(' + reNum + '(?:px|cm|mm|em|pt|pc|in)*)(?:\\/(normal|' + reNum + '))?\\s+(.*)');
+const svgValidTagNames = ['path', 'circle', 'polygon', 'polyline', 'ellipse', 'rect', 'line', 'image', 'text'],
+  svgViewBoxElements = ['symbol', 'image', 'marker', 'pattern', 'view', 'svg'],
+  svgInvalidAncestors = ['pattern', 'defs', 'symbol', 'metadata', 'clipPath', 'mask', 'desc'],
+  svgValidParents = ['symbol', 'g', 'a', 'svg', 'clipPath', 'defs'],
+  attributesMap = {
+    cx: LEFT,
+    x: LEFT,
+    r: 'radius',
+    cy: TOP,
+    y: TOP,
+    display: 'visible',
+    visibility: 'visible',
+    transform: 'transformMatrix',
+    'fill-opacity': 'fillOpacity',
+    'fill-rule': 'fillRule',
+    'font-family': 'fontFamily',
+    'font-size': 'fontSize',
+    'font-style': 'fontStyle',
+    'font-weight': 'fontWeight',
+    'letter-spacing': 'charSpacing',
+    'paint-order': 'paintFirst',
+    'stroke-dasharray': 'strokeDashArray',
+    'stroke-dashoffset': 'strokeDashOffset',
+    'stroke-linecap': 'strokeLineCap',
+    'stroke-linejoin': 'strokeLineJoin',
+    'stroke-miterlimit': 'strokeMiterLimit',
+    'stroke-opacity': 'strokeOpacity',
+    'stroke-width': 'strokeWidth',
+    'text-decoration': 'textDecoration',
+    'text-anchor': 'textAnchor',
+    opacity: 'opacity',
+    'clip-path': 'clipPath',
+    'clip-rule': 'clipRule',
+    'vector-effect': 'strokeUniform',
+    'image-rendering': 'imageSmoothing',
+    'text-decoration-thickness': TEXT_DECORATION_THICKNESS
+  },
+  fSize = 'font-size',
+  cPath = 'clip-path';
+const svgValidTagNamesRegEx = getSvgRegex(svgValidTagNames);
+const svgViewBoxElementsRegEx = getSvgRegex(svgViewBoxElements);
+const svgValidParentsRegEx = getSvgRegex(svgValidParents);
+
+// http://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
+
+const reViewBoxAttrValue = new RegExp(String.raw`^\s*(${reNum})${viewportSeparator}(${reNum})${viewportSeparator}(${reNum})${viewportSeparator}(${reNum})\s*$`);
+
+/**
+ * Populates an object with properties of another object
+ * @param {Object} source Source object
+ * @param {string[]} properties Properties names to include
+ * @returns object populated with the picked keys
+ */
+const pick = function (source) {
+  let keys = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : [];
+  return keys.reduce((o, key) => {
+    if (key in source) {
+      o[key] = source[key];
+    }
+    return o;
+  }, {});
+};
+const pickBy = (source, predicate) => {
+  return Object.keys(source).reduce((o, key) => {
+    if (predicate(source[key], key, source)) {
+      o[key] = source[key];
+    }
+    return o;
+  }, {});
+};
+
+/**
+   * Regex matching shadow offsetX, offsetY and blur (ex: "2px 2px 10px rgba(0,0,0,0.2)", "rgb(0,255,0) 2px 2px")
+   * - (?:\s|^): This part captures either a whitespace character (\s) or the beginning of a line (^). It's non-capturing (due to (?:...)), meaning it doesn't create a capturing group.
+   * - (-?\d+(?:\.\d*)?(?:px)?(?:\s?|$))?: This captures the first component of the shadow, which is the horizontal offset. Breaking it down:
+   *   - (-?\d+): Captures an optional minus sign followed by one or more digits (integer part of the number).
+   *   - (?:\.\d*)?: Optionally captures a decimal point followed by zero or more digits (decimal part of the number).
+   *   - (?:px)?: Optionally captures the "px" unit.
+   *   - (?:\s?|$): Captures either an optional whitespace or the end of the line. This whole part is wrapped in a non-capturing group and marked as optional with ?.
+   * - (-?\d+(?:\.\d*)?(?:px)?(?:\s?|$))?: Similar to the previous step, this captures the vertical offset.
+
+(\d+(?:\.\d*)?(?:px)?)?: This captures the blur radius. It's similar to the horizontal offset but without the optional minus sign.
+
+(?:\s+(-?\d+(?:\.\d*)?(?:px)?(?:\s?|$))?){0,1}: This captures an optional part for the color. It allows for whitespace followed by a component with an optional minus sign, digits, decimal point, and "px" unit.
+
+(?:$|\s): This captures either the end of the line or a whitespace character. It ensures that the match ends either at the end of the string or with a whitespace character.
+   */
+// eslint-disable-next-line max-len
+
+const shadowOffsetRegex = '(-?\\d+(?:\\.\\d*)?(?:px)?(?:\\s?|$))?';
+const reOffsetsAndBlur = new RegExp('(?:\\s|^)' + shadowOffsetRegex + shadowOffsetRegex + '(' + reNum + '?(?:px)?)?(?:\\s?|$)(?:$|\\s)');
+const shadowDefaultValues = {
+  color: 'rgb(0,0,0)',
+  blur: 0,
+  offsetX: 0,
+  offsetY: 0,
+  affectStroke: false,
+  includeDefaultValues: true,
+  nonScaling: false
+};
+class Shadow {
+  /**
+   * @see {@link http://fabricjs.com/shadows|Shadow demo}
+   * @param {Object|String} [options] Options object with any of color, blur, offsetX, offsetY properties or string (e.g. "rgba(0,0,0,0.2) 2px 2px 10px")
+   */
+
+  constructor() {
+    let arg0 = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+    const options = typeof arg0 === 'string' ? Shadow.parseShadow(arg0) : arg0;
+    Object.assign(this, Shadow.ownDefaults, options);
+    this.id = uid();
+  }
+
+  /**
+   * @param {String} value Shadow value to parse
+   * @return {Object} Shadow object with color, offsetX, offsetY and blur
+   */
+  static parseShadow(value) {
+    const shadowStr = value.trim(),
+      [, offsetX = 0, offsetY = 0, blur = 0] = (reOffsetsAndBlur.exec(shadowStr) || []).map(value => parseFloat(value) || 0),
+      color = (shadowStr.replace(reOffsetsAndBlur, '') || 'rgb(0,0,0)').trim();
+    return {
+      color,
+      offsetX,
+      offsetY,
+      blur
+    };
+  }
+
+  /**
+   * Returns a string representation of an instance
+   * @see http://www.w3.org/TR/css-text-decor-3/#text-shadow
+   * @return {String} Returns CSS3 text-shadow declaration
+   */
+  toString() {
+    return [this.offsetX, this.offsetY, this.blur, this.color].join('px ');
+  }
+
+  /**
+   * Returns SVG representation of a shadow
+   * @param {FabricObject} object
+   * @return {String} SVG representation of a shadow
+   */
+  toSVG(object) {
+    const offset = rotateVector(new Point(this.offsetX, this.offsetY), degreesToRadians(-object.angle)),
+      BLUR_BOX = 20,
+      color = new Color(this.color);
+    let fBoxX = 40,
+      fBoxY = 40;
+    if (object.width && object.height) {
+      //http://www.w3.org/TR/SVG/filters.html#FilterEffectsRegion
+      // we add some extra space to filter box to contain the blur ( 20 )
+      fBoxX = toFixed((Math.abs(offset.x) + this.blur) / object.width, config.NUM_FRACTION_DIGITS) * 100 + BLUR_BOX;
+      fBoxY = toFixed((Math.abs(offset.y) + this.blur) / object.height, config.NUM_FRACTION_DIGITS) * 100 + BLUR_BOX;
+    }
+    if (object.flipX) {
+      offset.x *= -1;
+    }
+    if (object.flipY) {
+      offset.y *= -1;
+    }
+    return `<filter id="SVGID_${this.id}" y="-${fBoxY}%" height="${100 + 2 * fBoxY}%" x="-${fBoxX}%" width="${100 + 2 * fBoxX}%" >\n\t<feGaussianBlur in="SourceAlpha" stdDeviation="${toFixed(this.blur ? this.blur / 2 : 0, config.NUM_FRACTION_DIGITS)}"></feGaussianBlur>\n\t<feOffset dx="${toFixed(offset.x, config.NUM_FRACTION_DIGITS)}" dy="${toFixed(offset.y, config.NUM_FRACTION_DIGITS)}" result="oBlur" ></feOffset>\n\t<feFlood flood-color="${color.toRgb()}" flood-opacity="${color.getAlpha()}"/>\n\t<feComposite in2="oBlur" operator="in" />\n\t<feMerge>\n\t\t<feMergeNode></feMergeNode>\n\t\t<feMergeNode in="SourceGraphic"></feMergeNode>\n\t</feMerge>\n</filter>\n`;
+  }
+
+  /**
+   * Returns object representation of a shadow
+   * @return {Object} Object representation of a shadow instance
+   */
+  toObject() {
+    const data = {
+      color: this.color,
+      blur: this.blur,
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      affectStroke: this.affectStroke,
+      nonScaling: this.nonScaling,
+      type: this.constructor.type
+    };
+    const defaults = Shadow.ownDefaults;
+    return !this.includeDefaultValues ? pickBy(data, (value, key) => value !== defaults[key]) : data;
+  }
+  static async fromObject(options) {
+    return new this(options);
+  }
+}
+/**
+ * Shadow color
+ * @type String
+ */
+/**
+ * Shadow blur
+ * @type Number
+ */
+/**
+ * Shadow horizontal offset
+ * @type Number
+ */
+/**
+ * Shadow vertical offset
+ * @type Number
+ */
+/**
+ * Whether the shadow should affect stroke operations
+ * @type Boolean
+ */
+/**
+ * Indicates whether toObject should include default values
+ * @type Boolean
+ */
+/**
+ * When `false`, the shadow will scale with the object.
+ * When `true`, the shadow's offsetX, offsetY, and blur will not be affected by the object's scale.
+ * default to false
+ * @type Boolean
+ */
+_defineProperty(Shadow, "ownDefaults", shadowDefaultValues);
+_defineProperty(Shadow, "type", 'shadow');
+classRegistry.setClass(Shadow, 'shadow');
+
+/**
+ * Array holding all running animations
+ */
+class AnimationRegistry extends Array {
+  /**
+   * Remove a single animation using an animation context
+   * @param {AnimationBase} context
+   */
+  remove(context) {
+    const index = this.indexOf(context);
+    index > -1 && this.splice(index, 1);
+  }
+
+  /**
+   * Cancel all running animations on the next frame
+   */
+  cancelAll() {
+    const animations = this.splice(0);
+    animations.forEach(animation => animation.abort());
+    return animations;
+  }
+
+  /**
+   * Cancel all running animations attached to a canvas on the next frame
+   * @param {StaticCanvas} canvas
+   */
+  cancelByCanvas(canvas) {
+    if (!canvas) {
+      return [];
+    }
+    const animations = this.filter(animation => {
+      var _animation$target;
+      return animation.target === canvas || typeof animation.target === 'object' && ((_animation$target = animation.target) === null || _animation$target === void 0 ? void 0 : _animation$target.canvas) === canvas;
+    });
+    animations.forEach(animation => animation.abort());
+    return animations;
+  }
+
+  /**
+   * Cancel all running animations for target on the next frame
+   * @param target
+   */
+  cancelByTarget(target) {
+    if (!target) {
+      return [];
+    }
+    const animations = this.filter(animation => animation.target === target);
+    animations.forEach(animation => animation.abort());
+    return animations;
+  }
+}
+const runningAnimations = new AnimationRegistry();
+
+const capValue = (min, value, max) => Math.max(min, Math.min(value, max));
+
+/**
+ * Creates canvas element
+ * @return {CanvasElement} initialized canvas element
+ */
+const createCanvasElement = () => {
+  const element = getFabricDocument().createElement('canvas');
+  if (!element || typeof element.getContext === 'undefined') {
+    throw new FabricError('Failed to create `canvas` element');
+  }
+  return element;
+};
+
+/**
+ * Creates image element (works on client and node)
+ * @return {HTMLImageElement} HTML image element
+ */
+const createImage = () => getFabricDocument().createElement('img');
+
+/**
+ * Creates a canvas element that is a copy of another and is also painted
+ * @param {CanvasElement} canvas to copy size and content of
+ * @return {CanvasElement} initialized canvas element
+ */
+const copyCanvasElement = canvas => {
+  var _newCanvas$getContext;
+  const newCanvas = createCanvasElementFor(canvas);
+  (_newCanvas$getContext = newCanvas.getContext('2d')) === null || _newCanvas$getContext === void 0 || _newCanvas$getContext.drawImage(canvas, 0, 0);
+  return newCanvas;
+};
+
+/**
+ * Creates a canvas element as big as another
+ * @param {CanvasElement} canvas to copy size and content of
+ * @return {CanvasElement} initialized canvas element
+ */
+const createCanvasElementFor = canvas => {
+  const newCanvas = createCanvasElement();
+  newCanvas.width = canvas.width;
+  newCanvas.height = canvas.height;
+  return newCanvas;
+};
+
+/**
+ * since 2.6.0 moved from canvas instance to utility.
+ * possibly useless
+ * @param {CanvasElement} canvasEl to copy size and content of
+ * @param {String} format 'jpeg' or 'png', in some browsers 'webp' is ok too
+ * @param {number} quality <= 1 and > 0
+ * @return {String} data url
+ */
+const toDataURL = (canvasEl, format, quality) => canvasEl.toDataURL(`image/${format}`, quality);
+const isHTMLCanvas = canvas => {
+  return !!canvas && canvas.getContext !== undefined;
+};
+const toBlob = (canvasEl, format, quality) => new Promise((resolve, _) => {
+  canvasEl.toBlob(resolve, `image/${format}`, quality);
+});
+
+/**
+ * Loads image element from given url and resolve it, or catch.
+ * @param {String} url URL representing an image
+ * @param {LoadImageOptions} [options] image loading options
+ * @returns {Promise<HTMLImageElement>} the loaded image.
+ */
+const loadImage = function (url) {
+  let {
+    signal,
+    crossOrigin = null
+  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+  return new Promise(function (resolve, reject) {
+    if (signal && signal.aborted) {
+      return reject(new SignalAbortedError('loadImage'));
+    }
+    const img = createImage();
+    let abort;
+    if (signal) {
+      abort = function (err) {
+        img.src = '';
+        reject(err);
+      };
+      signal.addEventListener('abort', abort, {
+        once: true
+      });
+    }
+    const done = function () {
+      img.onload = img.onerror = null;
+      abort && (signal === null || signal === void 0 ? void 0 : signal.removeEventListener('abort', abort));
+      resolve(img);
+    };
+    if (!url) {
+      done();
+      return;
+    }
+    img.onload = done;
+    img.onerror = function () {
+      abort && (signal === null || signal === void 0 ? void 0 : signal.removeEventListener('abort', abort));
+      reject(new FabricError(`Error loading ${img.src}`));
+    };
+    crossOrigin && (img.crossOrigin = crossOrigin);
+    img.src = url;
+  });
+};
+/**
+ * @TODO type this correctly.
+ * Creates corresponding fabric instances from their object representations
+ * @param {Object[]} objects Objects to enliven
+ * @param {EnlivenObjectOptions} [options]
+ * @param {(serializedObj: object, instance: FabricObject) => any} [options.reviver] Method for further parsing of object elements,
+ * called after each fabric object created.
+ * @param {AbortSignal} [options.signal] handle aborting, see https://developer.mozilla.org/en-US/docs/Web/API/AbortController/signal
+ * @returns {Promise<FabricObject[]>}
+ */
+const enlivenObjects = function (objects) {
+  let {
+    signal,
+    reviver = noop
+  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+  return new Promise((resolve, reject) => {
+    const instances = [];
+    signal && signal.addEventListener('abort', reject, {
+      once: true
+    });
+    Promise.all(objects.map(obj => classRegistry.getClass(obj.type).fromObject(obj, {
+      signal
+    }).then(fabricInstance => {
+      reviver(obj, fabricInstance);
+      instances.push(fabricInstance);
+      return fabricInstance;
+    }))).then(resolve).catch(error => {
+      // cleanup
+      instances.forEach(instance => {
+        instance.dispose && instance.dispose();
+      });
+      reject(error);
+    }).finally(() => {
+      signal && signal.removeEventListener('abort', reject);
+    });
+  });
+};
+
+/**
+ * Creates corresponding fabric instances residing in an object, e.g. `clipPath`
+ * @param {Object} object with properties to enlive ( fill, stroke, clipPath, path )
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal] handle aborting, see https://developer.mozilla.org/en-US/docs/Web/API/AbortController/signal
+ * @returns {Promise<Record<string, FabricObject | TFiller | null>>} the input object with enlived values
+ */
+const enlivenObjectEnlivables = function (serializedObject) {
+  let {
+    signal
+  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+  return new Promise((resolve, reject) => {
+    const instances = [];
+    signal && signal.addEventListener('abort', reject, {
+      once: true
+    });
+    // enlive every possible property
+    const promises = Object.values(serializedObject).map(value => {
+      if (!value) {
+        return value;
+      }
+      /**
+       * clipPath or shadow or gradient or text on a path or a pattern,
+       * or the backgroundImage or overlayImage of canvas
+       * If we have a type and there is a classe registered for it, we enlive it.
+       * If there is no class registered for it we return the value as is
+       * */
+      if (value.type && classRegistry.has(value.type)) {
+        return enlivenObjects([value], {
+          signal
+        }).then(_ref => {
+          let [enlived] = _ref;
+          instances.push(enlived);
+          return enlived;
+        });
+      }
+      return value;
+    });
+    const keys = Object.keys(serializedObject);
+    Promise.all(promises).then(enlived => {
+      return enlived.reduce((acc, instance, index) => {
+        acc[keys[index]] = instance;
+        return acc;
+      }, {});
+    }).then(resolve).catch(error => {
+      // cleanup
+      instances.forEach(instance => {
+        instance.dispose && instance.dispose();
+      });
+      reject(error);
+    }).finally(() => {
+      signal && signal.removeEventListener('abort', reject);
+    });
+  });
+};
+
+/**
+ * Removes value from an array.
+ * Presence of value (and its position in an array) is determined via `Array.prototype.indexOf`
+ * @param {Array} array
+ * @param {*} value
+ * @return {Array} original array
+ */
+const removeFromArray = (array, value) => {
+  const idx = array.indexOf(value);
+  if (idx !== -1) {
+    array.splice(idx, 1);
+  }
+  return array;
+};
+
 const isCollection = fabricObject => {
   return !!fabricObject && Array.isArray(fabricObject._objects);
 };
@@ -1452,6 +3529,161 @@ function createCollectionMixin(Base) {
   return Collection;
 }
 
+/**
+ * @see {@link http://fabricjs.com/fabric-intro-part-2#events}
+ * @see {@link http://fabricjs.com/events|Events demo}
+ */
+class Observable {
+  constructor() {
+    _defineProperty(this, "__eventListeners", {});
+  }
+  /**
+   * Observes specified event
+   * @alias on
+   * @param {string} eventName Event name (eg. 'after:render')
+   * @param {EventRegistryObject} handlers key/value pairs (eg. {'after:render': handler, 'selection:cleared': handler})
+   * @param {Function} handler Function that receives a notification when an event of the specified type occurs
+   * @return {Function} disposer
+   */
+  on(arg0, handler) {
+    if (!this.__eventListeners) {
+      this.__eventListeners = {};
+    }
+    if (typeof arg0 === 'object') {
+      // one object with key/value pairs was passed
+      Object.entries(arg0).forEach(_ref => {
+        let [eventName, handler] = _ref;
+        this.on(eventName, handler);
+      });
+      return () => this.off(arg0);
+    } else if (handler) {
+      const eventName = arg0;
+      if (!this.__eventListeners[eventName]) {
+        this.__eventListeners[eventName] = [];
+      }
+      this.__eventListeners[eventName].push(handler);
+      return () => this.off(eventName, handler);
+    } else {
+      // noop
+      return () => false;
+    }
+  }
+
+  /**
+   * Observes specified event **once**
+   * @alias once
+   * @param {string} eventName Event name (eg. 'after:render')
+   * @param {EventRegistryObject} handlers key/value pairs (eg. {'after:render': handler, 'selection:cleared': handler})
+   * @param {Function} handler Function that receives a notification when an event of the specified type occurs
+   * @return {Function} disposer
+   */
+
+  once(arg0, handler) {
+    if (typeof arg0 === 'object') {
+      // one object with key/value pairs was passed
+      const disposers = [];
+      Object.entries(arg0).forEach(_ref2 => {
+        let [eventName, handler] = _ref2;
+        disposers.push(this.once(eventName, handler));
+      });
+      return () => disposers.forEach(d => d());
+    } else if (handler) {
+      const disposer = this.on(arg0, function onceHandler() {
+        for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
+          args[_key] = arguments[_key];
+        }
+        handler.call(this, ...args);
+        disposer();
+      });
+      return disposer;
+    } else {
+      // noop
+      return () => false;
+    }
+  }
+
+  /**
+   * @private
+   * @param {string} eventName
+   * @param {Function} [handler]
+   */
+  _removeEventListener(eventName, handler) {
+    if (!this.__eventListeners[eventName]) {
+      return;
+    }
+    if (handler) {
+      const eventListener = this.__eventListeners[eventName];
+      const index = eventListener.indexOf(handler);
+      index > -1 && eventListener.splice(index, 1);
+    } else {
+      this.__eventListeners[eventName] = [];
+    }
+  }
+
+  /**
+   * Unsubscribe all event listeners for eventname.
+   * Do not use this pattern. You could kill internal fabricJS events.
+   * We know we should have protected events for internal flows, but we don't have yet
+   * @deprecated
+   * @param {string} eventName event name (eg. 'after:render')
+   */
+
+  /**
+   * unsubscribe an event listener
+   * @param {string} eventName event name (eg. 'after:render')
+   * @param {TEventCallback} handler event listener to unsubscribe
+   */
+
+  /**
+   * unsubscribe event listeners
+   * @param handlers handlers key/value pairs (eg. {'after:render': handler, 'selection:cleared': handler})
+   */
+
+  /**
+   * unsubscribe all event listeners
+   */
+
+  off(arg0, handler) {
+    if (!this.__eventListeners) {
+      return;
+    }
+
+    // remove all key/value pairs (event name -> event handler)
+    if (typeof arg0 === 'undefined') {
+      for (const eventName in this.__eventListeners) {
+        this._removeEventListener(eventName);
+      }
+    }
+    // one object with key/value pairs was passed
+    else if (typeof arg0 === 'object') {
+      Object.entries(arg0).forEach(_ref3 => {
+        let [eventName, handler] = _ref3;
+        this._removeEventListener(eventName, handler);
+      });
+    } else {
+      this._removeEventListener(arg0, handler);
+    }
+  }
+
+  /**
+   * Fires event with an optional options object
+   * @param {String} eventName Event name to fire
+   * @param {Object} [options] Options object
+   */
+  fire(eventName, options) {
+    var _this$__eventListener;
+    if (!this.__eventListeners) {
+      return;
+    }
+    const listenersForEvent = (_this$__eventListener = this.__eventListeners[eventName]) === null || _this$__eventListener === void 0 ? void 0 : _this$__eventListener.concat();
+    if (listenersForEvent) {
+      for (let i = 0; i < listenersForEvent.length; i++) {
+        listenersForEvent[i].call(this, options || {});
+      }
+    }
+  }
+}
+
 class CommonMethods extends Observable {
   /**
    * Sets object's properties from options, for initialization only
@@ -1519,567 +3751,6 @@ function requestAnimFrame(callback) {
 function cancelAnimFrame(handle) {
   return getFabricWindow().cancelAnimationFrame(handle);
 }
-
-let id = 0;
-const uid = () => id++;
-
-/**
- * Creates canvas element
- * @return {CanvasElement} initialized canvas element
- */
-const createCanvasElement = () => {
-  const element = getFabricDocument().createElement('canvas');
-  if (!element || typeof element.getContext === 'undefined') {
-    throw new FabricError('Failed to create `canvas` element');
-  }
-  return element;
-};
-
-/**
- * Creates image element (works on client and node)
- * @return {HTMLImageElement} HTML image element
- */
-const createImage = () => getFabricDocument().createElement('img');
-
-/**
- * Creates a canvas element that is a copy of another and is also painted
- * @param {CanvasElement} canvas to copy size and content of
- * @return {CanvasElement} initialized canvas element
- */
-const copyCanvasElement = canvas => {
-  var _newCanvas$getContext;
-  const newCanvas = createCanvasElementFor(canvas);
-  (_newCanvas$getContext = newCanvas.getContext('2d')) === null || _newCanvas$getContext === void 0 || _newCanvas$getContext.drawImage(canvas, 0, 0);
-  return newCanvas;
-};
-
-/**
- * Creates a canvas element as big as another
- * @param {CanvasElement} canvas to copy size and content of
- * @return {CanvasElement} initialized canvas element
- */
-const createCanvasElementFor = canvas => {
-  const newCanvas = createCanvasElement();
-  newCanvas.width = canvas.width;
-  newCanvas.height = canvas.height;
-  return newCanvas;
-};
-
-/**
- * since 2.6.0 moved from canvas instance to utility.
- * possibly useless
- * @param {CanvasElement} canvasEl to copy size and content of
- * @param {String} format 'jpeg' or 'png', in some browsers 'webp' is ok too
- * @param {number} quality <= 1 and > 0
- * @return {String} data url
- */
-const toDataURL = (canvasEl, format, quality) => canvasEl.toDataURL(`image/${format}`, quality);
-const isHTMLCanvas = canvas => {
-  return !!canvas && canvas.getContext !== undefined;
-};
-const toBlob = (canvasEl, format, quality) => new Promise((resolve, _) => {
-  canvasEl.toBlob(resolve, `image/${format}`, quality);
-});
-
-/**
- * Transforms degrees to radians.
- * @param {TDegree} degrees value in degrees
- * @return {TRadian} value in radians
- */
-const degreesToRadians = degrees => degrees * PiBy180;
-
-/**
- * Transforms radians to degrees.
- * @param {TRadian} radians value in radians
- * @return {TDegree} value in degrees
- */
-const radiansToDegrees = radians => radians / PiBy180;
-
-const isIdentityMatrix = mat => mat.every((value, index) => value === iMatrix[index]);
-
-/**
- * Apply transform t to point p
- * @deprecated use {@link Point#transform}
- * @param  {Point | XY} p The point to transform
- * @param  {Array} t The transform
- * @param  {Boolean} [ignoreOffset] Indicates that the offset should not be applied
- * @return {Point} The transformed point
- */
-const transformPoint = (p, t, ignoreOffset) => new Point(p).transform(t, ignoreOffset);
-
-/**
- * Invert transformation t
- * @param {Array} t The transform
- * @return {Array} The inverted transform
- */
-const invertTransform = t => {
-  const a = 1 / (t[0] * t[3] - t[1] * t[2]),
-    r = [a * t[3], -a * t[1], -a * t[2], a * t[0], 0, 0],
-    {
-      x,
-      y
-    } = new Point(t[4], t[5]).transform(r, true);
-  r[4] = -x;
-  r[5] = -y;
-  return r;
-};
-
-/**
- * Multiply matrix A by matrix B to nest transformations
- * @param  {TMat2D} a First transformMatrix
- * @param  {TMat2D} b Second transformMatrix
- * @param  {Boolean} is2x2 flag to multiply matrices as 2x2 matrices
- * @return {TMat2D} The product of the two transform matrices
- */
-const multiplyTransformMatrices = (a, b, is2x2) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], is2x2 ? 0 : a[0] * b[4] + a[2] * b[5] + a[4], is2x2 ? 0 : a[1] * b[4] + a[3] * b[5] + a[5]];
-
-/**
- * Multiplies the matrices array such that a matrix defines the plane for the rest of the matrices **after** it
- *
- * `multiplyTransformMatrixArray([A, B, C, D])` is equivalent to `A(B(C(D)))`
- *
- * @param matrices an array of matrices
- * @param [is2x2] flag to multiply matrices as 2x2 matrices
- * @returns the multiplication product
- */
-const multiplyTransformMatrixArray = (matrices, is2x2) => matrices.reduceRight((product, curr) => curr && product ? multiplyTransformMatrices(curr, product, is2x2) : curr || product, undefined) || iMatrix.concat();
-const calcPlaneRotation = _ref => {
-  let [a, b] = _ref;
-  return Math.atan2(b, a);
-};
-
-/**
- * Decomposes standard 2x3 matrix into transform components
- * @param  {TMat2D} a transformMatrix
- * @return {Object} Components of transform
- */
-const qrDecompose = a => {
-  const angle = calcPlaneRotation(a),
-    denom = Math.pow(a[0], 2) + Math.pow(a[1], 2),
-    scaleX = Math.sqrt(denom),
-    scaleY = (a[0] * a[3] - a[2] * a[1]) / scaleX,
-    skewX = Math.atan2(a[0] * a[2] + a[1] * a[3], denom);
-  return {
-    angle: radiansToDegrees(angle),
-    scaleX,
-    scaleY,
-    skewX: radiansToDegrees(skewX),
-    skewY: 0,
-    translateX: a[4] || 0,
-    translateY: a[5] || 0
-  };
-};
-
-/**
- * Generate a translation matrix
- *
- * A translation matrix in the form of
- * [ 1 0 x ]
- * [ 0 1 y ]
- * [ 0 0 1 ]
- *
- * See {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#translate} for more details
- *
- * @param {number} x translation on X axis
- * @param {number} [y] translation on Y axis
- * @returns {TMat2D} matrix
- */
-const createTranslateMatrix = function (x) {
-  let y = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
-  return [1, 0, 0, 1, x, y];
-};
-
-/**
- * Generate a rotation matrix around around a point (x,y), defaulting to (0,0)
- *
- * A matrix in the form of
- * [cos(a) -sin(a) -x*cos(a)+y*sin(a)+x]
- * [sin(a)  cos(a) -x*sin(a)-y*cos(a)+y]
- * [0       0      1                 ]
- *
- *
- * @param {TDegree} angle rotation in degrees
- * @param {XY} [pivotPoint] pivot point to rotate around
- * @returns {TMat2D} matrix
- */
-function createRotateMatrix() {
-  let {
-    angle = 0
-  } = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-  let {
-    x = 0,
-    y = 0
-  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-  const angleRadiant = degreesToRadians(angle),
-    cosValue = cos(angleRadiant),
-    sinValue = sin(angleRadiant);
-  return [cosValue, sinValue, -sinValue, cosValue, x ? x - (cosValue * x - sinValue * y) : 0, y ? y - (sinValue * x + cosValue * y) : 0];
-}
-
-/**
- * Generate a scale matrix around the point (0,0)
- *
- * A matrix in the form of
- * [x 0 0]
- * [0 y 0]
- * [0 0 1]
- *
- * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#scale}
- *
- * @param {number} x scale on X axis
- * @param {number} [y] scale on Y axis
- * @returns {TMat2D} matrix
- */
-const createScaleMatrix = function (x) {
-  let y = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : x;
-  return [x, 0, 0, y, 0, 0];
-};
-const angleToSkew = angle => Math.tan(degreesToRadians(angle));
-
-/**
- * Generate a skew matrix for the X axis
- *
- * A matrix in the form of
- * [1 x 0]
- * [0 1 0]
- * [0 0 1]
- *
- * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#skewx}
- *
- * @param {TDegree} skewValue translation on X axis
- * @returns {TMat2D} matrix
- */
-const createSkewXMatrix = skewValue => [1, 0, angleToSkew(skewValue), 1, 0, 0];
-
-/**
- * Generate a skew matrix for the Y axis
- *
- * A matrix in the form of
- * [1 0 0]
- * [y 1 0]
- * [0 0 1]
- *
- * {@link https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/transform#skewy}
- *
- * @param {TDegree} skewValue translation on Y axis
- * @returns {TMat2D} matrix
- */
-const createSkewYMatrix = skewValue => [1, angleToSkew(skewValue), 0, 1, 0, 0];
-
-/**
- * Returns a transform matrix starting from an object of the same kind of
- * the one returned from qrDecompose, useful also if you want to calculate some
- * transformations from an object that is not enlived yet.
- * is called DimensionsTransformMatrix because those properties are the one that influence
- * the size of the resulting box of the object.
- * @param  {Object} options
- * @param  {Number} [options.scaleX]
- * @param  {Number} [options.scaleY]
- * @param  {Boolean} [options.flipX]
- * @param  {Boolean} [options.flipY]
- * @param  {Number} [options.skewX]
- * @param  {Number} [options.skewY]
- * @return {Number[]} transform matrix
- */
-const calcDimensionsMatrix = _ref2 => {
-  let {
-    scaleX = 1,
-    scaleY = 1,
-    flipX = false,
-    flipY = false,
-    skewX = 0,
-    skewY = 0
-  } = _ref2;
-  let matrix = createScaleMatrix(flipX ? -scaleX : scaleX, flipY ? -scaleY : scaleY);
-  if (skewX) {
-    matrix = multiplyTransformMatrices(matrix, createSkewXMatrix(skewX), true);
-  }
-  if (skewY) {
-    matrix = multiplyTransformMatrices(matrix, createSkewYMatrix(skewY), true);
-  }
-  return matrix;
-};
-
-/**
- * Returns a transform matrix starting from an object of the same kind of
- * the one returned from qrDecompose, useful also if you want to calculate some
- * transformations from an object that is not enlived yet
- * Before changing this function look at: src/benchmarks/calcTransformMatrix.mjs
- * @param  {Object} options
- * @param  {Number} [options.angle]
- * @param  {Number} [options.scaleX]
- * @param  {Number} [options.scaleY]
- * @param  {Boolean} [options.flipX]
- * @param  {Boolean} [options.flipY]
- * @param  {Number} [options.skewX]
- * @param  {Number} [options.skewY]
- * @param  {Number} [options.translateX]
- * @param  {Number} [options.translateY]
- * @return {Number[]} transform matrix
- */
-const composeMatrix = options => {
-  const {
-    translateX = 0,
-    translateY = 0,
-    angle = 0
-  } = options;
-  let matrix = createTranslateMatrix(translateX, translateY);
-  if (angle) {
-    matrix = multiplyTransformMatrices(matrix, createRotateMatrix({
-      angle
-    }));
-  }
-  const scaleMatrix = calcDimensionsMatrix(options);
-  if (!isIdentityMatrix(scaleMatrix)) {
-    matrix = multiplyTransformMatrices(matrix, scaleMatrix);
-  }
-  return matrix;
-};
-
-/**
- * Loads image element from given url and resolve it, or catch.
- * @param {String} url URL representing an image
- * @param {LoadImageOptions} [options] image loading options
- * @returns {Promise<HTMLImageElement>} the loaded image.
- */
-const loadImage = function (url) {
-  let {
-    signal,
-    crossOrigin = null
-  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-  return new Promise(function (resolve, reject) {
-    if (signal && signal.aborted) {
-      return reject(new SignalAbortedError('loadImage'));
-    }
-    const img = createImage();
-    let abort;
-    if (signal) {
-      abort = function (err) {
-        img.src = '';
-        reject(err);
-      };
-      signal.addEventListener('abort', abort, {
-        once: true
-      });
-    }
-    const done = function () {
-      img.onload = img.onerror = null;
-      abort && (signal === null || signal === void 0 ? void 0 : signal.removeEventListener('abort', abort));
-      resolve(img);
-    };
-    if (!url) {
-      done();
-      return;
-    }
-    img.onload = done;
-    img.onerror = function () {
-      abort && (signal === null || signal === void 0 ? void 0 : signal.removeEventListener('abort', abort));
-      reject(new FabricError(`Error loading ${img.src}`));
-    };
-    crossOrigin && (img.crossOrigin = crossOrigin);
-    img.src = url;
-  });
-};
-/**
- * @TODO type this correctly.
- * Creates corresponding fabric instances from their object representations
- * @param {Object[]} objects Objects to enliven
- * @param {EnlivenObjectOptions} [options]
- * @param {(serializedObj: object, instance: FabricObject) => any} [options.reviver] Method for further parsing of object elements,
- * called after each fabric object created.
- * @param {AbortSignal} [options.signal] handle aborting, see https://developer.mozilla.org/en-US/docs/Web/API/AbortController/signal
- * @returns {Promise<FabricObject[]>}
- */
-const enlivenObjects = function (objects) {
-  let {
-    signal,
-    reviver = noop
-  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-  return new Promise((resolve, reject) => {
-    const instances = [];
-    signal && signal.addEventListener('abort', reject, {
-      once: true
-    });
-    Promise.all(objects.map(obj => classRegistry.getClass(obj.type).fromObject(obj, {
-      signal
-    }).then(fabricInstance => {
-      reviver(obj, fabricInstance);
-      instances.push(fabricInstance);
-      return fabricInstance;
-    }))).then(resolve).catch(error => {
-      // cleanup
-      instances.forEach(instance => {
-        instance.dispose && instance.dispose();
-      });
-      reject(error);
-    }).finally(() => {
-      signal && signal.removeEventListener('abort', reject);
-    });
-  });
-};
-
-/**
- * Creates corresponding fabric instances residing in an object, e.g. `clipPath`
- * @param {Object} object with properties to enlive ( fill, stroke, clipPath, path )
- * @param {object} [options]
- * @param {AbortSignal} [options.signal] handle aborting, see https://developer.mozilla.org/en-US/docs/Web/API/AbortController/signal
- * @returns {Promise<Record<string, FabricObject | TFiller | null>>} the input object with enlived values
- */
-const enlivenObjectEnlivables = function (serializedObject) {
-  let {
-    signal
-  } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-  return new Promise((resolve, reject) => {
-    const instances = [];
-    signal && signal.addEventListener('abort', reject, {
-      once: true
-    });
-    // enlive every possible property
-    const promises = Object.values(serializedObject).map(value => {
-      if (!value) {
-        return value;
-      }
-      /**
-       * clipPath or shadow or gradient or text on a path or a pattern,
-       * or the backgroundImage or overlayImage of canvas
-       * If we have a type and there is a classe registered for it, we enlive it.
-       * If there is no class registered for it we return the value as is
-       * */
-      if (value.type && classRegistry.has(value.type)) {
-        return enlivenObjects([value], {
-          signal
-        }).then(_ref => {
-          let [enlived] = _ref;
-          instances.push(enlived);
-          return enlived;
-        });
-      }
-      return value;
-    });
-    const keys = Object.keys(serializedObject);
-    Promise.all(promises).then(enlived => {
-      return enlived.reduce((acc, instance, index) => {
-        acc[keys[index]] = instance;
-        return acc;
-      }, {});
-    }).then(resolve).catch(error => {
-      // cleanup
-      instances.forEach(instance => {
-        instance.dispose && instance.dispose();
-      });
-      reject(error);
-    }).finally(() => {
-      signal && signal.removeEventListener('abort', reject);
-    });
-  });
-};
-
-/**
- * Populates an object with properties of another object
- * @param {Object} source Source object
- * @param {string[]} properties Properties names to include
- * @returns object populated with the picked keys
- */
-const pick = function (source) {
-  let keys = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : [];
-  return keys.reduce((o, key) => {
-    if (key in source) {
-      o[key] = source[key];
-    }
-    return o;
-  }, {});
-};
-const pickBy = (source, predicate) => {
-  return Object.keys(source).reduce((o, key) => {
-    if (predicate(source[key], key, source)) {
-      o[key] = source[key];
-    }
-    return o;
-  }, {});
-};
-
-/**
- * A wrapper around Number#toFixed, which contrary to native method returns number, not string.
- * @param {number|string} number number to operate on
- * @param {number} fractionDigits number of fraction digits to "leave"
- * @return {number}
- */
-const toFixed = (number, fractionDigits) => parseFloat(Number(number).toFixed(fractionDigits));
-
-/**
- * given an array of 6 number returns something like `"matrix(...numbers)"`
- * @param {TMat2D} transform an array with 6 numbers
- * @return {String} transform matrix for svg
- */
-const matrixToSVG = transform => 'matrix(' + transform.map(value => toFixed(value, config.NUM_FRACTION_DIGITS)).join(' ') + ')';
-
-const isFiller = filler => {
-  return !!filler && filler.toLive !== undefined;
-};
-const isSerializableFiller = filler => {
-  return !!filler && typeof filler.toObject === 'function';
-};
-const isPattern = filler => {
-  return !!filler && filler.offsetX !== undefined && 'source' in filler;
-};
-const isTextObject = fabricObject => {
-  return !!fabricObject && typeof fabricObject._renderText === 'function';
-};
-const isPath = fabricObject => {
-  // we could use instanceof but that would mean pulling in Text code for a simple check
-  // @todo discuss what to do and how to do
-  return !!fabricObject && typeof fabricObject._renderPathCommands === 'function';
-};
-const isActiveSelection = fabricObject => !!fabricObject && 'multiSelectionStacking' in fabricObject;
-
-/**
- * Returns element scroll offsets
- * @param {HTMLElement} element Element to operate on
- * @return {Object} Object with left/top values
- */
-function getScrollLeftTop(element) {
-  const doc = element && getDocumentFromElement(element);
-  let left = 0,
-    top = 0;
-  if (!element || !doc) {
-    return {
-      left,
-      top
-    };
-  }
-  let elementLoop = element;
-  const docElement = doc.documentElement,
-    body = doc.body || {
-      scrollLeft: 0,
-      scrollTop: 0
-    };
-  // While loop checks (and then sets element to) .parentNode OR .host
-  //  to account for ShadowDOM. We still want to traverse up out of ShadowDOM,
-  //  but the .parentNode of a root ShadowDOM node will always be null, instead
-  //  it should be accessed through .host. See http://stackoverflow.com/a/24765528/4383938
-  while (elementLoop && (elementLoop.parentNode || elementLoop.host)) {
-    elementLoop = elementLoop.parentNode || elementLoop.host;
-    if (elementLoop === doc) {
-      left = body.scrollLeft || docElement.scrollLeft || 0;
-      top = body.scrollTop || docElement.scrollTop || 0;
-    } else {
-      left += elementLoop.scrollLeft || 0;
-      top += elementLoop.scrollTop || 0;
-    }
-    if (elementLoop.nodeType === 1 && elementLoop.style.position === 'fixed') {
-      break;
-    }
-  }
-  return {
-    left,
-    top
-  };
-}
-const getDocumentFromElement = el => el.ownerDocument || null;
-const getWindowFromElement = el => {
-  var _el$ownerDocument;
-  return ((_el$ownerDocument = el.ownerDocument) === null || _el$ownerDocument === void 0 ? void 0 : _el$ownerDocument.defaultView) || null;
-};
 
 const setCanvasDimensions = function (el, ctx, _ref) {
   let {
@@ -3455,1677 +5126,6 @@ let StaticCanvas$1 = class StaticCanvas extends createCollectionMixin(CommonMeth
   }
 };
 _defineProperty(StaticCanvas$1, "ownDefaults", staticCanvasDefaults);
-
-const touchEvents = ['touchstart', 'touchmove', 'touchend'];
-function getTouchInfo(event) {
-  const touchProp = event.changedTouches;
-  if (touchProp && touchProp[0]) {
-    return touchProp[0];
-  }
-  return event;
-}
-const getPointer = event => {
-  const element = event.target,
-    scroll = getScrollLeftTop(element),
-    _evt = getTouchInfo(event);
-  return new Point(_evt.clientX + scroll.left, _evt.clientY + scroll.top);
-};
-const isTouchEvent = event => touchEvents.includes(event.type) || event.pointerType === 'touch';
-const stopEvent = e => {
-  e.preventDefault();
-  e.stopPropagation();
-};
-
-/**
- * Calculates bounding box (left, top, width, height) from given `points`
- * @param {XY[]} points
- * @return {Object} Object with left, top, width, height properties
- */
-const makeBoundingBoxFromPoints = points => {
-  let left = 0,
-    top = 0,
-    width = 0,
-    height = 0;
-  for (let i = 0, len = points.length; i < len; i++) {
-    const {
-      x,
-      y
-    } = points[i];
-    if (x > width || !i) width = x;
-    if (x < left || !i) left = x;
-    if (y > height || !i) height = y;
-    if (y < top || !i) top = y;
-  }
-  return {
-    left,
-    top,
-    width: width - left,
-    height: height - top
-  };
-};
-
-/**
- * given an object and a transform, apply the inverse transform to the object,
- * this is equivalent to remove from that object that transformation, so that
- * added in a space with the removed transform, the object will be the same as before.
- * Removing from an object a transform that scale by 2 is like scaling it by 1/2.
- * Removing from an object a transform that rotate by 30deg is like rotating by 30deg
- * in the opposite direction.
- * This util is used to add objects inside transformed groups or nested groups.
- * @param {FabricObject} object the object you want to transform
- * @param {TMat2D} transform the destination transform
- */
-const removeTransformFromObject = (object, transform) => {
-  const inverted = invertTransform(transform),
-    finalTransform = multiplyTransformMatrices(inverted, object.calcOwnMatrix());
-  applyTransformToObject(object, finalTransform);
-};
-
-/**
- * given an object and a transform, apply the transform to the object.
- * this is equivalent to change the space where the object is drawn.
- * Adding to an object a transform that scale by 2 is like scaling it by 2.
- * This is used when removing an object from an active selection for example.
- * @param {FabricObject} object the object you want to transform
- * @param {Array} transform the destination transform
- */
-const addTransformToObject = (object, transform) => applyTransformToObject(object, multiplyTransformMatrices(transform, object.calcOwnMatrix()));
-
-/**
- * discard an object transform state and apply the one from the matrix.
- * @param {FabricObject} object the object you want to transform
- * @param {Array} transform the destination transform
- */
-const applyTransformToObject = (object, transform) => {
-  const {
-      translateX,
-      translateY,
-      scaleX,
-      scaleY,
-      ...otherOptions
-    } = qrDecompose(transform),
-    center = new Point(translateX, translateY);
-  object.flipX = false;
-  object.flipY = false;
-  Object.assign(object, otherOptions);
-  object.set({
-    scaleX,
-    scaleY
-  });
-  object.setPositionByOrigin(center, CENTER, CENTER);
-};
-/**
- * reset an object transform state to neutral. Top and left are not accounted for
- * @param  {FabricObject} target object to transform
- */
-const resetObjectTransform = target => {
-  target.scaleX = 1;
-  target.scaleY = 1;
-  target.skewX = 0;
-  target.skewY = 0;
-  target.flipX = false;
-  target.flipY = false;
-  target.rotate(0);
-};
-
-/**
- * Extract Object transform values
- * @param  {FabricObject} target object to read from
- * @return {Object} Components of transform
- */
-const saveObjectTransform = target => ({
-  scaleX: target.scaleX,
-  scaleY: target.scaleY,
-  skewX: target.skewX,
-  skewY: target.skewY,
-  angle: target.angle,
-  left: target.left,
-  flipX: target.flipX,
-  flipY: target.flipY,
-  top: target.top
-});
-
-/**
- * given a width and height, return the size of the bounding box
- * that can contains the box with width/height with applied transform.
- * Use to calculate the boxes around objects for controls.
- * @param {Number} width
- * @param {Number} height
- * @param {TMat2D} t
- * @returns {Point} size
- */
-const sizeAfterTransform = (width, height, t) => {
-  const dimX = width / 2,
-    dimY = height / 2,
-    points = [new Point(-dimX, -dimY), new Point(dimX, -dimY), new Point(-dimX, dimY), new Point(dimX, dimY)].map(p => p.transform(t)),
-    bbox = makeBoundingBoxFromPoints(points);
-  return new Point(bbox.width, bbox.height);
-};
-
-/**
- * We are actually looking for the transformation from the destination plane to the source plane (change of basis matrix)\
- * The object will exist on the destination plane and we want it to seem unchanged by it so we invert the destination matrix (`to`) and then apply the source matrix (`from`)
- * @param [from]
- * @param [to]
- * @returns
- */
-const calcPlaneChangeMatrix = function () {
-  let from = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : iMatrix;
-  let to = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : iMatrix;
-  return multiplyTransformMatrices(invertTransform(to), from);
-};
-
-/**
- * Sends a point from the source coordinate plane to the destination coordinate plane.\
- * From the canvas/viewer's perspective the point remains unchanged.
- *
- * @example <caption>Send point from canvas plane to group plane</caption>
- * var obj = new Rect({ left: 20, top: 20, width: 60, height: 60, strokeWidth: 0 });
- * var group = new Group([obj], { strokeWidth: 0 });
- * var sentPoint1 = sendPointToPlane(new Point(50, 50), undefined, group.calcTransformMatrix());
- * var sentPoint2 = sendPointToPlane(new Point(50, 50), iMatrix, group.calcTransformMatrix());
- * console.log(sentPoint1, sentPoint2) //  both points print (0,0) which is the center of group
- *
- * @param {Point} point
- * @param {TMat2D} [from] plane matrix containing object. Passing `undefined` is equivalent to passing the identity matrix, which means `point` exists in the canvas coordinate plane.
- * @param {TMat2D} [to] destination plane matrix to contain object. Passing `undefined` means `point` should be sent to the canvas coordinate plane.
- * @returns {Point} transformed point
- */
-const sendPointToPlane = function (point) {
-  let from = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : iMatrix;
-  let to = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : iMatrix;
-  return point.transform(calcPlaneChangeMatrix(from, to));
-};
-
-/**
- * See {@link sendPointToPlane}
- */
-const sendVectorToPlane = function (point) {
-  let from = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : iMatrix;
-  let to = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : iMatrix;
-  return point.transform(calcPlaneChangeMatrix(from, to), true);
-};
-
-/**
- *
- * A util that abstracts applying transform to objects.\
- * Sends `object` to the destination coordinate plane by applying the relevant transformations.\
- * Changes the space/plane where `object` is drawn.\
- * From the canvas/viewer's perspective `object` remains unchanged.
- *
- * @example <caption>Move clip path from one object to another while preserving it's appearance as viewed by canvas/viewer</caption>
- * let obj, obj2;
- * let clipPath = new Circle({ radius: 50 });
- * obj.clipPath = clipPath;
- * // render
- * sendObjectToPlane(clipPath, obj.calcTransformMatrix(), obj2.calcTransformMatrix());
- * obj.clipPath = undefined;
- * obj2.clipPath = clipPath;
- * // render, clipPath now clips obj2 but seems unchanged from the eyes of the viewer
- *
- * @example <caption>Clip an object's clip path with an existing object</caption>
- * let obj, existingObj;
- * let clipPath = new Circle({ radius: 50 });
- * obj.clipPath = clipPath;
- * let transformTo = multiplyTransformMatrices(obj.calcTransformMatrix(), clipPath.calcTransformMatrix());
- * sendObjectToPlane(existingObj, existingObj.group?.calcTransformMatrix(), transformTo);
- * clipPath.clipPath = existingObj;
- *
- * @param {FabricObject} object
- * @param {Matrix} [from] plane matrix containing object. Passing `undefined` is equivalent to passing the identity matrix, which means `object` is a direct child of canvas.
- * @param {Matrix} [to] destination plane matrix to contain object. Passing `undefined` means `object` should be sent to the canvas coordinate plane.
- * @returns {Matrix} the transform matrix that was applied to `object`
- */
-const sendObjectToPlane = (object, from, to) => {
-  const t = calcPlaneChangeMatrix(from, to);
-  applyTransformToObject(object, multiplyTransformMatrices(t, object.calcOwnMatrix()));
-  return t;
-};
-
-const fireEvent = (eventName, options) => {
-  var _target$canvas;
-  const {
-    transform: {
-      target
-    }
-  } = options;
-  (_target$canvas = target.canvas) === null || _target$canvas === void 0 || _target$canvas.fire(`object:${eventName}`, {
-    ...options,
-    target
-  });
-  target.fire(eventName, options);
-};
-
-const originOffset = {
-  left: -0.5,
-  top: -0.5,
-  center: 0,
-  bottom: 0.5,
-  right: 0.5
-};
-/**
- * Resolves origin value relative to center
- * @private
- * @param {TOriginX | TOriginY} originValue originX / originY
- * @returns number
- */
-
-const resolveOrigin = originValue => typeof originValue === 'string' ? originOffset[originValue] : originValue - 0.5;
-
-const unitVectorX = new Point(1, 0);
-const zero = new Point();
-
-/**
- * Rotates `vector` with `radians`
- * @param {Point} vector The vector to rotate (x and y)
- * @param {Number} radians The radians of the angle for the rotation
- * @return {Point} The new rotated point
- */
-const rotateVector = (vector, radians) => vector.rotate(radians);
-
-/**
- * Creates a vector from points represented as a point
- *
- * @param {Point} from
- * @param {Point} to
- * @returns {Point} vector
- */
-const createVector = (from, to) => new Point(to).subtract(from);
-
-/**
- * return the magnitude of a vector
- * @return {number}
- */
-const magnitude = point => point.distanceFrom(zero);
-
-/**
- * Calculates the angle between 2 vectors
- * @param {Point} a
- * @param {Point} b
- * @returns the angle in radians from `a` to `b`
- */
-const calcAngleBetweenVectors = (a, b) => Math.atan2(crossProduct(a, b), dotProduct(a, b));
-
-/**
- * Calculates the angle between the x axis and the vector
- * @param {Point} v
- * @returns the angle in radians of `v`
- */
-const calcVectorRotation = v => calcAngleBetweenVectors(unitVectorX, v);
-
-/**
- * @param {Point} v
- * @returns {Point} vector representing the unit vector pointing to the direction of `v`
- */
-const getUnitVector = v => v.eq(zero) ? v : v.scalarDivide(magnitude(v));
-
-/**
- * @param {Point} v
- * @param {Boolean} [counterClockwise] the direction of the orthogonal vector, defaults to `true`
- * @returns {Point} the unit orthogonal vector
- */
-const getOrthonormalVector = function (v) {
-  let counterClockwise = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
-  return getUnitVector(new Point(-v.y, v.x).scalarMultiply(counterClockwise ? 1 : -1));
-};
-
-/**
- * Cross product of two vectors in 2D
- * @param {Point} a
- * @param {Point} b
- * @returns {number} the magnitude of Z vector
- */
-const crossProduct = (a, b) => a.x * b.y - a.y * b.x;
-
-/**
- * Dot product of two vectors in 2D
- * @param {Point} a
- * @param {Point} b
- * @returns {number}
- */
-const dotProduct = (a, b) => a.x * b.x + a.y * b.y;
-
-/**
- * Checks if the vector is between two others. It is considered
- * to be inside when the vector to be tested is between the
- * initial vector and the final vector (included) in a counterclockwise direction.
- * @param {Point} t vector to be tested
- * @param {Point} a initial vector
- * @param {Point} b final vector
- * @returns {boolean} true if the vector is among the others
- */
-const isBetweenVectors = (t, a, b) => {
-  if (t.eq(a) || t.eq(b)) return true;
-  const AxB = crossProduct(a, b),
-    AxT = crossProduct(a, t),
-    BxT = crossProduct(b, t);
-  return AxB >= 0 ? AxT >= 0 && BxT <= 0 : !(AxT <= 0 && BxT >= 0);
-};
-
-const NOT_ALLOWED_CURSOR = 'not-allowed';
-
-/**
- * @param {Boolean} alreadySelected true if target is already selected
- * @param {String} corner a string representing the corner ml, mr, tl ...
- * @param {Event} e Event object
- * @param {FabricObject} [target] inserted back to help overriding. Unused
- */
-const getActionFromCorner = (alreadySelected, corner, e, target) => {
-  if (!corner || !alreadySelected) {
-    return 'drag';
-  }
-  const control = target.controls[corner];
-  return control.getActionName(e, control, target);
-};
-
-/**
- * Checks if transform is centered
- * @param {Object} transform transform data
- * @return {Boolean} true if transform is centered
- */
-function isTransformCentered(transform) {
-  return resolveOrigin(transform.originX) === resolveOrigin(CENTER) && resolveOrigin(transform.originY) === resolveOrigin(CENTER);
-}
-function invertOrigin(origin) {
-  return -resolveOrigin(origin) + 0.5;
-}
-const isLocked = (target, lockingKey) => target[lockingKey];
-const commonEventInfo = (eventData, transform, x, y) => {
-  return {
-    e: eventData,
-    transform,
-    pointer: new Point(x, y)
-  };
-};
-
-/**
- * Combine control position and object angle to find the control direction compared
- * to the object center.
- * @param {FabricObject} fabricObject the fabric object for which we are rendering controls
- * @param {Control} control the control class
- * @return {Number} 0 - 7 a quadrant number
- */
-function findCornerQuadrant(fabricObject, control, coord) {
-  const target = coord;
-  const center = sendPointToPlane(fabricObject.getCenterPoint(), fabricObject.canvas.viewportTransform, undefined);
-  const angle = calcVectorRotation(createVector(center, target)) + twoMathPi;
-  return Math.round(angle % twoMathPi / quarterPI);
-}
-
-/**
- * @returns the normalized point (rotated relative to center) in local coordinates
- */
-function normalizePoint(target, point, originX, originY) {
-  const center = target.getRelativeCenterPoint(),
-    p = typeof originX !== 'undefined' && typeof originY !== 'undefined' ? target.translateToGivenOrigin(center, CENTER, CENTER, originX, originY) : new Point(target.left, target.top),
-    p2 = target.angle ? point.rotate(-degreesToRadians(target.angle), center) : point;
-  return p2.subtract(p);
-}
-
-/**
- * Transforms a point to the offset from the given origin
- * @param {Object} transform
- * @param {String} originX
- * @param {String} originY
- * @param {number} x
- * @param {number} y
- * @return {Fabric.Point} the normalized point
- */
-function getLocalPoint(_ref, originX, originY, x, y) {
-  var _target$canvas;
-  let {
-    target,
-    corner
-  } = _ref;
-  const control = target.controls[corner],
-    zoom = ((_target$canvas = target.canvas) === null || _target$canvas === void 0 ? void 0 : _target$canvas.getZoom()) || 1,
-    padding = target.padding / zoom,
-    localPoint = normalizePoint(target, new Point(x, y), originX, originY);
-  if (localPoint.x >= padding) {
-    localPoint.x -= padding;
-  }
-  if (localPoint.x <= -padding) {
-    localPoint.x += padding;
-  }
-  if (localPoint.y >= padding) {
-    localPoint.y -= padding;
-  }
-  if (localPoint.y <= padding) {
-    localPoint.y += padding;
-  }
-  localPoint.x -= control.offsetX;
-  localPoint.y -= control.offsetY;
-  return localPoint;
-}
-
-/**
- * Action handler
- * @private
- * @param {Event} eventData javascript event that is doing the transform
- * @param {Object} transform javascript object containing a series of information around the current transform
- * @param {number} x current mouse x position, canvas normalized
- * @param {number} y current mouse y position, canvas normalized
- * @return {Boolean} true if the translation occurred
- */
-const dragHandler = (eventData, transform, x, y) => {
-  const {
-      target,
-      offsetX,
-      offsetY
-    } = transform,
-    newLeft = x - offsetX,
-    newTop = y - offsetY,
-    moveX = !isLocked(target, 'lockMovementX') && target.left !== newLeft,
-    moveY = !isLocked(target, 'lockMovementY') && target.top !== newTop;
-  moveX && target.set(LEFT, newLeft);
-  moveY && target.set(TOP, newTop);
-  if (moveX || moveY) {
-    fireEvent(MOVING, commonEventInfo(eventData, transform, x, y));
-  }
-  return moveX || moveY;
-};
-
-/**
- * Map of the 148 color names with HEX code
- * @see: https://www.w3.org/TR/css3-color/#svg-color
- */
-const ColorNameMap = {
-  aliceblue: '#F0F8FF',
-  antiquewhite: '#FAEBD7',
-  aqua: '#0FF',
-  aquamarine: '#7FFFD4',
-  azure: '#F0FFFF',
-  beige: '#F5F5DC',
-  bisque: '#FFE4C4',
-  black: '#000',
-  blanchedalmond: '#FFEBCD',
-  blue: '#00F',
-  blueviolet: '#8A2BE2',
-  brown: '#A52A2A',
-  burlywood: '#DEB887',
-  cadetblue: '#5F9EA0',
-  chartreuse: '#7FFF00',
-  chocolate: '#D2691E',
-  coral: '#FF7F50',
-  cornflowerblue: '#6495ED',
-  cornsilk: '#FFF8DC',
-  crimson: '#DC143C',
-  cyan: '#0FF',
-  darkblue: '#00008B',
-  darkcyan: '#008B8B',
-  darkgoldenrod: '#B8860B',
-  darkgray: '#A9A9A9',
-  darkgrey: '#A9A9A9',
-  darkgreen: '#006400',
-  darkkhaki: '#BDB76B',
-  darkmagenta: '#8B008B',
-  darkolivegreen: '#556B2F',
-  darkorange: '#FF8C00',
-  darkorchid: '#9932CC',
-  darkred: '#8B0000',
-  darksalmon: '#E9967A',
-  darkseagreen: '#8FBC8F',
-  darkslateblue: '#483D8B',
-  darkslategray: '#2F4F4F',
-  darkslategrey: '#2F4F4F',
-  darkturquoise: '#00CED1',
-  darkviolet: '#9400D3',
-  deeppink: '#FF1493',
-  deepskyblue: '#00BFFF',
-  dimgray: '#696969',
-  dimgrey: '#696969',
-  dodgerblue: '#1E90FF',
-  firebrick: '#B22222',
-  floralwhite: '#FFFAF0',
-  forestgreen: '#228B22',
-  fuchsia: '#F0F',
-  gainsboro: '#DCDCDC',
-  ghostwhite: '#F8F8FF',
-  gold: '#FFD700',
-  goldenrod: '#DAA520',
-  gray: '#808080',
-  grey: '#808080',
-  green: '#008000',
-  greenyellow: '#ADFF2F',
-  honeydew: '#F0FFF0',
-  hotpink: '#FF69B4',
-  indianred: '#CD5C5C',
-  indigo: '#4B0082',
-  ivory: '#FFFFF0',
-  khaki: '#F0E68C',
-  lavender: '#E6E6FA',
-  lavenderblush: '#FFF0F5',
-  lawngreen: '#7CFC00',
-  lemonchiffon: '#FFFACD',
-  lightblue: '#ADD8E6',
-  lightcoral: '#F08080',
-  lightcyan: '#E0FFFF',
-  lightgoldenrodyellow: '#FAFAD2',
-  lightgray: '#D3D3D3',
-  lightgrey: '#D3D3D3',
-  lightgreen: '#90EE90',
-  lightpink: '#FFB6C1',
-  lightsalmon: '#FFA07A',
-  lightseagreen: '#20B2AA',
-  lightskyblue: '#87CEFA',
-  lightslategray: '#789',
-  lightslategrey: '#789',
-  lightsteelblue: '#B0C4DE',
-  lightyellow: '#FFFFE0',
-  lime: '#0F0',
-  limegreen: '#32CD32',
-  linen: '#FAF0E6',
-  magenta: '#F0F',
-  maroon: '#800000',
-  mediumaquamarine: '#66CDAA',
-  mediumblue: '#0000CD',
-  mediumorchid: '#BA55D3',
-  mediumpurple: '#9370DB',
-  mediumseagreen: '#3CB371',
-  mediumslateblue: '#7B68EE',
-  mediumspringgreen: '#00FA9A',
-  mediumturquoise: '#48D1CC',
-  mediumvioletred: '#C71585',
-  midnightblue: '#191970',
-  mintcream: '#F5FFFA',
-  mistyrose: '#FFE4E1',
-  moccasin: '#FFE4B5',
-  navajowhite: '#FFDEAD',
-  navy: '#000080',
-  oldlace: '#FDF5E6',
-  olive: '#808000',
-  olivedrab: '#6B8E23',
-  orange: '#FFA500',
-  orangered: '#FF4500',
-  orchid: '#DA70D6',
-  palegoldenrod: '#EEE8AA',
-  palegreen: '#98FB98',
-  paleturquoise: '#AFEEEE',
-  palevioletred: '#DB7093',
-  papayawhip: '#FFEFD5',
-  peachpuff: '#FFDAB9',
-  peru: '#CD853F',
-  pink: '#FFC0CB',
-  plum: '#DDA0DD',
-  powderblue: '#B0E0E6',
-  purple: '#800080',
-  rebeccapurple: '#639',
-  red: '#F00',
-  rosybrown: '#BC8F8F',
-  royalblue: '#4169E1',
-  saddlebrown: '#8B4513',
-  salmon: '#FA8072',
-  sandybrown: '#F4A460',
-  seagreen: '#2E8B57',
-  seashell: '#FFF5EE',
-  sienna: '#A0522D',
-  silver: '#C0C0C0',
-  skyblue: '#87CEEB',
-  slateblue: '#6A5ACD',
-  slategray: '#708090',
-  slategrey: '#708090',
-  snow: '#FFFAFA',
-  springgreen: '#00FF7F',
-  steelblue: '#4682B4',
-  tan: '#D2B48C',
-  teal: '#008080',
-  thistle: '#D8BFD8',
-  tomato: '#FF6347',
-  turquoise: '#40E0D0',
-  violet: '#EE82EE',
-  wheat: '#F5DEB3',
-  white: '#FFF',
-  whitesmoke: '#F5F5F5',
-  yellow: '#FF0',
-  yellowgreen: '#9ACD32'
-};
-
-/**
- * Regex matching color in RGB or RGBA formats (ex: `rgb(0, 0, 0)`, `rgba(255, 100, 10, 0.5)`, `rgba( 255 , 100 , 10 , 0.5 )`, `rgb(1,1,1)`, `rgba(100%, 60%, 10%, 0.5)`)
- * Also matching rgba(r g b / a) as per new specs
- * https://developer.mozilla.org/en-US/docs/Web/CSS/color_value/rgb
- * Formal syntax at the time of writing:
- * <rgb()> =
- *  rgb( [ <percentage> | none ]{3} [ / [ <alpha-value> | none ] ]? )  |
- *  rgb( [ <number> | none ]{3} [ / [ <alpha-value> | none ] ]? )
- * <alpha-value> = <number> | <percentage>
- *
- * For learners this is how you can read this regex
- * Regular expression for matching an rgba or rgb CSS color value
- *
- * /^          # Beginning of the string
- * rgba?       # "rgb" or "rgba"
- * \(\s*       # Opening parenthesis and optional whitespace
- * (\d{0,3}    # 0 to three digits R channel
- *  (?:\.\d+)? # Optional decimal with one or more digits
- * )           # End of capturing group for the first color component
- * %?          # Optional percent sign after the first color component
- * \s*         # Optional whitespace
- * [\s|,]      # Separator between color components can be a space or comma
- * \s*         # Optional whitespace
- * (\d{0,3}    # 0 to three digits G channel
- *  (?:\.\d+)? # Optional decimal with one or more digits
- * )           # End of capturing group for the second color component
- * %?          # Optional percent sign after the second color component
- * \s*         # Optional whitespace
- * [\s|,]      # Separator between color components can be a space or comma
- * \s*         # Optional whitespace
- * (\d{0,3}    # 0 to three digits B channel
- *  (?:\.\d+)? # Optional decimal with one or more digits
- * )           # End of capturing group for the third color component
- * %?          # Optional percent sign after the third color component
- * \s*         # Optional whitespace
- * (?:         # Beginning of non-capturing group for alpha value
- *  \s*        # Optional whitespace
- *  [,/]       # Comma or slash separator for alpha value
- *  \s*        # Optional whitespace
- *  (\d{0,3}   # Zero to three digits
- *    (?:\.\d+)? # Optional decimal with one or more digits
- *  )          # End of capturing group for alpha value
- *  %?         # Optional percent sign after alpha value
- *  \s*        # Optional whitespace
- * )?          # End of non-capturing group for alpha value (optional)
- * \)          # Closing parenthesis
- * $           # End of the string
- *
- * The alpha channel can be in the format 0.4 .7 or 1 or 73%
- *
- * WARNING this regex doesn't fail on off spec colors. it matches everything that could be a color.
- * So the spec does not allow for `rgba(30 , 45%  35, 49%)` but this will work anyways for us
- */
-const reRGBa = () => /^rgba?\(\s*(\d{0,3}(?:\.\d+)?%?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*(?:\s*[,/]\s*(\d{0,3}(?:\.\d+)?%?)\s*)?\)$/i;
-
-/**
- * Regex matching color in HSL or HSLA formats (ex: hsl(0, 0, 0), rgba(255, 100, 10, 0.5), rgba( 255 , 100 , 10 , 0.5 ), rgb(1,1,1), rgba(100%, 60%, 10%, 0.5))
- * Also matching rgba(r g b / a) as per new specs
- * https://developer.mozilla.org/en-US/docs/Web/CSS/color_value/hsl
- * Formal syntax at the time of writing:
- * <hsl()> =
- *   hsl( [ <hue> | none ] [ <percentage> | none ] [ <percentage> | none ] [ / [ <alpha-value> | none ] ]? )
- *
- * <hue> =
- *   <number>  |
- *   <angle>
- *
- * <alpha-value> =
- *   <number>      |
- *   <percentage>
- *
- * For learners this is how you can read this regex
- * Regular expression for matching an hsla or hsl CSS color value
- *
- * /^hsla?\(         // Matches the beginning of the string and the opening parenthesis of "hsl" or "hsla"
- * \s*               // Matches any whitespace characters (space, tab, etc.) zero or more times
- * (\d{0,3}          // Hue: 0 to three digits - start capture in a group
- * (?:\.\d+)?        // Hue: Optional (non capture group) decimal with one or more digits.
- * (?:deg|turn|rad)? // Hue: Optionally include suffix deg or turn or rad
- * )                 // Hue: End capture group
- * \s*               // Matches any whitespace characters zero or more times
- * [\s|,]            // Matches a space, tab or comma
- * \s*               // Matches any whitespace characters zero or more times
- * (\d{0,3}          // Saturation: 0 to three digits - start capture in a group
- * (?:\.\d+)?        // Saturation: Optional decimal with one or more digits in a non-capturing group
- * %?)               // Saturation: match optional % character and end capture group
- * \s*               // Matches any whitespace characters zero or more times
- * [\s|,]            // Matches a space, tab or comma
- * \s*               // Matches any whitespace characters zero or more times
- * (\d{0,3}          // Lightness: 0 to three digits - start capture in a group
- * (?:\.\d+)?        // Lightness: Optional decimal with one or more digits in a non-capturing group
- * %?)                // Lightness: match % character and end capture group
- * \s*               // Matches any whitespace characters zero or more times
- * (?:               // Alpha: Begins a non-capturing group for the alpha value
- *   \s*             // Matches any whitespace characters zero or more times
- *   [,/]            // Matches a comma or forward slash
- *   \s*             // Matches any whitespace characters zero or more times
- *   (\d*(?:\.\d+)?%?) // Matches zero or more digits, optionally followed by a decimal point and one or more digits, followed by an optional percentage sign and captures it in a group
- *   \s*             // Matches any whitespace characters zero or more times
- * )?                // Makes the alpha value group optional
- * \)                // Matches the closing parenthesis
- * $/i               // Matches the end of the string and sets the regular expression to case-insensitive mode
- *
- * WARNING this regex doesn't fail on off spec colors. It matches everything that could be a color.
- * So the spec does not allow `hsl(30 , 45%  35, 49%)` but this will work anyways for us.
- */
-const reHSLa = () => /^hsla?\(\s*([+-]?\d{0,3}(?:\.\d+)?(?:deg|turn|rad)?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*[\s|,]\s*(\d{0,3}(?:\.\d+)?%?)\s*(?:\s*[,/]\s*(\d*(?:\.\d+)?%?)\s*)?\)$/i;
-
-/**
- * Regex matching color in HEX format (ex: #FF5544CC, #FF5555, 010155, aff)
- */
-const reHex = () => /^#?(([0-9a-f]){3,4}|([0-9a-f]{2}){3,4})$/i;
-
-/**
- * @param {Number} p
- * @param {Number} q
- * @param {Number} t
- * @return {Number}
- */
-const hue2rgb = (p, q, t) => {
-  if (t < 0) {
-    t += 1;
-  }
-  if (t > 1) {
-    t -= 1;
-  }
-  if (t < 1 / 6) {
-    return p + (q - p) * 6 * t;
-  }
-  if (t < 1 / 2) {
-    return q;
-  }
-  if (t < 2 / 3) {
-    return p + (q - p) * (2 / 3 - t) * 6;
-  }
-  return p;
-};
-
-/**
- * Adapted from {@link https://gist.github.com/mjackson/5311256 https://gist.github.com/mjackson}
- * @param {Number} r Red color value
- * @param {Number} g Green color value
- * @param {Number} b Blue color value
- * @param {Number} a Alpha color value pass through
- * @return {TRGBColorSource} Hsl color
- */
-const rgb2Hsl = (r, g, b, a) => {
-  r /= 255;
-  g /= 255;
-  b /= 255;
-  const maxValue = Math.max(r, g, b),
-    minValue = Math.min(r, g, b);
-  let h, s;
-  const l = (maxValue + minValue) / 2;
-  if (maxValue === minValue) {
-    h = s = 0; // achromatic
-  } else {
-    const d = maxValue - minValue;
-    s = l > 0.5 ? d / (2 - maxValue - minValue) : d / (maxValue + minValue);
-    switch (maxValue) {
-      case r:
-        h = (g - b) / d + (g < b ? 6 : 0);
-        break;
-      case g:
-        h = (b - r) / d + 2;
-        break;
-      case b:
-        h = (r - g) / d + 4;
-        break;
-    }
-    h /= 6;
-  }
-  return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100), a];
-};
-const fromAlphaToFloat = function () {
-  let value = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : '1';
-  return parseFloat(value) / (value.endsWith('%') ? 100 : 1);
-};
-
-/**
- * Convert a value in the inclusive range [0, 255] to hex
- */
-const hexify = value => Math.min(Math.round(value), 255).toString(16).toUpperCase().padStart(2, '0');
-
-/**
- * Calculate the grey average value for rgb and pass through alpha
- */
-const greyAverage = _ref => {
-  let [r, g, b, a = 1] = _ref;
-  const avg = Math.round(r * 0.3 + g * 0.59 + b * 0.11);
-  return [avg, avg, avg, a];
-};
-
-/**
- * @class Color common color operations
- * @see {@link http://fabricjs.com/fabric-intro-part-2/#colors colors}
- */
-class Color {
-  /**
-   *
-   * @param {string} [color] optional in hex or rgb(a) or hsl format or from known color list
-   */
-  constructor(color) {
-    _defineProperty(this, "isUnrecognised", false);
-    if (!color) {
-      // we default to black as canvas does
-      this.setSource([0, 0, 0, 1]);
-    } else if (color instanceof Color) {
-      this.setSource([...color._source]);
-    } else if (Array.isArray(color)) {
-      const [r, g, b, a = 1] = color;
-      this.setSource([r, g, b, a]);
-    } else {
-      this.setSource(this._tryParsingColor(color));
-    }
-  }
-
-  /**
-   * @private
-   * @param {string} [color] Color value to parse
-   * @returns {TRGBAColorSource}
-   */
-  _tryParsingColor(color) {
-    color = color.toLowerCase();
-    if (color in ColorNameMap) {
-      color = ColorNameMap[color];
-    }
-    return color === 'transparent' ? [255, 255, 255, 0] : Color.sourceFromHex(color) || Color.sourceFromRgb(color) || Color.sourceFromHsl(color) ||
-    // color is not recognized
-    // we default to black as canvas does
-    // eslint-disable-next-line no-constant-binary-expression
-    (this.isUnrecognised = true) && [0, 0, 0, 1];
-  }
-
-  /**
-   * Returns source of this color (where source is an array representation; ex: [200, 200, 100, 1])
-   * @return {TRGBAColorSource}
-   */
-  getSource() {
-    return this._source;
-  }
-
-  /**
-   * Sets source of this color (where source is an array representation; ex: [200, 200, 100, 1])
-   * @param {TRGBAColorSource} source
-   */
-  setSource(source) {
-    this._source = source;
-  }
-
-  /**
-   * Returns color representation in RGB format
-   * @return {String} ex: rgb(0-255,0-255,0-255)
-   */
-  toRgb() {
-    const [r, g, b] = this.getSource();
-    return `rgb(${r},${g},${b})`;
-  }
-
-  /**
-   * Returns color representation in RGBA format
-   * @return {String} ex: rgba(0-255,0-255,0-255,0-1)
-   */
-  toRgba() {
-    return `rgba(${this.getSource().join(',')})`;
-  }
-
-  /**
-   * Returns color representation in HSL format
-   * @return {String} ex: hsl(0-360,0%-100%,0%-100%)
-   */
-  toHsl() {
-    const [h, s, l] = rgb2Hsl(...this.getSource());
-    return `hsl(${h},${s}%,${l}%)`;
-  }
-
-  /**
-   * Returns color representation in HSLA format
-   * @return {String} ex: hsla(0-360,0%-100%,0%-100%,0-1)
-   */
-  toHsla() {
-    const [h, s, l, a] = rgb2Hsl(...this.getSource());
-    return `hsla(${h},${s}%,${l}%,${a})`;
-  }
-
-  /**
-   * Returns color representation in HEX format
-   * @return {String} ex: FF5555
-   */
-  toHex() {
-    const fullHex = this.toHexa();
-    return fullHex.slice(0, 6);
-  }
-
-  /**
-   * Returns color representation in HEXA format
-   * @return {String} ex: FF5555CC
-   */
-  toHexa() {
-    const [r, g, b, a] = this.getSource();
-    return `${hexify(r)}${hexify(g)}${hexify(b)}${hexify(Math.round(a * 255))}`;
-  }
-
-  /**
-   * Gets value of alpha channel for this color
-   * @return {Number} 0-1
-   */
-  getAlpha() {
-    return this.getSource()[3];
-  }
-
-  /**
-   * Sets value of alpha channel for this color
-   * @param {Number} alpha Alpha value 0-1
-   * @return {Color} thisArg
-   */
-  setAlpha(alpha) {
-    this._source[3] = alpha;
-    return this;
-  }
-
-  /**
-   * Transforms color to its grayscale representation
-   * @return {Color} thisArg
-   */
-  toGrayscale() {
-    this.setSource(greyAverage(this.getSource()));
-    return this;
-  }
-
-  /**
-   * Transforms color to its black and white representation
-   * @param {Number} threshold
-   * @return {Color} thisArg
-   */
-  toBlackWhite(threshold) {
-    const [average,,, a] = greyAverage(this.getSource()),
-      bOrW = average < (threshold || 127) ? 0 : 255;
-    this.setSource([bOrW, bOrW, bOrW, a]);
-    return this;
-  }
-
-  /**
-   * Overlays color with another color
-   * @param {String|Color} otherColor
-   * @return {Color} thisArg
-   */
-  overlayWith(otherColor) {
-    if (!(otherColor instanceof Color)) {
-      otherColor = new Color(otherColor);
-    }
-    const source = this.getSource(),
-      otherAlpha = 0.5,
-      otherSource = otherColor.getSource(),
-      [R, G, B] = source.map((value, index) => Math.round(value * (1 - otherAlpha) + otherSource[index] * otherAlpha));
-    this.setSource([R, G, B, source[3]]);
-    return this;
-  }
-
-  /**
-   * Returns new color object, when given a color in RGB format
-   * @param {String} color Color value ex: rgb(0-255,0-255,0-255)
-   * @return {Color}
-   */
-  static fromRgb(color) {
-    return Color.fromRgba(color);
-  }
-
-  /**
-   * Returns new color object, when given a color in RGBA format
-   * @param {String} color
-   * @return {Color}
-   */
-  static fromRgba(color) {
-    return new Color(Color.sourceFromRgb(color));
-  }
-
-  /**
-   * Returns array representation (ex: [100, 100, 200, 1]) of a color that's in RGB or RGBA format
-   * @param {String} color Color value ex: rgb(0-255,0-255,0-255), rgb(0%-100%,0%-100%,0%-100%)
-   * @return {TRGBAColorSource | undefined} source
-   */
-  static sourceFromRgb(color) {
-    const match = color.match(reRGBa());
-    if (match) {
-      const [r, g, b] = match.slice(1, 4).map(value => {
-        const parsedValue = parseFloat(value);
-        return value.endsWith('%') ? Math.round(parsedValue * 2.55) : parsedValue;
-      });
-      return [r, g, b, fromAlphaToFloat(match[4])];
-    }
-  }
-
-  /**
-   * Returns new color object, when given a color in HSL format
-   * @param {String} color Color value ex: hsl(0-260,0%-100%,0%-100%)
-   * @return {Color}
-   */
-  static fromHsl(color) {
-    return Color.fromHsla(color);
-  }
-
-  /**
-   * Returns new color object, when given a color in HSLA format
-   * @param {String} color
-   * @return {Color}
-   */
-  static fromHsla(color) {
-    return new Color(Color.sourceFromHsl(color));
-  }
-
-  /**
-   * Returns array representation (ex: [100, 100, 200, 1]) of a color that's in HSL or HSLA format.
-   * Adapted from <a href="https://rawgithub.com/mjijackson/mjijackson.github.com/master/2008/02/rgb-to-hsl-and-rgb-to-hsv-color-model-conversion-algorithms-in-javascript.html">https://github.com/mjijackson</a>
-   * @param {String} color Color value ex: hsl(0-360,0%-100%,0%-100%) or hsla(0-360,0%-100%,0%-100%, 0-1)
-   * @return {TRGBAColorSource | undefined} source
-   * @see http://http://www.w3.org/TR/css3-color/#hsl-color
-   */
-  static sourceFromHsl(color) {
-    const match = color.match(reHSLa());
-    if (!match) {
-      return;
-    }
-    const match1degrees = Color.parseAngletoDegrees(match[1]);
-    const h = (match1degrees % 360 + 360) % 360 / 360,
-      s = parseFloat(match[2]) / 100,
-      l = parseFloat(match[3]) / 100;
-    let r, g, b;
-    if (s === 0) {
-      r = g = b = l;
-    } else {
-      const q = l <= 0.5 ? l * (s + 1) : l + s - l * s,
-        p = l * 2 - q;
-      r = hue2rgb(p, q, h + 1 / 3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1 / 3);
-    }
-    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), fromAlphaToFloat(match[4])];
-  }
-
-  /**
-   * Returns new color object, when given a color in HEX format
-   * @param {String} color Color value ex: FF5555
-   * @return {Color}
-   */
-  static fromHex(color) {
-    return new Color(Color.sourceFromHex(color));
-  }
-
-  /**
-   * Returns array representation (ex: [100, 100, 200, 1]) of a color that's in HEX format
-   * @param {String} color ex: FF5555 or FF5544CC (RGBa)
-   * @return {TRGBAColorSource | undefined} source
-   */
-  static sourceFromHex(color) {
-    if (color.match(reHex())) {
-      const value = color.slice(color.indexOf('#') + 1),
-        isShortNotation = value.length <= 4;
-      let expandedValue;
-      if (isShortNotation) {
-        expandedValue = value.split('').map(hex => hex + hex);
-      } else {
-        expandedValue = value.match(/.{2}/g);
-      }
-      const [r, g, b, a = 255] = expandedValue.map(hexCouple => parseInt(hexCouple, 16));
-      return [r, g, b, a / 255];
-    }
-  }
-
-  /**
-   * Converts a string that could be any angle notation (50deg, 0.5turn, 2rad)
-   * into degrees without the 'deg' suffix
-   * @param {String} value ex: 0deg, 0.5turn, 2rad
-   * @return {Number} number in degrees or NaN if inputs are invalid
-   */
-  static parseAngletoDegrees(value) {
-    const lowercase = value.toLowerCase();
-    const numeric = parseFloat(lowercase);
-    if (lowercase.includes('rad')) {
-      return radiansToDegrees(numeric);
-    }
-    if (lowercase.includes('turn')) {
-      return numeric * 360;
-    }
-
-    // Value is probably just a number already in degrees eg '50'
-    return numeric;
-  }
-}
-
-/**
- * Returns array of attributes for given svg that fabric parses
- * @param {SVGElementName} type Type of svg element (eg. 'circle')
- * @return {Array} string names of supported attributes
- */
-const getSvgAttributes = type => {
-  const commonAttributes = ['instantiated_by_use', 'style', 'id', 'class'];
-  switch (type) {
-    case 'linearGradient':
-      return commonAttributes.concat(['x1', 'y1', 'x2', 'y2', 'gradientUnits', 'gradientTransform']);
-    case 'radialGradient':
-      return commonAttributes.concat(['gradientUnits', 'gradientTransform', 'cx', 'cy', 'r', 'fx', 'fy', 'fr']);
-    case 'stop':
-      return commonAttributes.concat(['offset', 'stop-color', 'stop-opacity']);
-  }
-  return commonAttributes;
-};
-
-/**
- * Converts from attribute value to pixel value if applicable.
- * Returns converted pixels or original value not converted.
- * @param {string} value number to operate on
- * @param {number} fontSize
- * @return {number}
- */
-const parseUnit = function (value) {
-  let fontSize = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : DEFAULT_SVG_FONT_SIZE;
-  const unit = /\D{0,2}$/.exec(value),
-    number = parseFloat(value);
-  const dpi = config.DPI;
-  switch (unit === null || unit === void 0 ? void 0 : unit[0]) {
-    case 'mm':
-      return number * dpi / 25.4;
-    case 'cm':
-      return number * dpi / 2.54;
-    case 'in':
-      return number * dpi;
-    case 'pt':
-      return number * dpi / 72;
-    // or * 4 / 3
-
-    case 'pc':
-      return number * dpi / 72 * 12;
-    // or * 16
-
-    case 'em':
-      return number * fontSize;
-    default:
-      return number;
-  }
-};
-// align can be either none or undefined or a combination of mid/max
-const parseAlign = align => {
-  //divide align in alignX and alignY
-  if (align && align !== NONE) {
-    return [align.slice(1, 4), align.slice(5, 8)];
-  } else if (align === NONE) {
-    return [align, align];
-  }
-  return ['Mid', 'Mid'];
-};
-
-/**
- * Parse preserveAspectRatio attribute from element
- * https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/preserveAspectRatio
- * @param {string} attribute to be parsed
- * @return {Object} an object containing align and meetOrSlice attribute
- */
-const parsePreserveAspectRatioAttribute = attribute => {
-  const [firstPart, secondPart] = attribute.trim().split(' ');
-  const [alignX, alignY] = parseAlign(firstPart);
-  return {
-    meetOrSlice: secondPart || 'meet',
-    alignX,
-    alignY
-  };
-};
-
-/**
- * Adobe Illustrator (at least CS5) is unable to render rgba()-based fill values
- * we work around it by "moving" alpha channel into opacity attribute and setting fill's alpha to 1
- * @param prop
- * @param value
- * @param {boolean} inlineStyle The default is inline style, the separator used is ":", The other is "="
- * @returns
- */
-const colorPropToSVG = function (prop, value) {
-  let inlineStyle = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
-  let colorValue;
-  let opacityValue;
-  if (!value) {
-    colorValue = 'none';
-  } else if (value.toLive) {
-    colorValue = `url(#SVGID_${value.id})`;
-  } else {
-    const color = new Color(value),
-      opacity = color.getAlpha();
-    colorValue = color.toRgb();
-    if (opacity !== 1) {
-      opacityValue = opacity.toString();
-    }
-  }
-  if (inlineStyle) {
-    return `${prop}: ${colorValue}; ${opacityValue ? `${prop}-opacity: ${opacityValue}; ` : ''}`;
-  } else {
-    return `${prop}="${colorValue}" ${opacityValue ? `${prop}-opacity="${opacityValue}" ` : ''}`;
-  }
-};
-const createSVGRect = function (color, _ref) {
-  let {
-    left,
-    top,
-    width,
-    height
-  } = _ref;
-  let precision = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : config.NUM_FRACTION_DIGITS;
-  const svgColor = colorPropToSVG(FILL, color, false);
-  const [x, y, w, h] = [left, top, width, height].map(value => toFixed(value, precision));
-  return `<rect ${svgColor} x="${x}" y="${y}" width="${w}" height="${h}"></rect>`;
-};
-
-class FabricObjectSVGExportMixin {
-  /**
-   * When an object is being exported as SVG as a clippath, a reference inside the SVG is needed.
-   * This reference is a UID in the fabric namespace and is temporary stored here.
-   * @type {String}
-   */
-
-  /**
-   * Returns styles-string for svg-export
-   * @param {Boolean} skipShadow a boolean to skip shadow filter output
-   * @return {String}
-   */
-  getSvgStyles(skipShadow) {
-    const fillRule = this.fillRule ? this.fillRule : 'nonzero',
-      strokeWidth = this.strokeWidth ? this.strokeWidth : '0',
-      strokeDashArray = this.strokeDashArray ? this.strokeDashArray.join(' ') : NONE,
-      strokeDashOffset = this.strokeDashOffset ? this.strokeDashOffset : '0',
-      strokeLineCap = this.strokeLineCap ? this.strokeLineCap : 'butt',
-      strokeLineJoin = this.strokeLineJoin ? this.strokeLineJoin : 'miter',
-      strokeMiterLimit = this.strokeMiterLimit ? this.strokeMiterLimit : '4',
-      opacity = typeof this.opacity !== 'undefined' ? this.opacity : '1',
-      visibility = this.visible ? '' : ' visibility: hidden;',
-      filter = skipShadow ? '' : this.getSvgFilter(),
-      fill = colorPropToSVG(FILL, this.fill),
-      stroke = colorPropToSVG(STROKE, this.stroke);
-    return [stroke, 'stroke-width: ', strokeWidth, '; ', 'stroke-dasharray: ', strokeDashArray, '; ', 'stroke-linecap: ', strokeLineCap, '; ', 'stroke-dashoffset: ', strokeDashOffset, '; ', 'stroke-linejoin: ', strokeLineJoin, '; ', 'stroke-miterlimit: ', strokeMiterLimit, '; ', fill, 'fill-rule: ', fillRule, '; ', 'opacity: ', opacity, ';', filter, visibility].join('');
-  }
-
-  /**
-   * Returns filter for svg shadow
-   * @return {String}
-   */
-  getSvgFilter() {
-    return this.shadow ? `filter: url(#SVGID_${this.shadow.id});` : '';
-  }
-
-  /**
-   * Returns id attribute for svg output
-   * @return {String}
-   */
-  getSvgCommons() {
-    return [this.id ? `id="${this.id}" ` : '', this.clipPath ? `clip-path="url(#${this.clipPath.clipPathId})" ` : ''].join('');
-  }
-
-  /**
-   * Returns transform-string for svg-export
-   * @param {Boolean} use the full transform or the single object one.
-   * @return {String}
-   */
-  getSvgTransform(full) {
-    let additionalTransform = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : '';
-    const transform = full ? this.calcTransformMatrix() : this.calcOwnMatrix(),
-      svgTransform = `transform="${matrixToSVG(transform)}`;
-    return `${svgTransform}${additionalTransform}" `;
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * This function is implemented in each subclass
-   * This is just because typescript otherwise cryies all the time
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
-  _toSVG(_reviver) {
-    return [''];
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * @param {TSVGReviver} [reviver] Method for further parsing of svg representation.
-   * @return {String} svg representation of an instance
-   */
-  toSVG(reviver) {
-    return this._createBaseSVGMarkup(this._toSVG(reviver), {
-      reviver
-    });
-  }
-
-  /**
-   * Returns svg clipPath representation of an instance
-   * @param {TSVGReviver} [reviver] Method for further parsing of svg representation.
-   * @return {String} svg representation of an instance
-   */
-  toClipPathSVG(reviver) {
-    return '\t' + this._createBaseClipPathSVGMarkup(this._toSVG(reviver), {
-      reviver
-    });
-  }
-
-  /**
-   * @private
-   */
-  _createBaseClipPathSVGMarkup(objectMarkup) {
-    let {
-      reviver,
-      additionalTransform = ''
-    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const commonPieces = [this.getSvgTransform(true, additionalTransform), this.getSvgCommons()].join(''),
-      // insert commons in the markup, style and svgCommons
-      index = objectMarkup.indexOf('COMMON_PARTS');
-    objectMarkup[index] = commonPieces;
-    return reviver ? reviver(objectMarkup.join('')) : objectMarkup.join('');
-  }
-
-  /**
-   * @private
-   */
-  _createBaseSVGMarkup(objectMarkup) {
-    let {
-      noStyle,
-      reviver,
-      withShadow,
-      additionalTransform
-    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const styleInfo = noStyle ? '' : `style="${this.getSvgStyles()}" `,
-      shadowInfo = withShadow ? `style="${this.getSvgFilter()}" ` : '',
-      clipPath = this.clipPath,
-      vectorEffect = this.strokeUniform ? 'vector-effect="non-scaling-stroke" ' : '',
-      absoluteClipPath = clipPath && clipPath.absolutePositioned,
-      stroke = this.stroke,
-      fill = this.fill,
-      shadow = this.shadow,
-      markup = [],
-      // insert commons in the markup, style and svgCommons
-      index = objectMarkup.indexOf('COMMON_PARTS');
-    let clipPathMarkup;
-    if (clipPath) {
-      clipPath.clipPathId = `CLIPPATH_${uid()}`;
-      clipPathMarkup = `<clipPath id="${clipPath.clipPathId}" >\n${clipPath.toClipPathSVG(reviver)}</clipPath>\n`;
-    }
-    if (absoluteClipPath) {
-      markup.push('<g ', shadowInfo, this.getSvgCommons(), ' >\n');
-    }
-    markup.push('<g ', this.getSvgTransform(false), !absoluteClipPath ? shadowInfo + this.getSvgCommons() : '', ' >\n');
-    const commonPieces = [styleInfo, vectorEffect, noStyle ? '' : this.addPaintOrder(), ' ', additionalTransform ? `transform="${additionalTransform}" ` : ''].join('');
-    objectMarkup[index] = commonPieces;
-    if (isFiller(fill)) {
-      markup.push(fill.toSVG(this));
-    }
-    if (isFiller(stroke)) {
-      markup.push(stroke.toSVG(this));
-    }
-    if (shadow) {
-      markup.push(shadow.toSVG(this));
-    }
-    if (clipPath) {
-      markup.push(clipPathMarkup);
-    }
-    markup.push(objectMarkup.join(''));
-    markup.push('</g>\n');
-    absoluteClipPath && markup.push('</g>\n');
-    return reviver ? reviver(markup.join('')) : markup.join('');
-  }
-  addPaintOrder() {
-    return this.paintFirst !== FILL ? ` paint-order="${this.paintFirst}" ` : '';
-  }
-}
-
-function getSvgRegex(arr) {
-  return new RegExp('^(' + arr.join('|') + ')\\b', 'i');
-}
-
-const TEXT_DECORATION_THICKNESS = 'textDecorationThickness';
-const fontProperties = ['fontSize', 'fontWeight', 'fontFamily', 'fontStyle'];
-const textDecorationProperties = ['underline', 'overline', 'linethrough'];
-const textLayoutProperties = [...fontProperties, 'lineHeight', 'text', 'charSpacing', 'textAlign', 'styles', 'path', 'pathStartOffset', 'pathSide', 'pathAlign', 'wrap', 'ellipsis', 'letterSpacing', 'enableAdvancedLayout', 'verticalAlign', 'kashida', 'direction' // RTL/LTR affects layout and selection
-];
-const additionalProps = [...textLayoutProperties, ...textDecorationProperties, 'textBackgroundColor', 'direction', TEXT_DECORATION_THICKNESS, 'useOverlayEditing'];
-const styleProperties = [...fontProperties, ...textDecorationProperties, STROKE, 'strokeWidth', FILL, 'deltaY', 'textBackgroundColor', TEXT_DECORATION_THICKNESS];
-
-// @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
-// regexes, list of properties that are not suppose to change by instances, magic consts.
-// this will be a separated effort
-const textDefaultValues = {
-  _reNewline: reNewline,
-  _reSpacesAndTabs: /[ \t\r]/g,
-  _reSpaceAndTab: /[ \t\r]/,
-  _reWords: /\S+/g,
-  fontSize: 40,
-  fontWeight: 'normal',
-  fontFamily: 'Times New Roman',
-  underline: false,
-  overline: false,
-  linethrough: false,
-  textAlign: LEFT,
-  fontStyle: 'normal',
-  lineHeight: 1.16,
-  textBackgroundColor: '',
-  stroke: null,
-  shadow: null,
-  path: undefined,
-  pathStartOffset: 0,
-  pathSide: LEFT,
-  pathAlign: 'baseline',
-  charSpacing: 0,
-  deltaY: 0,
-  direction: 'ltr',
-  // New Konva-compatible properties
-  wrap: 'word',
-  ellipsis: false,
-  letterSpacing: 0,
-  enableAdvancedLayout: false,
-  verticalAlign: 'top',
-  kashida: 'none',
-  // Overlay editor properties
-  useOverlayEditing: false,
-  CACHE_FONT_SIZE: 400,
-  MIN_TEXT_WIDTH: 2,
-  // Text magic numbers
-  superscript: {
-    size: 0.6,
-    // fontSize factor
-    baseline: -0.35 // baseline-shift factor (upwards)
-  },
-  subscript: {
-    size: 0.6,
-    // fontSize factor
-    baseline: 0.11 // baseline-shift factor (downwards)
-  },
-  _fontSizeFraction: 0.222,
-  offsets: {
-    underline: 0.1,
-    linethrough: -0.28167,
-    // added 1/30 to original number
-    overline: -0.81333 // added 1/15 to original number
-  },
-  _fontSizeMult: 1.13,
-  [TEXT_DECORATION_THICKNESS]: 66.667 // before implementation was 1/15
-};
-const JUSTIFY = 'justify';
-const JUSTIFY_LEFT = 'justify-left';
-const JUSTIFY_RIGHT = 'justify-right';
-const JUSTIFY_CENTER = 'justify-center';
-
-// matches, e.g.: +14.56e-12, etc.
-const reNum = String.raw`[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?`;
-const viewportSeparator = String.raw`(?:\s*,?\s+|\s*,\s*)`;
-const svgNS = 'http://www.w3.org/2000/svg';
-const reFontDeclaration = new RegExp('(normal|italic)?\\s*(normal|small-caps)?\\s*' + '(normal|bold|bolder|lighter|100|200|300|400|500|600|700|800|900)?\\s*(' + reNum + '(?:px|cm|mm|em|pt|pc|in)*)(?:\\/(normal|' + reNum + '))?\\s+(.*)');
-const svgValidTagNames = ['path', 'circle', 'polygon', 'polyline', 'ellipse', 'rect', 'line', 'image', 'text'],
-  svgViewBoxElements = ['symbol', 'image', 'marker', 'pattern', 'view', 'svg'],
-  svgInvalidAncestors = ['pattern', 'defs', 'symbol', 'metadata', 'clipPath', 'mask', 'desc'],
-  svgValidParents = ['symbol', 'g', 'a', 'svg', 'clipPath', 'defs'],
-  attributesMap = {
-    cx: LEFT,
-    x: LEFT,
-    r: 'radius',
-    cy: TOP,
-    y: TOP,
-    display: 'visible',
-    visibility: 'visible',
-    transform: 'transformMatrix',
-    'fill-opacity': 'fillOpacity',
-    'fill-rule': 'fillRule',
-    'font-family': 'fontFamily',
-    'font-size': 'fontSize',
-    'font-style': 'fontStyle',
-    'font-weight': 'fontWeight',
-    'letter-spacing': 'charSpacing',
-    'paint-order': 'paintFirst',
-    'stroke-dasharray': 'strokeDashArray',
-    'stroke-dashoffset': 'strokeDashOffset',
-    'stroke-linecap': 'strokeLineCap',
-    'stroke-linejoin': 'strokeLineJoin',
-    'stroke-miterlimit': 'strokeMiterLimit',
-    'stroke-opacity': 'strokeOpacity',
-    'stroke-width': 'strokeWidth',
-    'text-decoration': 'textDecoration',
-    'text-anchor': 'textAnchor',
-    opacity: 'opacity',
-    'clip-path': 'clipPath',
-    'clip-rule': 'clipRule',
-    'vector-effect': 'strokeUniform',
-    'image-rendering': 'imageSmoothing',
-    'text-decoration-thickness': TEXT_DECORATION_THICKNESS
-  },
-  fSize = 'font-size',
-  cPath = 'clip-path';
-const svgValidTagNamesRegEx = getSvgRegex(svgValidTagNames);
-const svgViewBoxElementsRegEx = getSvgRegex(svgViewBoxElements);
-const svgValidParentsRegEx = getSvgRegex(svgValidParents);
-
-// http://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
-
-const reViewBoxAttrValue = new RegExp(String.raw`^\s*(${reNum})${viewportSeparator}(${reNum})${viewportSeparator}(${reNum})${viewportSeparator}(${reNum})\s*$`);
-
-/**
-   * Regex matching shadow offsetX, offsetY and blur (ex: "2px 2px 10px rgba(0,0,0,0.2)", "rgb(0,255,0) 2px 2px")
-   * - (?:\s|^): This part captures either a whitespace character (\s) or the beginning of a line (^). It's non-capturing (due to (?:...)), meaning it doesn't create a capturing group.
-   * - (-?\d+(?:\.\d*)?(?:px)?(?:\s?|$))?: This captures the first component of the shadow, which is the horizontal offset. Breaking it down:
-   *   - (-?\d+): Captures an optional minus sign followed by one or more digits (integer part of the number).
-   *   - (?:\.\d*)?: Optionally captures a decimal point followed by zero or more digits (decimal part of the number).
-   *   - (?:px)?: Optionally captures the "px" unit.
-   *   - (?:\s?|$): Captures either an optional whitespace or the end of the line. This whole part is wrapped in a non-capturing group and marked as optional with ?.
-   * - (-?\d+(?:\.\d*)?(?:px)?(?:\s?|$))?: Similar to the previous step, this captures the vertical offset.
-
-(\d+(?:\.\d*)?(?:px)?)?: This captures the blur radius. It's similar to the horizontal offset but without the optional minus sign.
-
-(?:\s+(-?\d+(?:\.\d*)?(?:px)?(?:\s?|$))?){0,1}: This captures an optional part for the color. It allows for whitespace followed by a component with an optional minus sign, digits, decimal point, and "px" unit.
-
-(?:$|\s): This captures either the end of the line or a whitespace character. It ensures that the match ends either at the end of the string or with a whitespace character.
-   */
-// eslint-disable-next-line max-len
-
-const shadowOffsetRegex = '(-?\\d+(?:\\.\\d*)?(?:px)?(?:\\s?|$))?';
-const reOffsetsAndBlur = new RegExp('(?:\\s|^)' + shadowOffsetRegex + shadowOffsetRegex + '(' + reNum + '?(?:px)?)?(?:\\s?|$)(?:$|\\s)');
-const shadowDefaultValues = {
-  color: 'rgb(0,0,0)',
-  blur: 0,
-  offsetX: 0,
-  offsetY: 0,
-  affectStroke: false,
-  includeDefaultValues: true,
-  nonScaling: false
-};
-class Shadow {
-  /**
-   * @see {@link http://fabricjs.com/shadows|Shadow demo}
-   * @param {Object|String} [options] Options object with any of color, blur, offsetX, offsetY properties or string (e.g. "rgba(0,0,0,0.2) 2px 2px 10px")
-   */
-
-  constructor() {
-    let arg0 = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-    const options = typeof arg0 === 'string' ? Shadow.parseShadow(arg0) : arg0;
-    Object.assign(this, Shadow.ownDefaults, options);
-    this.id = uid();
-  }
-
-  /**
-   * @param {String} value Shadow value to parse
-   * @return {Object} Shadow object with color, offsetX, offsetY and blur
-   */
-  static parseShadow(value) {
-    const shadowStr = value.trim(),
-      [, offsetX = 0, offsetY = 0, blur = 0] = (reOffsetsAndBlur.exec(shadowStr) || []).map(value => parseFloat(value) || 0),
-      color = (shadowStr.replace(reOffsetsAndBlur, '') || 'rgb(0,0,0)').trim();
-    return {
-      color,
-      offsetX,
-      offsetY,
-      blur
-    };
-  }
-
-  /**
-   * Returns a string representation of an instance
-   * @see http://www.w3.org/TR/css-text-decor-3/#text-shadow
-   * @return {String} Returns CSS3 text-shadow declaration
-   */
-  toString() {
-    return [this.offsetX, this.offsetY, this.blur, this.color].join('px ');
-  }
-
-  /**
-   * Returns SVG representation of a shadow
-   * @param {FabricObject} object
-   * @return {String} SVG representation of a shadow
-   */
-  toSVG(object) {
-    const offset = rotateVector(new Point(this.offsetX, this.offsetY), degreesToRadians(-object.angle)),
-      BLUR_BOX = 20,
-      color = new Color(this.color);
-    let fBoxX = 40,
-      fBoxY = 40;
-    if (object.width && object.height) {
-      //http://www.w3.org/TR/SVG/filters.html#FilterEffectsRegion
-      // we add some extra space to filter box to contain the blur ( 20 )
-      fBoxX = toFixed((Math.abs(offset.x) + this.blur) / object.width, config.NUM_FRACTION_DIGITS) * 100 + BLUR_BOX;
-      fBoxY = toFixed((Math.abs(offset.y) + this.blur) / object.height, config.NUM_FRACTION_DIGITS) * 100 + BLUR_BOX;
-    }
-    if (object.flipX) {
-      offset.x *= -1;
-    }
-    if (object.flipY) {
-      offset.y *= -1;
-    }
-    return `<filter id="SVGID_${this.id}" y="-${fBoxY}%" height="${100 + 2 * fBoxY}%" x="-${fBoxX}%" width="${100 + 2 * fBoxX}%" >\n\t<feGaussianBlur in="SourceAlpha" stdDeviation="${toFixed(this.blur ? this.blur / 2 : 0, config.NUM_FRACTION_DIGITS)}"></feGaussianBlur>\n\t<feOffset dx="${toFixed(offset.x, config.NUM_FRACTION_DIGITS)}" dy="${toFixed(offset.y, config.NUM_FRACTION_DIGITS)}" result="oBlur" ></feOffset>\n\t<feFlood flood-color="${color.toRgb()}" flood-opacity="${color.getAlpha()}"/>\n\t<feComposite in2="oBlur" operator="in" />\n\t<feMerge>\n\t\t<feMergeNode></feMergeNode>\n\t\t<feMergeNode in="SourceGraphic"></feMergeNode>\n\t</feMerge>\n</filter>\n`;
-  }
-
-  /**
-   * Returns object representation of a shadow
-   * @return {Object} Object representation of a shadow instance
-   */
-  toObject() {
-    const data = {
-      color: this.color,
-      blur: this.blur,
-      offsetX: this.offsetX,
-      offsetY: this.offsetY,
-      affectStroke: this.affectStroke,
-      nonScaling: this.nonScaling,
-      type: this.constructor.type
-    };
-    const defaults = Shadow.ownDefaults;
-    return !this.includeDefaultValues ? pickBy(data, (value, key) => value !== defaults[key]) : data;
-  }
-  static async fromObject(options) {
-    return new this(options);
-  }
-}
-/**
- * Shadow color
- * @type String
- */
-/**
- * Shadow blur
- * @type Number
- */
-/**
- * Shadow horizontal offset
- * @type Number
- */
-/**
- * Shadow vertical offset
- * @type Number
- */
-/**
- * Whether the shadow should affect stroke operations
- * @type Boolean
- */
-/**
- * Indicates whether toObject should include default values
- * @type Boolean
- */
-/**
- * When `false`, the shadow will scale with the object.
- * When `true`, the shadow's offsetX, offsetY, and blur will not be affected by the object's scale.
- * default to false
- * @type Boolean
- */
-_defineProperty(Shadow, "ownDefaults", shadowDefaultValues);
-_defineProperty(Shadow, "type", 'shadow');
-classRegistry.setClass(Shadow, 'shadow');
-
-const capValue = (min, value, max) => Math.max(min, Math.min(value, max));
 
 const stateProperties = [TOP, LEFT, SCALE_X, SCALE_Y, 'flipX', 'flipY', 'originX', 'originY', 'angle', 'opacity', 'globalCompositeOperation', 'shadow', 'visible', SKEW_X, SKEW_Y];
 const cacheProperties = [FILL, STROKE, 'strokeWidth', 'strokeDashArray', 'width', 'height', 'paintFirst', 'strokeUniform', 'strokeLineCap', 'strokeDashOffset', 'strokeLineJoin', 'strokeMiterLimit', 'backgroundColor', 'clipPath'];
@@ -16550,3190 +16550,343 @@ let Canvas$1 = class Canvas extends SelectableCanvas {
   }
 };
 
-const linearDefaultCoords = {
-  x1: 0,
-  y1: 0,
-  x2: 0,
-  y2: 0
-};
-const radialDefaultCoords = {
-  ...linearDefaultCoords,
-  r1: 0,
-  r2: 0
-};
-
 /**
- *
- * @param value value to check if NaN
- * @param [valueIfNaN]
- * @returns `fallback` is `value is NaN
+ * #### Dragging IText/Textbox Lifecycle
+ * - {@link start} is called from `mousedown` {@link IText#_mouseDownHandler} and determines if dragging should start by testing {@link isPointerOverSelection}
+ * - if true `mousedown` {@link IText#_mouseDownHandler} is blocked to keep selection
+ * - if the pointer moves, canvas fires numerous mousemove {@link Canvas#_onMouseMove} that we make sure **aren't** prevented ({@link IText#shouldStartDragging}) in order for the window to start a drag session
+ * - once/if the session starts canvas calls {@link onDragStart} on the active object to determine if dragging should occur
+ * - canvas fires relevant drag events that are handled by the handlers defined in this scope
+ * - {@link end} is called from `mouseup` {@link IText#mouseUpHandler}, blocking IText default click behavior
+ * - in case the drag session didn't occur, {@link end} handles a click, since logic to do so was blocked during `mousedown`
  */
-const ifNaN = (value, valueIfNaN) => {
-  return isNaN(value) && typeof valueIfNaN === 'number' ? valueIfNaN : value;
-};
-
-const RE_PERCENT = /^(\d+\.\d+)%|(\d+)%$/;
-function isPercent(value) {
-  return value && RE_PERCENT.test(value);
-}
-
-/**
- *
- * @param value
- * @param valueIfNaN
- * @returns ∈ [0, 1]
- */
-function parsePercent(value, valueIfNaN) {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) / (isPercent(value) ? 100 : 1) : NaN;
-  return capValue(0, ifNaN(parsed, valueIfNaN), 1);
-}
-
-const RE_KEY_VALUE_PAIRS = /\s*;\s*/;
-const RE_KEY_VALUE = /\s*:\s*/;
-function parseColorStop(el, opacityMultiplier) {
-  let colorValue, opacityValue;
-  const style = el.getAttribute('style');
-  if (style) {
-    const keyValuePairs = style.split(RE_KEY_VALUE_PAIRS);
-    if (keyValuePairs[keyValuePairs.length - 1] === '') {
-      keyValuePairs.pop();
-    }
-    for (let i = keyValuePairs.length; i--;) {
-      const [key, value] = keyValuePairs[i].split(RE_KEY_VALUE).map(s => s.trim());
-      if (key === 'stop-color') {
-        colorValue = value;
-      } else if (key === 'stop-opacity') {
-        opacityValue = value;
-      }
-    }
+class DraggableTextDelegate {
+  constructor(target) {
+    _defineProperty(this, "target", void 0);
+    _defineProperty(this, "__mouseDownInPlace", false);
+    _defineProperty(this, "__dragStartFired", false);
+    _defineProperty(this, "__isDraggingOver", false);
+    _defineProperty(this, "__dragStartSelection", void 0);
+    _defineProperty(this, "__dragImageDisposer", void 0);
+    _defineProperty(this, "_dispose", void 0);
+    this.target = target;
+    const disposers = [this.target.on('dragenter', this.dragEnterHandler.bind(this)), this.target.on('dragover', this.dragOverHandler.bind(this)), this.target.on('dragleave', this.dragLeaveHandler.bind(this)), this.target.on('dragend', this.dragEndHandler.bind(this)), this.target.on('drop', this.dropHandler.bind(this))];
+    this._dispose = () => {
+      disposers.forEach(d => d());
+      this._dispose = undefined;
+    };
   }
-  colorValue = colorValue || el.getAttribute('stop-color') || 'rgb(0,0,0)';
-  opacityValue = ifNaN(parseFloat(opacityValue || el.getAttribute('stop-opacity') || ''), 1);
-  const color = new Color(colorValue);
-  color.setAlpha(color.getAlpha() * opacityValue * opacityMultiplier);
-  return {
-    offset: parsePercent(el.getAttribute('offset'), 0),
-    color: color.toRgba()
-  };
-}
-function parseColorStops(el, opacityAttr) {
-  const colorStops = [],
-    colorStopEls = el.getElementsByTagName('stop'),
-    multiplier = parsePercent(opacityAttr, 1);
-  for (let i = colorStopEls.length; i--;) {
-    colorStops.push(parseColorStop(colorStopEls[i], multiplier));
-  }
-  return colorStops;
-}
-
-function parseType(el) {
-  return el.nodeName === 'linearGradient' || el.nodeName === 'LINEARGRADIENT' ? 'linear' : 'radial';
-}
-function parseGradientUnits(el) {
-  return el.getAttribute('gradientUnits') === 'userSpaceOnUse' ? 'pixels' : 'percentage';
-}
-
-function convertPercentUnitsToValues(valuesToConvert, _ref) {
-  let {
-    width,
-    height,
-    gradientUnits
-  } = _ref;
-  let finalValue;
-  return Object.keys(valuesToConvert).reduce((acc, prop) => {
-    const propValue = valuesToConvert[prop];
-    if (propValue === 'Infinity') {
-      finalValue = 1;
-    } else if (propValue === '-Infinity') {
-      finalValue = 0;
-    } else {
-      finalValue = typeof propValue === 'string' ? parseFloat(propValue) : propValue;
-      if (typeof propValue === 'string' && isPercent(propValue)) {
-        finalValue *= 0.01;
-        if (gradientUnits === 'pixels') {
-          // then we need to fix those percentages here in svg parsing
-          if (prop === 'x1' || prop === 'x2' || prop === 'r2') {
-            finalValue *= width;
-          }
-          if (prop === 'y1' || prop === 'y2') {
-            finalValue *= height;
-          }
-        }
-      }
-    }
-    acc[prop] = finalValue;
-    return acc;
-  }, {});
-}
-function getValue(el, key) {
-  return el.getAttribute(key);
-}
-function parseLinearCoords(el) {
-  return {
-    x1: getValue(el, 'x1') || 0,
-    y1: getValue(el, 'y1') || 0,
-    x2: getValue(el, 'x2') || '100%',
-    y2: getValue(el, 'y2') || 0
-  };
-}
-function parseRadialCoords(el) {
-  return {
-    x1: getValue(el, 'fx') || getValue(el, 'cx') || '50%',
-    y1: getValue(el, 'fy') || getValue(el, 'cy') || '50%',
-    r1: 0,
-    x2: getValue(el, 'cx') || '50%',
-    y2: getValue(el, 'cy') || '50%',
-    r2: getValue(el, 'r') || '50%'
-  };
-}
-function parseCoords(el, size) {
-  return convertPercentUnitsToValues(parseType(el) === 'linear' ? parseLinearCoords(el) : parseRadialCoords(el), {
-    ...size,
-    gradientUnits: parseGradientUnits(el)
-  });
-}
-
-/**
- * Gradient class
- * @class Gradient
- * @see {@link http://fabricjs.com/fabric-intro-part-2#gradients}
- */
-class Gradient {
-  constructor(options) {
-    const {
-      type = 'linear',
-      gradientUnits = 'pixels',
-      coords = {},
-      colorStops = [],
-      offsetX = 0,
-      offsetY = 0,
-      gradientTransform,
-      id
-    } = options || {};
-    Object.assign(this, {
-      type,
-      gradientUnits,
-      coords: {
-        ...(type === 'radial' ? radialDefaultCoords : linearDefaultCoords),
-        ...coords
-      },
-      colorStops,
-      offsetX,
-      offsetY,
-      gradientTransform,
-      id: id ? `${id}_${uid()}` : uid()
-    });
+  isPointerOverSelection(e) {
+    const target = this.target;
+    const newSelection = target.getSelectionStartFromPointer(e);
+    return target.isEditing && newSelection >= target.selectionStart && newSelection <= target.selectionEnd && target.selectionStart < target.selectionEnd;
   }
 
   /**
-   * Adds another colorStop
-   * @param {Record<string, string>} colorStop Object with offset and color
-   * @return {Gradient} thisArg
+   * @public override this method to disable dragging and default to mousedown logic
    */
-  addColorStop(colorStops) {
-    for (const position in colorStops) {
-      this.colorStops.push({
-        offset: parseFloat(position),
-        color: colorStops[position]
+  start(e) {
+    return this.__mouseDownInPlace = this.isPointerOverSelection(e);
+  }
+
+  /**
+   * @public override this method to disable dragging without discarding selection
+   */
+  isActive() {
+    return this.__mouseDownInPlace;
+  }
+
+  /**
+   * Ends interaction and sets cursor in case of a click
+   * @returns true if was active
+   */
+  end(e) {
+    const active = this.isActive();
+    if (active && !this.__dragStartFired) {
+      // mousedown has been blocked since `active` is true => cursor has not been set.
+      // `__dragStartFired` is false => dragging didn't occur, pointer didn't move and is over selection.
+      // meaning this is actually a click, `active` is a false positive.
+      this.target.setCursorByClick(e);
+      this.target.initDelayedCursor(true);
+    }
+    this.__mouseDownInPlace = false;
+    this.__dragStartFired = false;
+    this.__isDraggingOver = false;
+    return active;
+  }
+  getDragStartSelection() {
+    return this.__dragStartSelection;
+  }
+
+  /**
+   * Override to customize the drag image
+   * https://developer.mozilla.org/en-US/docs/Web/API/DataTransfer/setDragImage
+   */
+  setDragImage(e, _ref) {
+    var _e$dataTransfer;
+    let {
+      selectionStart,
+      selectionEnd
+    } = _ref;
+    const target = this.target;
+    const canvas = target.canvas;
+    const flipFactor = new Point(target.flipX ? -1 : 1, target.flipY ? -1 : 1);
+    const boundaries = target._getCursorBoundaries(selectionStart);
+    const selectionPosition = new Point(boundaries.left + boundaries.leftOffset, boundaries.top + boundaries.topOffset).multiply(flipFactor);
+    const pos = selectionPosition.transform(target.calcTransformMatrix());
+    const pointer = canvas.getScenePoint(e);
+    const diff = pointer.subtract(pos);
+    const retinaScaling = target.getCanvasRetinaScaling();
+    const bbox = target.getBoundingRect();
+    const correction = pos.subtract(new Point(bbox.left, bbox.top));
+    const vpt = canvas.viewportTransform;
+    const offset = correction.add(diff).transform(vpt, true);
+    //  prepare instance for drag image snapshot by making all non selected text invisible
+    const bgc = target.backgroundColor;
+    const styles = cloneStyles(target.styles);
+    target.backgroundColor = '';
+    const styleOverride = {
+      stroke: 'transparent',
+      fill: 'transparent',
+      textBackgroundColor: 'transparent'
+    };
+    target.setSelectionStyles(styleOverride, 0, selectionStart);
+    target.setSelectionStyles(styleOverride, selectionEnd, target.text.length);
+    target.dirty = true;
+    const dragImage = target.toCanvasElement({
+      enableRetinaScaling: canvas.enableRetinaScaling,
+      viewportTransform: true
+    });
+    // restore values
+    target.backgroundColor = bgc;
+    target.styles = styles;
+    target.dirty = true;
+    //  position drag image offscreen
+    setStyle(dragImage, {
+      position: 'fixed',
+      left: `${-dragImage.width}px`,
+      border: NONE,
+      width: `${dragImage.width / retinaScaling}px`,
+      height: `${dragImage.height / retinaScaling}px`
+    });
+    this.__dragImageDisposer && this.__dragImageDisposer();
+    this.__dragImageDisposer = () => {
+      dragImage.remove();
+    };
+    getDocumentFromElement(e.target || this.target.hiddenTextarea).body.appendChild(dragImage);
+    (_e$dataTransfer = e.dataTransfer) === null || _e$dataTransfer === void 0 || _e$dataTransfer.setDragImage(dragImage, offset.x, offset.y);
+  }
+
+  /**
+   * @returns {boolean} determines whether {@link target} should/shouldn't become a drag source
+   */
+  onDragStart(e) {
+    this.__dragStartFired = true;
+    const target = this.target;
+    const active = this.isActive();
+    if (active && e.dataTransfer) {
+      const selection = this.__dragStartSelection = {
+        selectionStart: target.selectionStart,
+        selectionEnd: target.selectionEnd
+      };
+      const value = target._text.slice(selection.selectionStart, selection.selectionEnd).join('');
+      const data = {
+        text: target.text,
+        value,
+        ...selection
+      };
+      e.dataTransfer.setData('text/plain', value);
+      e.dataTransfer.setData('application/fabric', JSON.stringify({
+        value: value,
+        styles: target.getSelectionStyles(selection.selectionStart, selection.selectionEnd, true)
+      }));
+      e.dataTransfer.effectAllowed = 'copyMove';
+      this.setDragImage(e, data);
+    }
+    target.abortCursorAnimation();
+    return active;
+  }
+
+  /**
+   * use {@link targetCanDrop} to respect overriding
+   * @returns {boolean} determines whether {@link target} should/shouldn't become a drop target
+   */
+  canDrop(e) {
+    if (this.target.editable && !this.target.getActiveControl() && !e.defaultPrevented) {
+      if (this.isActive() && this.__dragStartSelection) {
+        //  drag source trying to drop over itself
+        //  allow dropping only outside of drag start selection
+        const index = this.target.getSelectionStartFromPointer(e);
+        const dragStartSelection = this.__dragStartSelection;
+        return index < dragStartSelection.selectionStart || index > dragStartSelection.selectionEnd;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * in order to respect overriding {@link IText#canDrop} we call that instead of calling {@link canDrop} directly
+   */
+  targetCanDrop(e) {
+    return this.target.canDrop(e);
+  }
+  dragEnterHandler(_ref2) {
+    let {
+      e
+    } = _ref2;
+    const canDrop = this.targetCanDrop(e);
+    if (!this.__isDraggingOver && canDrop) {
+      this.__isDraggingOver = true;
+    }
+  }
+  dragOverHandler(ev) {
+    const {
+      e
+    } = ev;
+    const canDrop = this.targetCanDrop(e);
+    if (!this.__isDraggingOver && canDrop) {
+      this.__isDraggingOver = true;
+    } else if (this.__isDraggingOver && !canDrop) {
+      //  drop state has changed
+      this.__isDraggingOver = false;
+    }
+    if (this.__isDraggingOver) {
+      //  can be dropped, inform browser
+      e.preventDefault();
+      //  inform event subscribers
+      ev.canDrop = true;
+      ev.dropTarget = this.target;
+    }
+  }
+  dragLeaveHandler() {
+    if (this.__isDraggingOver || this.isActive()) {
+      this.__isDraggingOver = false;
+    }
+  }
+
+  /**
+   * Override the `text/plain | application/fabric` types of {@link DragEvent#dataTransfer}
+   * in order to change the drop value or to customize styling respectively, by listening to the `drop:before` event
+   * https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/Drag_operations#performing_a_drop
+   */
+  dropHandler(ev) {
+    var _e$dataTransfer2;
+    const {
+      e
+    } = ev;
+    const didDrop = e.defaultPrevented;
+    this.__isDraggingOver = false;
+    // inform browser that the drop has been accepted
+    e.preventDefault();
+    let insert = (_e$dataTransfer2 = e.dataTransfer) === null || _e$dataTransfer2 === void 0 ? void 0 : _e$dataTransfer2.getData('text/plain');
+    if (insert && !didDrop) {
+      const target = this.target;
+      const canvas = target.canvas;
+      let insertAt = target.getSelectionStartFromPointer(e);
+      const {
+        styles
+      } = e.dataTransfer.types.includes('application/fabric') ? JSON.parse(e.dataTransfer.getData('application/fabric')) : {};
+      const trailing = insert[Math.max(0, insert.length - 1)];
+      const selectionStartOffset = 0;
+      //  drag and drop in same instance
+      if (this.__dragStartSelection) {
+        const selectionStart = this.__dragStartSelection.selectionStart;
+        const selectionEnd = this.__dragStartSelection.selectionEnd;
+        if (insertAt > selectionStart && insertAt <= selectionEnd) {
+          insertAt = selectionStart;
+        } else if (insertAt > selectionEnd) {
+          insertAt -= selectionEnd - selectionStart;
+        }
+        target.removeChars(selectionStart, selectionEnd);
+        // prevent `dragend` from handling event
+        delete this.__dragStartSelection;
+      }
+      //  remove redundant line break
+      if (target._reNewline.test(trailing) && (target._reNewline.test(target._text[insertAt]) || insertAt === target._text.length)) {
+        insert = insert.trimEnd();
+      }
+      //  inform subscribers
+      ev.didDrop = true;
+      ev.dropTarget = target;
+      //  finalize
+      target.insertChars(insert, styles, insertAt);
+      // can this part be moved in an outside event? andrea to check.
+      canvas.setActiveObject(target);
+      target.enterEditing(e);
+      target.selectionStart = Math.min(insertAt + selectionStartOffset, target._text.length);
+      target.selectionEnd = Math.min(target.selectionStart + insert.length, target._text.length);
+      target.hiddenTextarea.value = target.text;
+      target._updateTextarea();
+      target.hiddenTextarea.focus();
+      target.fire(CHANGED, {
+        index: insertAt + selectionStartOffset,
+        action: 'drop'
       });
-    }
-    return this;
-  }
-
-  /**
-   * Returns object representation of a gradient
-   * @param {string[]} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {object}
-   */
-  toObject(propertiesToInclude) {
-    return {
-      ...pick(this, propertiesToInclude),
-      type: this.type,
-      coords: {
-        ...this.coords
-      },
-      colorStops: this.colorStops.map(colorStop => ({
-        ...colorStop
-      })),
-      offsetX: this.offsetX,
-      offsetY: this.offsetY,
-      gradientUnits: this.gradientUnits,
-      gradientTransform: this.gradientTransform ? [...this.gradientTransform] : undefined
-    };
-  }
-
-  /* _TO_SVG_START_ */
-  /**
-   * Returns SVG representation of an gradient
-   * @param {FabricObject} object Object to create a gradient for
-   * @return {String} SVG representation of an gradient (linear/radial)
-   */
-  toSVG(object) {
-    let {
-      additionalTransform: preTransform
-    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const markup = [],
-      transform = this.gradientTransform ? this.gradientTransform.concat() : iMatrix.concat(),
-      gradientUnits = this.gradientUnits === 'pixels' ? 'userSpaceOnUse' : 'objectBoundingBox';
-    // colorStops must be sorted ascending, and guarded against deep mutations
-    const colorStops = this.colorStops.map(colorStop => ({
-      ...colorStop
-    })).sort((a, b) => {
-      return a.offset - b.offset;
-    });
-    let offsetX = -this.offsetX,
-      offsetY = -this.offsetY;
-    if (gradientUnits === 'objectBoundingBox') {
-      offsetX /= object.width;
-      offsetY /= object.height;
-    } else {
-      offsetX += object.width / 2;
-      offsetY += object.height / 2;
-    }
-    // todo what about polygon/polyline?
-    if (isPath(object) && this.gradientUnits !== 'percentage') {
-      offsetX -= object.pathOffset.x;
-      offsetY -= object.pathOffset.y;
-    }
-    transform[4] -= offsetX;
-    transform[5] -= offsetY;
-    const commonAttributes = [`id="SVGID_${this.id}"`, `gradientUnits="${gradientUnits}"`, `gradientTransform="${preTransform ? preTransform + ' ' : ''}${matrixToSVG(transform)}"`, ''].join(' ');
-    if (this.type === 'linear') {
-      const {
-        x1,
-        y1,
-        x2,
-        y2
-      } = this.coords;
-      markup.push('<linearGradient ', commonAttributes, ' x1="', x1, '" y1="', y1, '" x2="', x2, '" y2="', y2, '">\n');
-    } else if (this.type === 'radial') {
-      const {
-        x1,
-        y1,
-        x2,
-        y2,
-        r1,
-        r2
-      } = this.coords;
-      const needsSwap = r1 > r2;
-      // svg radial gradient has just 1 radius. the biggest.
-      markup.push('<radialGradient ', commonAttributes, ' cx="', needsSwap ? x1 : x2, '" cy="', needsSwap ? y1 : y2, '" r="', needsSwap ? r1 : r2, '" fx="', needsSwap ? x2 : x1, '" fy="', needsSwap ? y2 : y1, '">\n');
-      if (needsSwap) {
-        // svg goes from internal to external radius. if radius are inverted, swap color stops.
-        colorStops.reverse(); //  mutates array
-        colorStops.forEach(colorStop => {
-          colorStop.offset = 1 - colorStop.offset;
-        });
-      }
-      const minRadius = Math.min(r1, r2);
-      if (minRadius > 0) {
-        // i have to shift all colorStops and add new one in 0.
-        const maxRadius = Math.max(r1, r2),
-          percentageShift = minRadius / maxRadius;
-        colorStops.forEach(colorStop => {
-          colorStop.offset += percentageShift * (1 - colorStop.offset);
-        });
-      }
-    }
-    colorStops.forEach(_ref => {
-      let {
-        color,
-        offset
-      } = _ref;
-      markup.push(`<stop offset="${offset * 100}%" style="stop-color:${color};"/>\n`);
-    });
-    markup.push(this.type === 'linear' ? '</linearGradient>' : '</radialGradient>', '\n');
-    return markup.join('');
-  }
-  /* _TO_SVG_END_ */
-
-  /**
-   * Returns an instance of CanvasGradient
-   * @param {CanvasRenderingContext2D} ctx Context to render on
-   * @return {CanvasGradient}
-   */
-  toLive(ctx) {
-    const {
-      x1,
-      y1,
-      x2,
-      y2,
-      r1,
-      r2
-    } = this.coords;
-    const gradient = this.type === 'linear' ? ctx.createLinearGradient(x1, y1, x2, y2) : ctx.createRadialGradient(x1, y1, r1, x2, y2, r2);
-    this.colorStops.forEach(_ref2 => {
-      let {
-        color,
-        offset
-      } = _ref2;
-      gradient.addColorStop(offset, color);
-    });
-    return gradient;
-  }
-  static async fromObject(options) {
-    const {
-      colorStops,
-      gradientTransform
-    } = options;
-    return new this({
-      ...options,
-      colorStops: colorStops ? colorStops.map(colorStop => ({
-        ...colorStop
-      })) : undefined,
-      gradientTransform: gradientTransform ? [...gradientTransform] : undefined
-    });
-  }
-
-  /* _FROM_SVG_START_ */
-  /**
-   * Returns {@link Gradient} instance from an SVG element
-   * @param {SVGGradientElement} el SVG gradient element
-   * @param {FabricObject} instance
-   * @param {String} opacity A fill-opacity or stroke-opacity attribute to multiply to each stop's opacity.
-   * @param {SVGOptions} svgOptions an object containing the size of the SVG in order to parse correctly gradients
-   * that uses gradientUnits as 'userSpaceOnUse' and percentages.
-   * @return {Gradient} Gradient instance
-   * @see http://www.w3.org/TR/SVG/pservers.html#LinearGradientElement
-   * @see http://www.w3.org/TR/SVG/pservers.html#RadialGradientElement
-   *
-   *  @example
-   *
-   *  <linearGradient id="linearGrad1">
-   *    <stop offset="0%" stop-color="white"/>
-   *    <stop offset="100%" stop-color="black"/>
-   *  </linearGradient>
-   *
-   *  OR
-   *
-   *  <linearGradient id="linearGrad2">
-   *    <stop offset="0" style="stop-color:rgb(255,255,255)"/>
-   *    <stop offset="1" style="stop-color:rgb(0,0,0)"/>
-   *  </linearGradient>
-   *
-   *  OR
-   *
-   *  <radialGradient id="radialGrad1">
-   *    <stop offset="0%" stop-color="white" stop-opacity="1" />
-   *    <stop offset="50%" stop-color="black" stop-opacity="0.5" />
-   *    <stop offset="100%" stop-color="white" stop-opacity="1" />
-   *  </radialGradient>
-   *
-   *  OR
-   *
-   *  <radialGradient id="radialGrad2">
-   *    <stop offset="0" stop-color="rgb(255,255,255)" />
-   *    <stop offset="0.5" stop-color="rgb(0,0,0)" />
-   *    <stop offset="1" stop-color="rgb(255,255,255)" />
-   *  </radialGradient>
-   *
-   */
-  static fromElement(el, instance, svgOptions) {
-    const gradientUnits = parseGradientUnits(el);
-    const center = instance._findCenterFromElement();
-    return new this({
-      id: el.getAttribute('id') || undefined,
-      type: parseType(el),
-      coords: parseCoords(el, {
-        width: svgOptions.viewBoxWidth || svgOptions.width,
-        height: svgOptions.viewBoxHeight || svgOptions.height
-      }),
-      colorStops: parseColorStops(el, svgOptions.opacity),
-      gradientUnits,
-      gradientTransform: parseTransformAttribute(el.getAttribute('gradientTransform') || ''),
-      ...(gradientUnits === 'pixels' ? {
-        offsetX: instance.width / 2 - center.x,
-        offsetY: instance.height / 2 - center.y
-      } : {
-        offsetX: 0,
-        offsetY: 0
-      })
-    });
-  }
-  /* _FROM_SVG_END_ */
-}
-/**
- * Horizontal offset for aligning gradients coming from SVG when outside pathgroups
- * @type Number
- * @default 0
- */
-/**
- * Vertical offset for aligning gradients coming from SVG when outside pathgroups
- * @type Number
- * @default 0
- */
-/**
- * A transform matrix to apply to the gradient before painting.
- * Imported from svg gradients, is not applied with the current transform in the center.
- * Before this transform is applied, the origin point is at the top left corner of the object
- * plus the addition of offsetY and offsetX.
- * @type Number[]
- * @default null
- */
-/**
- * coordinates units for coords.
- * If `pixels`, the number of coords are in the same unit of width / height.
- * If set as `percentage` the coords are still a number, but 1 means 100% of width
- * for the X and 100% of the height for the y. It can be bigger than 1 and negative.
- * allowed values pixels or percentage.
- * @type GradientUnits
- * @default 'pixels'
- */
-/**
- * Gradient type linear or radial
- * @type GradientType
- * @default 'linear'
- */
-/**
- * Defines how the gradient is located in space and spread
- * @type GradientCoords
- */
-/**
- * Defines how many colors a gradient has and how they are located on the axis
- * defined by coords
- * @type GradientCoords
- */
-/**
- * If true, this object will not be exported during the serialization of a canvas
- * @type boolean
- */
-/**
- * ID used for SVG export functionalities
- * @type number | string
- */
-_defineProperty(Gradient, "type", 'Gradient');
-classRegistry.setClass(Gradient, 'gradient');
-classRegistry.setClass(Gradient, 'linear');
-classRegistry.setClass(Gradient, 'radial');
-
-/**
- * @see {@link http://fabricjs.com/patterns demo}
- * @see {@link http://fabricjs.com/dynamic-patterns demo}
- */
-class Pattern {
-  /**
-   * Legacy identifier of the class. Prefer using this.constructor.type 'Pattern'
-   * or utils like isPattern, or instance of to indentify a pattern in your code.
-   * Will be removed in future versiones
-   * @TODO add sustainable warning message
-   * @type string
-   * @deprecated
-   */
-  get type() {
-    return 'pattern';
-  }
-  set type(value) {
-    log('warn', 'Setting type has no effect', value);
-  }
-
-  /**
-   * @type PatternRepeat
-   * @defaults
-   */
-
-  /**
-   * transform matrix to change the pattern, imported from svgs.
-   * @todo verify if using the identity matrix as default makes the rest of the code more easy
-   * @type Array
-   */
-
-  /**
-   * The actual pixel source of the pattern
-   */
-
-  /**
-   * If true, this object will not be exported during the serialization of a canvas
-   * @type boolean
-   */
-
-  /**
-   * ID used for SVG export functionalities
-   * @type number
-   */
-
-  /**
-   * Constructor
-   * @param {Object} [options] Options object
-   * @param {option.source} [source] the pattern source, eventually empty or a drawable
-   */
-  constructor(options) {
-    _defineProperty(this, "repeat", 'repeat');
-    /**
-     * Pattern horizontal offset from object's left/top corner
-     * @type Number
-     */
-    _defineProperty(this, "offsetX", 0);
-    /**
-     * Pattern vertical offset from object's left/top corner
-     * @type Number
-     */
-    _defineProperty(this, "offsetY", 0);
-    /**
-     * @type TCrossOrigin
-     */
-    _defineProperty(this, "crossOrigin", '');
-    this.id = uid();
-    Object.assign(this, options);
-  }
-
-  /**
-   * @returns true if {@link source} is an <img> element
-   */
-  isImageSource() {
-    return !!this.source && typeof this.source.src === 'string';
-  }
-
-  /**
-   * @returns true if {@link source} is a <canvas> element
-   */
-  isCanvasSource() {
-    return !!this.source && !!this.source.toDataURL;
-  }
-  sourceToString() {
-    return this.isImageSource() ? this.source.src : this.isCanvasSource() ? this.source.toDataURL() : '';
-  }
-
-  /**
-   * Returns an instance of CanvasPattern
-   * @param {CanvasRenderingContext2D} ctx Context to create pattern
-   * @return {CanvasPattern}
-   */
-  toLive(ctx) {
-    if (
-    // if the image failed to load, return, and allow rest to continue loading
-    !this.source ||
-    // if an image
-    this.isImageSource() && (!this.source.complete || this.source.naturalWidth === 0 || this.source.naturalHeight === 0)) {
-      return null;
-    }
-    return ctx.createPattern(this.source, this.repeat);
-  }
-
-  /**
-   * Returns object representation of a pattern
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {object} Object representation of a pattern instance
-   */
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    const {
-      repeat,
-      crossOrigin
-    } = this;
-    return {
-      ...pick(this, propertiesToInclude),
-      type: 'pattern',
-      source: this.sourceToString(),
-      repeat,
-      crossOrigin,
-      offsetX: toFixed(this.offsetX, config.NUM_FRACTION_DIGITS),
-      offsetY: toFixed(this.offsetY, config.NUM_FRACTION_DIGITS),
-      patternTransform: this.patternTransform ? [...this.patternTransform] : null
-    };
-  }
-
-  /* _TO_SVG_START_ */
-  /**
-   * Returns SVG representation of a pattern
-   */
-  toSVG(_ref) {
-    let {
-      width,
-      height
-    } = _ref;
-    const {
-        source: patternSource,
-        repeat,
-        id
-      } = this,
-      patternOffsetX = ifNaN(this.offsetX / width, 0),
-      patternOffsetY = ifNaN(this.offsetY / height, 0),
-      patternWidth = repeat === 'repeat-y' || repeat === 'no-repeat' ? 1 + Math.abs(patternOffsetX || 0) : ifNaN(patternSource.width / width, 0),
-      patternHeight = repeat === 'repeat-x' || repeat === 'no-repeat' ? 1 + Math.abs(patternOffsetY || 0) : ifNaN(patternSource.height / height, 0);
-    return [`<pattern id="SVGID_${id}" x="${patternOffsetX}" y="${patternOffsetY}" width="${patternWidth}" height="${patternHeight}">`, `<image x="0" y="0" width="${patternSource.width}" height="${patternSource.height}" xlink:href="${this.sourceToString()}"></image>`, `</pattern>`, ''].join('\n');
-  }
-  /* _TO_SVG_END_ */
-
-  static async fromObject(_ref2, options) {
-    let {
-      type,
-      source,
-      patternTransform,
-      ...otherOptions
-    } = _ref2;
-    const img = await loadImage(source, {
-      ...options,
-      crossOrigin: otherOptions.crossOrigin
-    });
-    return new this({
-      ...otherOptions,
-      patternTransform: patternTransform && patternTransform.slice(0),
-      source: img
-    });
-  }
-}
-_defineProperty(Pattern, "type", 'Pattern');
-classRegistry.setClass(Pattern);
-// kept for compatibility reason
-classRegistry.setClass(Pattern, 'pattern');
-
-/**
- * @see {@link http://fabricjs.com/freedrawing|Freedrawing demo}
- */
-class BaseBrush {
-  /**
-   * @todo add type
-   */
-
-  constructor(canvas) {
-    /**
-     * Color of a brush
-     * @type String
-     */
-    _defineProperty(this, "color", 'rgb(0, 0, 0)');
-    /**
-     * Width of a brush, has to be a Number, no string literals
-     * @type Number
-     */
-    _defineProperty(this, "width", 1);
-    /**
-     * Shadow object representing shadow of this shape.
-     * <b>Backwards incompatibility note:</b> This property replaces "shadowColor" (String), "shadowOffsetX" (Number),
-     * "shadowOffsetY" (Number) and "shadowBlur" (Number) since v1.2.12
-     * @type Shadow
-     */
-    _defineProperty(this, "shadow", null);
-    /**
-     * Line endings style of a brush (one of "butt", "round", "square")
-     * @type String
-     */
-    _defineProperty(this, "strokeLineCap", 'round');
-    /**
-     * Corner style of a brush (one of "bevel", "round", "miter")
-     * @type String
-     */
-    _defineProperty(this, "strokeLineJoin", 'round');
-    /**
-     * Maximum miter length (used for strokeLineJoin = "miter") of a brush's
-     * @type Number
-     */
-    _defineProperty(this, "strokeMiterLimit", 10);
-    /**
-     * Stroke Dash Array.
-     * @type Array
-     */
-    _defineProperty(this, "strokeDashArray", null);
-    /**
-     * When `true`, the free drawing is limited to the whiteboard size. Default to false.
-     * @type Boolean
-     * @default false
-     */
-    _defineProperty(this, "limitedToCanvasSize", false);
-    this.canvas = canvas;
-  }
-
-  /**
-   * @returns true if brush should continue blocking interaction
-   */
-
-  /**
-   * Sets brush styles
-   * @private
-   * @param {CanvasRenderingContext2D} ctx
-   */
-  _setBrushStyles(ctx) {
-    ctx.strokeStyle = this.color;
-    ctx.lineWidth = this.width;
-    ctx.lineCap = this.strokeLineCap;
-    ctx.miterLimit = this.strokeMiterLimit;
-    ctx.lineJoin = this.strokeLineJoin;
-    ctx.setLineDash(this.strokeDashArray || []);
-  }
-
-  /**
-   * Sets the transformation on given context
-   * @param {CanvasRenderingContext2D} ctx context to render on
-   * @private
-   */
-  _saveAndTransform(ctx) {
-    const v = this.canvas.viewportTransform;
-    ctx.save();
-    ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5]);
-  }
-  needsFullRender() {
-    const color = new Color(this.color);
-    return color.getAlpha() < 1 || !!this.shadow;
-  }
-
-  /**
-   * Sets brush shadow styles
-   * @private
-   */
-  _setShadow() {
-    if (!this.shadow || !this.canvas) {
-      return;
-    }
-    const canvas = this.canvas,
-      shadow = this.shadow,
-      ctx = canvas.contextTop,
-      zoom = canvas.getZoom() * canvas.getRetinaScaling();
-    ctx.shadowColor = shadow.color;
-    ctx.shadowBlur = shadow.blur * zoom;
-    ctx.shadowOffsetX = shadow.offsetX * zoom;
-    ctx.shadowOffsetY = shadow.offsetY * zoom;
-  }
-
-  /**
-   * Removes brush shadow styles
-   * @private
-   */
-  _resetShadow() {
-    const ctx = this.canvas.contextTop;
-    ctx.shadowColor = '';
-    ctx.shadowBlur = ctx.shadowOffsetX = ctx.shadowOffsetY = 0;
-  }
-
-  /**
-   * Check is pointer is outside canvas boundaries
-   * @param {Object} pointer
-   * @private
-   */
-  _isOutSideCanvas(pointer) {
-    return pointer.x < 0 || pointer.x > this.canvas.getWidth() || pointer.y < 0 || pointer.y > this.canvas.getHeight();
-  }
-}
-
-class Path extends FabricObject {
-  /**
-   * Constructor
-   * @param {TComplexPathData} path Path data (sequence of coordinates and corresponding "command" tokens)
-   * @param {Partial<PathProps>} [options] Options object
-   * @return {Path} thisArg
-   */
-  constructor(path) {
-    let {
-      path: _,
-      left,
-      top,
-      ...options
-    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    super();
-    Object.assign(this, Path.ownDefaults);
-    this.setOptions(options);
-    this._setPath(path || [], true);
-    typeof left === 'number' && this.set(LEFT, left);
-    typeof top === 'number' && this.set(TOP, top);
-  }
-
-  /**
-   * @private
-   * @param {TComplexPathData | string} path Path data (sequence of coordinates and corresponding "command" tokens)
-   * @param {boolean} [adjustPosition] pass true to reposition the object according to the bounding box
-   * @returns {Point} top left position of the bounding box, useful for complementary positioning
-   */
-  _setPath(path, adjustPosition) {
-    this.path = makePathSimpler(Array.isArray(path) ? path : parsePath(path));
-    this.setBoundingBox(adjustPosition);
-  }
-
-  /**
-   * This function is an helper for svg import. it returns the center of the object in the svg
-   * untransformed coordinates, by look at the polyline/polygon points.
-   * @private
-   * @return {Point} center point from element coordinates
-   */
-  _findCenterFromElement() {
-    const bbox = this._calcBoundsFromPath();
-    return new Point(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2);
-  }
-
-  /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx context to render path on
-   */
-  _renderPathCommands(ctx) {
-    const l = -this.pathOffset.x,
-      t = -this.pathOffset.y;
-    ctx.beginPath();
-    for (const command of this.path) {
-      switch (command[0] // first letter
-      ) {
-        case 'L':
-          // lineto, absolute
-          ctx.lineTo(command[1] + l, command[2] + t);
-          break;
-        case 'M':
-          // moveTo, absolute
-          ctx.moveTo(command[1] + l, command[2] + t);
-          break;
-        case 'C':
-          // bezierCurveTo, absolute
-          ctx.bezierCurveTo(command[1] + l, command[2] + t, command[3] + l, command[4] + t, command[5] + l, command[6] + t);
-          break;
-        case 'Q':
-          // quadraticCurveTo, absolute
-          ctx.quadraticCurveTo(command[1] + l, command[2] + t, command[3] + l, command[4] + t);
-          break;
-        case 'Z':
-          ctx.closePath();
-          break;
-      }
+      canvas.fire('text:changed', {
+        target
+      });
+      canvas.contextTopDirty = true;
+      canvas.requestRenderAll();
     }
   }
 
   /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx context to render path on
+   * fired only on the drag source after drop (if occurred)
+   * handle changes to the drag source in case of a drop on another object or a cancellation
+   * https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/Drag_operations#finishing_a_drag
    */
-  _render(ctx) {
-    this._renderPathCommands(ctx);
-    this._renderPaintInOrder(ctx);
-  }
-
-  /**
-   * Returns string representation of an instance
-   * @return {string} string representation of an instance
-   */
-  toString() {
-    return `#<Path (${this.complexity()}): { "top": ${this.top}, "left": ${this.left} }>`;
-  }
-
-  /**
-   * Returns object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} object representation of an instance
-   */
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    return {
-      ...super.toObject(propertiesToInclude),
-      path: this.path.map(pathCmd => pathCmd.slice())
-    };
-  }
-
-  /**
-   * Returns dataless object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} object representation of an instance
-   */
-  toDatalessObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    const o = this.toObject(propertiesToInclude);
-    if (this.sourcePath) {
-      delete o.path;
-      o.sourcePath = this.sourcePath;
-    }
-    return o;
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
-  _toSVG() {
-    const path = joinPath(this.path, config.NUM_FRACTION_DIGITS);
-    return ['<path ', 'COMMON_PARTS', `d="${path}" stroke-linecap="round" />\n`];
-  }
-
-  /**
-   * @private
-   * @return the path command's translate transform attribute
-   */
-  _getOffsetTransform() {
-    const digits = config.NUM_FRACTION_DIGITS;
-    return ` translate(${toFixed(-this.pathOffset.x, digits)}, ${toFixed(-this.pathOffset.y, digits)})`;
-  }
-
-  /**
-   * Returns svg clipPath representation of an instance
-   * @param {Function} [reviver] Method for further parsing of svg representation.
-   * @return {string} svg representation of an instance
-   */
-  toClipPathSVG(reviver) {
-    const additionalTransform = this._getOffsetTransform();
-    return '\t' + this._createBaseClipPathSVGMarkup(this._toSVG(), {
-      reviver,
-      additionalTransform: additionalTransform
-    });
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * @param {Function} [reviver] Method for further parsing of svg representation.
-   * @return {string} svg representation of an instance
-   */
-  toSVG(reviver) {
-    const additionalTransform = this._getOffsetTransform();
-    return this._createBaseSVGMarkup(this._toSVG(), {
-      reviver,
-      additionalTransform: additionalTransform
-    });
-  }
-
-  /**
-   * Returns number representation of an instance complexity
-   * @return {number} complexity of this instance
-   */
-  complexity() {
-    return this.path.length;
-  }
-  setDimensions() {
-    this.setBoundingBox();
-  }
-  setBoundingBox(adjustPosition) {
-    const {
-      width,
-      height,
-      pathOffset
-    } = this._calcDimensions();
-    this.set({
-      width,
-      height,
-      pathOffset
-    });
-    // using pathOffset because it match the use case.
-    // if pathOffset change here we need to use left + width/2 , top + height/2
-    adjustPosition && this.setPositionByOrigin(pathOffset, CENTER, CENTER);
-  }
-  _calcBoundsFromPath() {
-    const bounds = [];
-    let subpathStartX = 0,
-      subpathStartY = 0,
-      x = 0,
-      // current x
-      y = 0; // current y
-
-    for (const command of this.path) {
-      // current instruction
-      switch (command[0] // first letter
-      ) {
-        case 'L':
-          // lineto, absolute
-          x = command[1];
-          y = command[2];
-          bounds.push({
-            x: subpathStartX,
-            y: subpathStartY
-          }, {
-            x,
-            y
-          });
-          break;
-        case 'M':
-          // moveTo, absolute
-          x = command[1];
-          y = command[2];
-          subpathStartX = x;
-          subpathStartY = y;
-          break;
-        case 'C':
-          // bezierCurveTo, absolute
-          bounds.push(...getBoundsOfCurve(x, y, command[1], command[2], command[3], command[4], command[5], command[6]));
-          x = command[5];
-          y = command[6];
-          break;
-        case 'Q':
-          // quadraticCurveTo, absolute
-          bounds.push(...getBoundsOfCurve(x, y, command[1], command[2], command[1], command[2], command[3], command[4]));
-          x = command[3];
-          y = command[4];
-          break;
-        case 'Z':
-          x = subpathStartX;
-          y = subpathStartY;
-          break;
-      }
-    }
-    return makeBoundingBoxFromPoints(bounds);
-  }
-
-  /**
-   * @private
-   */
-  _calcDimensions() {
-    const bbox = this._calcBoundsFromPath();
-    return {
-      ...bbox,
-      pathOffset: new Point(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2)
-    };
-  }
-
-  /**
-   * List of attribute names to account for when parsing SVG element (used by `Path.fromElement`)
-   * @see http://www.w3.org/TR/SVG/paths.html#PathElement
-   */
-
-  /**
-   * Creates an instance of Path from an object
-   * @param {Object} object
-   * @returns {Promise<Path>}
-   */
-  static fromObject(object) {
-    return this._fromObject(object, {
-      extraParam: 'path'
-    });
-  }
-
-  /**
-   * Creates an instance of Path from an SVG <path> element
-   * @param {HTMLElement} element to parse
-   * @param {Partial<PathProps>} [options] Options object
-   */
-  static async fromElement(element, options, cssRules) {
-    const {
-      d,
-      ...parsedAttributes
-    } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
-    return new this(d, {
-      ...parsedAttributes,
-      ...options,
-      // we pass undefined to instruct the constructor to position the object using the bbox
-      left: undefined,
-      top: undefined
-    });
-  }
-}
-/**
- * Array of path points
- * @type Array
- */
-_defineProperty(Path, "type", 'Path');
-_defineProperty(Path, "cacheProperties", [...cacheProperties, 'path', 'fillRule']);
-_defineProperty(Path, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES, 'd']);
-classRegistry.setClass(Path);
-classRegistry.setSVGClass(Path);
-
-/* _FROM_SVG_START_ */
-
-/**
- * @private
- * @param {TSimplePathData} pathData SVG path commands
- * @returns {boolean}
- */
-function isEmptySVGPath(pathData) {
-  return joinPath(pathData) === 'M 0 0 Q 0 0 0 0 L 0 0';
-}
-class PencilBrush extends BaseBrush {
-  constructor(canvas) {
-    super(canvas);
-    /**
-     * Discard points that are less than `decimate` pixel distant from each other
-     * @type Number
-     * @default 0.4
-     */
-    _defineProperty(this, "decimate", 0.4);
-    /**
-     * Draws a straight line between last recorded point to current pointer
-     * Used for `shift` functionality
-     *
-     * @type boolean
-     * @default false
-     */
-    _defineProperty(this, "drawStraightLine", false);
-    /**
-     * The event modifier key that makes the brush draw a straight line.
-     * If `null` or 'none' or any other string that is not a modifier key the feature is disabled.
-     * @type {ModifierKey | undefined | null}
-     */
-    _defineProperty(this, "straightLineKey", 'shiftKey');
-    this._points = [];
-    this._hasStraightLine = false;
-  }
-  needsFullRender() {
-    return super.needsFullRender() || this._hasStraightLine;
-  }
-  static drawSegment(ctx, p1, p2) {
-    const midPoint = p1.midPointFrom(p2);
-    ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
-    return midPoint;
-  }
-
-  /**
-   * Invoked on mouse down
-   * @param {Point} pointer
-   */
-  onMouseDown(pointer, _ref) {
-    let {
-      e
-    } = _ref;
-    if (!this.canvas._isMainEvent(e)) {
-      return;
-    }
-    this.drawStraightLine = !!this.straightLineKey && e[this.straightLineKey];
-    this._prepareForDrawing(pointer);
-    // capture coordinates immediately
-    // this allows to draw dots (when movement never occurs)
-    this._addPoint(pointer);
-    this._render();
-  }
-
-  /**
-   * Invoked on mouse move
-   * @param {Point} pointer
-   */
-  onMouseMove(pointer, _ref2) {
-    let {
-      e
-    } = _ref2;
-    if (!this.canvas._isMainEvent(e)) {
-      return;
-    }
-    this.drawStraightLine = !!this.straightLineKey && e[this.straightLineKey];
-    if (this.limitedToCanvasSize === true && this._isOutSideCanvas(pointer)) {
-      return;
-    }
-    if (this._addPoint(pointer) && this._points.length > 1) {
-      if (this.needsFullRender()) {
-        // redraw curve
-        // clear top canvas
-        this.canvas.clearContext(this.canvas.contextTop);
-        this._render();
-      } else {
-        const points = this._points,
-          length = points.length,
-          ctx = this.canvas.contextTop;
-        // draw the curve update
-        this._saveAndTransform(ctx);
-        if (this.oldEnd) {
-          ctx.beginPath();
-          ctx.moveTo(this.oldEnd.x, this.oldEnd.y);
-        }
-        this.oldEnd = PencilBrush.drawSegment(ctx, points[length - 2], points[length - 1]);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-  }
-
-  /**
-   * Invoked on mouse up
-   */
-  onMouseUp(_ref3) {
+  dragEndHandler(_ref3) {
     let {
       e
     } = _ref3;
-    if (!this.canvas._isMainEvent(e)) {
-      return true;
-    }
-    this.drawStraightLine = false;
-    this.oldEnd = undefined;
-    this._finalizeAndAddPath();
-    return false;
-  }
-
-  /**
-   * @private
-   * @param {Point} pointer Actual mouse position related to the canvas.
-   */
-  _prepareForDrawing(pointer) {
-    this._reset();
-    this._addPoint(pointer);
-    this.canvas.contextTop.moveTo(pointer.x, pointer.y);
-  }
-
-  /**
-   * @private
-   * @param {Point} point Point to be added to points array
-   */
-  _addPoint(point) {
-    if (this._points.length > 1 && point.eq(this._points[this._points.length - 1])) {
-      return false;
-    }
-    if (this.drawStraightLine && this._points.length > 1) {
-      this._hasStraightLine = true;
-      this._points.pop();
-    }
-    this._points.push(point);
-    return true;
-  }
-
-  /**
-   * Clear points array and set contextTop canvas style.
-   * @private
-   */
-  _reset() {
-    this._points = [];
-    this._setBrushStyles(this.canvas.contextTop);
-    this._setShadow();
-    this._hasStraightLine = false;
-  }
-
-  /**
-   * Draw a smooth path on the topCanvas using quadraticCurveTo
-   * @private
-   * @param {CanvasRenderingContext2D} [ctx]
-   */
-  _render() {
-    let ctx = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.canvas.contextTop;
-    let p1 = this._points[0],
-      p2 = this._points[1];
-    this._saveAndTransform(ctx);
-    ctx.beginPath();
-    //if we only have 2 points in the path and they are the same
-    //it means that the user only clicked the canvas without moving the mouse
-    //then we should be drawing a dot. A path isn't drawn between two identical dots
-    //that's why we set them apart a bit
-    if (this._points.length === 2 && p1.x === p2.x && p1.y === p2.y) {
-      const width = this.width / 1000;
-      p1.x -= width;
-      p2.x += width;
-    }
-    ctx.moveTo(p1.x, p1.y);
-    for (let i = 1; i < this._points.length; i++) {
-      // we pick the point between pi + 1 & pi + 2 as the
-      // end point and p1 as our control point.
-      PencilBrush.drawSegment(ctx, p1, p2);
-      p1 = this._points[i];
-      p2 = this._points[i + 1];
-    }
-    // Draw last line as a straight line while
-    // we wait for the next point to be able to calculate
-    // the bezier control point
-    ctx.lineTo(p1.x, p1.y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  /**
-   * Converts points to SVG path
-   * @param {Point[]} points Array of points
-   * @return {TSimplePathData} SVG path commands
-   */
-  convertPointsToSVGPath(points) {
-    const correction = this.width / 1000;
-    return getSmoothPathFromPoints(points, correction);
-  }
-
-  /**
-   * Creates a Path object to add on canvas
-   * @param {TSimplePathData} pathData Path data
-   * @return {Path} Path to add on canvas
-   */
-  createPath(pathData) {
-    const path = new Path(pathData, {
-      fill: null,
-      stroke: this.color,
-      strokeWidth: this.width,
-      strokeLineCap: this.strokeLineCap,
-      strokeMiterLimit: this.strokeMiterLimit,
-      strokeLineJoin: this.strokeLineJoin,
-      strokeDashArray: this.strokeDashArray
-    });
-    if (this.shadow) {
-      this.shadow.affectStroke = true;
-      path.shadow = new Shadow(this.shadow);
-    }
-    return path;
-  }
-
-  /**
-   * Decimate points array with the decimate value
-   */
-  decimatePoints(points, distance) {
-    if (points.length <= 2) {
-      return points;
-    }
-    let lastPoint = points[0],
-      cDistance;
-    const zoom = this.canvas.getZoom(),
-      adjustedDistance = Math.pow(distance / zoom, 2),
-      l = points.length - 1,
-      newPoints = [lastPoint];
-    // TODO investigate why this is not i < l
-    for (let i = 1; i < l - 1; i++) {
-      cDistance = Math.pow(lastPoint.x - points[i].x, 2) + Math.pow(lastPoint.y - points[i].y, 2);
-      if (cDistance >= adjustedDistance) {
-        lastPoint = points[i];
-        newPoints.push(lastPoint);
-      }
-    }
-    // Add the last point from the original line to the end of the array.
-    // This ensures decimate doesn't delete the last point on the line, and ensures the line is > 1 point.
-    newPoints.push(points[l]);
-    return newPoints;
-  }
-
-  /**
-   * On mouseup after drawing the path on contextTop canvas
-   * we use the points captured to create an new Path object
-   * and add it to the canvas.
-   */
-  _finalizeAndAddPath() {
-    const ctx = this.canvas.contextTop;
-    ctx.closePath();
-    if (this.decimate) {
-      this._points = this.decimatePoints(this._points, this.decimate);
-    }
-    const pathData = this.convertPointsToSVGPath(this._points);
-    if (isEmptySVGPath(pathData)) {
-      // do not create 0 width/height paths, as they are
-      // rendered inconsistently across browsers
-      // Firefox 4, for example, renders a dot,
-      // whereas Chrome 10 renders nothing
-      this.canvas.requestRenderAll();
-      return;
-    }
-    const path = this.createPath(pathData);
-    this.canvas.clearContext(this.canvas.contextTop);
-    this.canvas.fire('before:path:created', {
-      path: path
-    });
-    this.canvas.add(path);
-    this.canvas.requestRenderAll();
-    path.setCoords();
-    this._resetShadow();
-
-    // fire event 'path' created
-    this.canvas.fire('path:created', {
-      path: path
-    });
-  }
-}
-
-const CIRCLE_PROPS = ['radius', 'startAngle', 'endAngle', 'counterClockwise'];
-const circleDefaultValues = {
-  radius: 0,
-  startAngle: 0,
-  endAngle: 360,
-  counterClockwise: false
-};
-class Circle extends FabricObject {
-  static getDefaults() {
-    return {
-      ...super.getDefaults(),
-      ...Circle.ownDefaults
-    };
-  }
-
-  /**
-   * Constructor
-   * @param {Object} [options] Options object
-   */
-  constructor(options) {
-    super();
-    Object.assign(this, Circle.ownDefaults);
-    this.setOptions(options);
-  }
-
-  /**
-   * @private
-   * @param {String} key
-   * @param {*} value
-   */
-  _set(key, value) {
-    super._set(key, value);
-    if (key === 'radius') {
-      this.setRadius(value);
-    }
-    return this;
-  }
-
-  /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx context to render on
-   */
-  _render(ctx) {
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius, degreesToRadians(this.startAngle), degreesToRadians(this.endAngle), this.counterClockwise);
-    this._renderPaintInOrder(ctx);
-  }
-
-  /**
-   * Returns horizontal radius of an object (according to how an object is scaled)
-   * @return {Number}
-   */
-  getRadiusX() {
-    return this.get('radius') * this.get(SCALE_X);
-  }
-
-  /**
-   * Returns vertical radius of an object (according to how an object is scaled)
-   * @return {Number}
-   */
-  getRadiusY() {
-    return this.get('radius') * this.get(SCALE_Y);
-  }
-
-  /**
-   * Sets radius of an object (and updates width accordingly)
-   */
-  setRadius(value) {
-    this.radius = value;
-    this.set({
-      width: value * 2,
-      height: value * 2
-    });
-  }
-
-  /**
-   * Returns object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} object representation of an instance
-   */
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    return super.toObject([...CIRCLE_PROPS, ...propertiesToInclude]);
-  }
-
-  /* _TO_SVG_START_ */
-
-  /**
-   * Returns svg representation of an instance
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
-  _toSVG() {
-    const angle = (this.endAngle - this.startAngle) % 360;
-    if (angle === 0) {
-      return ['<circle ', 'COMMON_PARTS', 'cx="0" cy="0" ', 'r="', `${this.radius}`, '" />\n'];
-    } else {
-      const {
-        radius
-      } = this;
-      const start = degreesToRadians(this.startAngle),
-        end = degreesToRadians(this.endAngle),
-        startX = cos(start) * radius,
-        startY = sin(start) * radius,
-        endX = cos(end) * radius,
-        endY = sin(end) * radius,
-        largeFlag = angle > 180 ? 1 : 0,
-        sweepFlag = this.counterClockwise ? 0 : 1;
-      return [`<path d="M ${startX} ${startY} A ${radius} ${radius} 0 ${largeFlag} ${sweepFlag} ${endX} ${endY}" `, 'COMMON_PARTS', ' />\n'];
-    }
-  }
-  /* _TO_SVG_END_ */
-
-  /* _FROM_SVG_START_ */
-  /**
-   * List of attribute names to account for when parsing SVG element (used by {@link Circle.fromElement})
-   * @see: http://www.w3.org/TR/SVG/shapes.html#CircleElement
-   */
-
-  /**
-   * Returns {@link Circle} instance from an SVG element
-   * @param {HTMLElement} element Element to parse
-   * @param {Object} [options] Partial Circle object to default missing properties on the element.
-   * @throws {Error} If value of `r` attribute is missing or invalid
-   */
-  static async fromElement(element, options, cssRules) {
-    const {
-      left = 0,
-      top = 0,
-      radius = 0,
-      ...otherParsedAttributes
-    } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
-
-    // this probably requires to be fixed for default origins not being top/left.
-
-    return new this({
-      ...otherParsedAttributes,
-      radius,
-      left: left - radius,
-      top: top - radius
-    });
-  }
-
-  /* _FROM_SVG_END_ */
-
-  /**
-   * @todo how do we declare this??
-   */
-  static fromObject(object) {
-    return super._fromObject(object);
-  }
-}
-_defineProperty(Circle, "type", 'Circle');
-_defineProperty(Circle, "cacheProperties", [...cacheProperties, ...CIRCLE_PROPS]);
-_defineProperty(Circle, "ownDefaults", circleDefaultValues);
-_defineProperty(Circle, "ATTRIBUTE_NAMES", ['cx', 'cy', 'r', ...SHARED_ATTRIBUTES]);
-classRegistry.setClass(Circle);
-classRegistry.setSVGClass(Circle);
-
-class CircleBrush extends BaseBrush {
-  constructor(canvas) {
-    super(canvas);
-    /**
-     * Width of a brush
-     * @type Number
-     */
-    _defineProperty(this, "width", 10);
-    this.points = [];
-  }
-
-  /**
-   * Invoked inside on mouse down and mouse move
-   * @param {Point} pointer
-   */
-  drawDot(pointer) {
-    const point = this.addPoint(pointer),
-      ctx = this.canvas.contextTop;
-    this._saveAndTransform(ctx);
-    this.dot(ctx, point);
-    ctx.restore();
-  }
-  dot(ctx, point) {
-    ctx.fillStyle = point.fill;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, point.radius, 0, Math.PI * 2, false);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  /**
-   * Invoked on mouse down
-   */
-  onMouseDown(pointer) {
-    this.points = [];
-    this.canvas.clearContext(this.canvas.contextTop);
-    this._setShadow();
-    this.drawDot(pointer);
-  }
-
-  /**
-   * Render the full state of the brush
-   * @private
-   */
-  _render() {
-    const ctx = this.canvas.contextTop,
-      points = this.points;
-    this._saveAndTransform(ctx);
-    for (let i = 0; i < points.length; i++) {
-      this.dot(ctx, points[i]);
-    }
-    ctx.restore();
-  }
-
-  /**
-   * Invoked on mouse move
-   * @param {Point} pointer
-   */
-  onMouseMove(pointer) {
-    if (this.limitedToCanvasSize === true && this._isOutSideCanvas(pointer)) {
-      return;
-    }
-    if (this.needsFullRender()) {
-      this.canvas.clearContext(this.canvas.contextTop);
-      this.addPoint(pointer);
-      this._render();
-    } else {
-      this.drawDot(pointer);
-    }
-  }
-
-  /**
-   * Invoked on mouse up
-   */
-  onMouseUp() {
-    const originalRenderOnAddRemove = this.canvas.renderOnAddRemove;
-    this.canvas.renderOnAddRemove = false;
-    const circles = [];
-    for (let i = 0; i < this.points.length; i++) {
-      const point = this.points[i],
-        circle = new Circle({
-          radius: point.radius,
-          left: point.x,
-          top: point.y,
-          originX: CENTER,
-          originY: CENTER,
-          fill: point.fill
-        });
-      this.shadow && (circle.shadow = new Shadow(this.shadow));
-      circles.push(circle);
-    }
-    const group = new Group(circles, {
-      canvas: this.canvas
-    });
-    this.canvas.fire('before:path:created', {
-      path: group
-    });
-    this.canvas.add(group);
-    this.canvas.fire('path:created', {
-      path: group
-    });
-    this.canvas.clearContext(this.canvas.contextTop);
-    this._resetShadow();
-    this.canvas.renderOnAddRemove = originalRenderOnAddRemove;
-    this.canvas.requestRenderAll();
-  }
-
-  /**
-   * @param {Object} pointer
-   * @return {Point} Just added pointer point
-   */
-  addPoint(_ref) {
-    let {
-      x,
-      y
-    } = _ref;
-    const pointerPoint = {
-      x,
-      y,
-      radius: getRandomInt(Math.max(0, this.width - 20), this.width + 20) / 2,
-      fill: new Color(this.color).setAlpha(getRandomInt(0, 100) / 100).toRgba()
-    };
-    this.points.push(pointerPoint);
-    return pointerPoint;
-  }
-}
-
-/**
- *
- * @param rects
- * @returns
- */
-function getUniqueRects(rects) {
-  const uniqueRects = {};
-  const uniqueRectsArray = [];
-  for (let i = 0, key; i < rects.length; i++) {
-    key = `${rects[i].left}${rects[i].top}`;
-    if (!uniqueRects[key]) {
-      uniqueRects[key] = true;
-      uniqueRectsArray.push(rects[i]);
-    }
-  }
-  return uniqueRectsArray;
-}
-class SprayBrush extends BaseBrush {
-  /**
-   * Constructor
-   * @param {Canvas} canvas
-   * @return {SprayBrush} Instance of a spray brush
-   */
-  constructor(canvas) {
-    super(canvas);
-    /**
-     * Width of a spray
-     * @type Number
-     */
-    _defineProperty(this, "width", 10);
-    /**
-     * Density of a spray (number of dots per chunk)
-     * @type Number
-     */
-    _defineProperty(this, "density", 20);
-    /**
-     * Width of spray dots
-     * @type Number
-     */
-    _defineProperty(this, "dotWidth", 1);
-    /**
-     * Width variance of spray dots
-     * @type Number
-     */
-    _defineProperty(this, "dotWidthVariance", 1);
-    /**
-     * Whether opacity of a dot should be random
-     * @type Boolean
-     */
-    _defineProperty(this, "randomOpacity", false);
-    /**
-     * Whether overlapping dots (rectangles) should be removed (for performance reasons)
-     * @type Boolean
-     */
-    _defineProperty(this, "optimizeOverlapping", true);
-    this.sprayChunks = [];
-    this.sprayChunk = [];
-  }
-
-  /**
-   * Invoked on mouse down
-   * @param {Point} pointer
-   */
-  onMouseDown(pointer) {
-    this.sprayChunks = [];
-    this.canvas.clearContext(this.canvas.contextTop);
-    this._setShadow();
-    this.addSprayChunk(pointer);
-    this.renderChunck(this.sprayChunk);
-  }
-
-  /**
-   * Invoked on mouse move
-   * @param {Point} pointer
-   */
-  onMouseMove(pointer) {
-    if (this.limitedToCanvasSize === true && this._isOutSideCanvas(pointer)) {
-      return;
-    }
-    this.addSprayChunk(pointer);
-    this.renderChunck(this.sprayChunk);
-  }
-
-  /**
-   * Invoked on mouse up
-   */
-  onMouseUp() {
-    const originalRenderOnAddRemove = this.canvas.renderOnAddRemove;
-    this.canvas.renderOnAddRemove = false;
-    const rects = [];
-    for (let i = 0; i < this.sprayChunks.length; i++) {
-      const sprayChunk = this.sprayChunks[i];
-      for (let j = 0; j < sprayChunk.length; j++) {
-        const chunck = sprayChunk[j];
-        const rect = new Rect({
-          width: chunck.width,
-          height: chunck.width,
-          left: chunck.x + 1,
-          top: chunck.y + 1,
-          originX: CENTER,
-          originY: CENTER,
-          fill: this.color
-        });
-        rects.push(rect);
-      }
-    }
-    const group = new Group(this.optimizeOverlapping ? getUniqueRects(rects) : rects, {
-      objectCaching: true,
-      subTargetCheck: false,
-      interactive: false
-    });
-    this.shadow && group.set('shadow', new Shadow(this.shadow));
-    this.canvas.fire('before:path:created', {
-      path: group
-    });
-    this.canvas.add(group);
-    this.canvas.fire('path:created', {
-      path: group
-    });
-    this.canvas.clearContext(this.canvas.contextTop);
-    this._resetShadow();
-    this.canvas.renderOnAddRemove = originalRenderOnAddRemove;
-    this.canvas.requestRenderAll();
-  }
-  renderChunck(sprayChunck) {
-    const ctx = this.canvas.contextTop;
-    ctx.fillStyle = this.color;
-    this._saveAndTransform(ctx);
-    for (let i = 0; i < sprayChunck.length; i++) {
-      const point = sprayChunck[i];
-      ctx.globalAlpha = point.opacity;
-      ctx.fillRect(point.x, point.y, point.width, point.width);
-    }
-    ctx.restore();
-  }
-
-  /**
-   * Render all spray chunks
-   */
-  _render() {
-    const ctx = this.canvas.contextTop;
-    ctx.fillStyle = this.color;
-    this._saveAndTransform(ctx);
-    for (let i = 0; i < this.sprayChunks.length; i++) {
-      this.renderChunck(this.sprayChunks[i]);
-    }
-    ctx.restore();
-  }
-
-  /**
-   * @param {Point} pointer
-   */
-  addSprayChunk(pointer) {
-    this.sprayChunk = [];
-    const radius = this.width / 2;
-    for (let i = 0; i < this.density; i++) {
-      this.sprayChunk.push({
-        x: getRandomInt(pointer.x - radius, pointer.x + radius),
-        y: getRandomInt(pointer.y - radius, pointer.y + radius),
-        width: this.dotWidthVariance ? getRandomInt(
-        // bottom clamp width to 1
-        Math.max(1, this.dotWidth - this.dotWidthVariance), this.dotWidth + this.dotWidthVariance) : this.dotWidth,
-        opacity: this.randomOpacity ? getRandomInt(0, 100) / 100 : 1
-      });
-    }
-    this.sprayChunks.push(this.sprayChunk);
-  }
-}
-
-class PatternBrush extends PencilBrush {
-  constructor(canvas) {
-    super(canvas);
-  }
-  getPatternSrc() {
-    const dotWidth = 20,
-      dotDistance = 5,
-      patternCanvas = createCanvasElement(),
-      patternCtx = patternCanvas.getContext('2d');
-    patternCanvas.width = patternCanvas.height = dotWidth + dotDistance;
-    if (patternCtx) {
-      patternCtx.fillStyle = this.color;
-      patternCtx.beginPath();
-      patternCtx.arc(dotWidth / 2, dotWidth / 2, dotWidth / 2, 0, Math.PI * 2, false);
-      patternCtx.closePath();
-      patternCtx.fill();
-    }
-    return patternCanvas;
-  }
-
-  /**
-   * Creates "pattern" instance property
-   * @param {CanvasRenderingContext2D} ctx
-   */
-  getPattern(ctx) {
-    return ctx.createPattern(this.source || this.getPatternSrc(), 'repeat');
-  }
-
-  /**
-   * Sets brush styles
-   * @param {CanvasRenderingContext2D} ctx
-   */
-  _setBrushStyles(ctx) {
-    super._setBrushStyles(ctx);
-    const pattern = this.getPattern(ctx);
-    pattern && (ctx.strokeStyle = pattern);
-  }
-
-  /**
-   * Creates path
-   */
-  createPath(pathData) {
-    const path = super.createPath(pathData),
-      topLeft = path._getLeftTopCoords().scalarAdd(path.strokeWidth / 2);
-    path.stroke = new Pattern({
-      source: this.source || this.getPatternSrc(),
-      offsetX: -topLeft.x,
-      offsetY: -topLeft.y
-    });
-    return path;
-  }
-}
-
-const coordProps = ['x1', 'x2', 'y1', 'y2'];
-class Line extends FabricObject {
-  constructor() {
-    let [x1, y1, x2, y2] = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [0, 0, 100, 0];
-    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    super();
-    _defineProperty(this, "hitStrokeWidth", 'auto');
-    _defineProperty(this, "_updatingEndpoints", false);
-    _defineProperty(this, "_useEndpointCoords", true);
-    _defineProperty(this, "_exportingSVG", false);
-    this.setOptions(options);
-    this.x1 = x1;
-    this.x2 = x2;
-    this.y1 = y1;
-    this.y2 = y2;
-    if (options.hitStrokeWidth !== undefined) {
-      this.hitStrokeWidth = options.hitStrokeWidth;
-    }
-    this.hasBorders = false;
-    this.hasControls = true;
-    this.selectable = true;
-    this.hoverCursor = 'move';
-    this.perPixelTargetFind = false;
-    // Only set default if not provided in options (fixes deserialization bug)
-    if (options.strokeLineCap === undefined) {
-      this.strokeLineCap = 'butt';
-    }
-    this._setWidthHeight();
-    const {
-      left,
-      top
-    } = options;
-    typeof left === 'number' && this.set(LEFT, left);
-    typeof top === 'number' && this.set(TOP, top);
-    this._setupLineControls();
-  }
-  _setupLineControls() {
-    this.controls = {
-      p1: new Control({
-        x: 0,
-        y: 0,
-        cursorStyle: 'move',
-        actionHandler: this._endpointActionHandler.bind(this),
-        positionHandler: this._p1PositionHandler.bind(this),
-        render: this._renderEndpointControl.bind(this),
-        sizeX: 12,
-        sizeY: 12
-      }),
-      p2: new Control({
-        x: 0,
-        y: 0,
-        cursorStyle: 'move',
-        actionHandler: this._endpointActionHandler.bind(this),
-        positionHandler: this._p2PositionHandler.bind(this),
-        render: this._renderEndpointControl.bind(this),
-        sizeX: 12,
-        sizeY: 12
-      })
-    };
-  }
-  _p1PositionHandler() {
-    return new Point(this.x1, this.y1).transform(this.getViewportTransform());
-  }
-  _p2PositionHandler() {
-    return new Point(this.x2, this.y2).transform(this.getViewportTransform());
-  }
-  _renderEndpointControl(ctx, left, top) {
-    const size = 12;
-    ctx.save();
-    ctx.fillStyle = '#007bff';
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(left, top, size / 2, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-  }
-  drawBorders(ctx) {
-    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    if (this._useEndpointCoords) {
-      this._drawLineBorders(ctx, styleOverride);
-      return this;
-    }
-    return super.drawBorders(ctx, styleOverride, {});
-  }
-  _drawLineBorders(ctx) {
-    var _this$canvas;
-    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    const vpt = ((_this$canvas = this.canvas) === null || _this$canvas === void 0 ? void 0 : _this$canvas.viewportTransform) || [1, 0, 0, 1, 0, 0];
-    ctx.save();
-    ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
-    ctx.strokeStyle = styleOverride.borderColor || this.borderColor || 'rgba(100, 200, 200, 0.5)';
-    ctx.lineWidth = (this.strokeWidth || 1) + 5;
-    ctx.lineCap = this.strokeLineCap || 'butt';
-    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
-    ctx.beginPath();
-    ctx.moveTo(this.x1, this.y1);
-    ctx.lineTo(this.x2, this.y2);
-    ctx.stroke();
-    ctx.restore();
-  }
-  _renderControls(ctx) {
-    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    ctx.save();
-    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
-    this.drawControls(ctx, styleOverride);
-    ctx.restore();
-  }
-  getBoundingRect() {
-    if (this._useEndpointCoords) {
-      const {
-        x1,
-        y1,
-        x2,
-        y2
-      } = this;
-      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
-      const padding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
-      return {
-        left: Math.min(x1, x2) - padding,
-        top: Math.min(y1, y2) - padding,
-        width: Math.abs(x2 - x1) + padding * 2 || padding * 2,
-        height: Math.abs(y2 - y1) + padding * 2 || padding * 2
-      };
-    }
-    return super.getBoundingRect();
-  }
-  setCoords() {
-    if (this._useEndpointCoords) {
-      // Set width and height for hit detection and bounding box
-      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
-      const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
-      this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
-      this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
-
-      // Only update left/top if they haven't been explicitly set (e.g., during loading)
-      if (this.left === 0 && this.top === 0) {
-        const center = this._findCenterFromElement();
-        this.left = center.x;
-        this.top = center.y;
-      }
-    }
-    super.setCoords();
-  }
-  getCoords() {
-    if (this._useEndpointCoords) {
-      const deltaX = this.x2 - this.x1;
-      const deltaY = this.y2 - this.y1;
-      const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      if (length === 0) {
-        return super.getCoords();
-      }
-      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
-      const halfWidth = Math.max(effectiveStrokeWidth / 2 + 2, 5);
-
-      // Unit vector perpendicular to line
-      const perpX = -deltaY / length;
-      const perpY = deltaX / length;
-
-      // Four corners of oriented rectangle
-      return [new Point(this.x1 + perpX * halfWidth, this.y1 + perpY * halfWidth), new Point(this.x2 + perpX * halfWidth, this.y2 + perpY * halfWidth), new Point(this.x2 - perpX * halfWidth, this.y2 - perpY * halfWidth), new Point(this.x1 - perpX * halfWidth, this.y1 - perpY * halfWidth)];
-    }
-    return super.getCoords();
-  }
-  containsPoint(point) {
-    if (this._useEndpointCoords) {
-      var _this$canvas2;
-      if (((_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 ? void 0 : _this$canvas2.getActiveObject()) === this) {
-        return super.containsPoint(point);
-      }
-      const distance = this._distanceToLineSegment(point.x, point.y);
-      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth || 1;
-      const tolerance = Math.max(effectiveStrokeWidth / 2 + 2, 5);
-      return distance <= tolerance;
-    }
-    return super.containsPoint(point);
-  }
-  _distanceToLineSegment(px, py) {
-    const x1 = this.x1,
-      y1 = this.y1,
-      x2 = this.x2,
-      y2 = this.y2;
-    const pd2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
-    if (pd2 === 0) {
-      return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
-    }
-    const u = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / pd2;
-    let closestX, closestY;
-    if (u < 0) {
-      closestX = x1;
-      closestY = y1;
-    } else if (u > 1) {
-      closestX = x2;
-      closestY = y2;
-    } else {
-      closestX = x1 + u * (x2 - x1);
-      closestY = y1 + u * (y2 - y1);
-    }
-    return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
-  }
-  _endpointActionHandler(eventData, transformData, x, y) {
-    var _this$canvas4;
-    const controlKey = transformData.corner;
-    const pointer = new Point(x, y);
-    let newX = pointer.x;
-    let newY = pointer.y;
-    if (eventData.shiftKey) {
-      const otherControl = controlKey === 'p1' ? 'p2' : 'p1';
-      const otherX = this[otherControl === 'p1' ? 'x1' : 'x2'];
-      const otherY = this[otherControl === 'p1' ? 'y1' : 'y2'];
-      const snapped = this._snapToAngle(otherX, otherY, newX, newY);
-      newX = snapped.x;
-      newY = snapped.y;
-    }
-    if (this._useEndpointCoords) {
-      var _this$canvas3;
-      if (controlKey === 'p1') {
-        this.x1 = newX;
-        this.y1 = newY;
-      } else if (controlKey === 'p2') {
-        this.x2 = newX;
-        this.y2 = newY;
-      }
-
-      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
-      if (this.stroke instanceof Gradient && !this._exportingSVG) {
-        this.stroke.coords.x1 = this.x1;
-        this.stroke.coords.y1 = this.y1;
-        this.stroke.coords.x2 = this.x2;
-        this.stroke.coords.y2 = this.y2;
-      }
-      this.dirty = true;
-      this.setCoords();
-      (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
-      return true;
-    }
-
-    // Fallback for old system
-    this._updatingEndpoints = true;
-    if (controlKey === 'p1') {
-      this.x1 = newX;
-      this.y1 = newY;
-    } else if (controlKey === 'p2') {
-      this.x2 = newX;
-      this.y2 = newY;
-    }
-    this._setWidthHeight();
-    this.dirty = true;
-    this._updatingEndpoints = false;
-    (_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 || _this$canvas4.requestRenderAll();
-    this.fire('modified', {
-      transform: transformData,
-      target: this,
-      e: eventData
-    });
-    return true;
-  }
-  _snapToAngle(fromX, fromY, toX, toY) {
-    const deltaX = toX - fromX;
-    const deltaY = toY - fromY;
-    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    if (distance === 0) return {
-      x: toX,
-      y: toY
-    };
-    let angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
-    const snapIncrement = 15;
-    const snappedAngle = Math.round(angle / snapIncrement) * snapIncrement;
-    const snappedRadians = snappedAngle * (Math.PI / 180);
-    return {
-      x: fromX + Math.cos(snappedRadians) * distance,
-      y: fromY + Math.sin(snappedRadians) * distance
-    };
-  }
-  _setWidthHeight() {
-    let skipReposition = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
-    this.width = Math.abs(this.x2 - this.x1) || 1;
-    this.height = Math.abs(this.y2 - this.y1) || 1;
-    if (!skipReposition && !this._updatingEndpoints) {
-      const {
-        left,
-        top,
-        width,
-        height
-      } = makeBoundingBoxFromPoints([{
-        x: this.x1,
-        y: this.y1
-      }, {
-        x: this.x2,
-        y: this.y2
-      }]);
-      this.setPositionByOrigin(new Point(left + width / 2, top + height / 2), CENTER, CENTER);
-    }
-  }
-  _set(key, value) {
-    const oldLeft = this.left;
-    const oldTop = this.top;
-    super._set(key, value);
-    if (coordProps.includes(key)) {
-      this._setWidthHeight();
-      this.dirty = true;
-
-      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
-      if (this.stroke instanceof Gradient && !this._exportingSVG) {
-        this.stroke.coords.x1 = this.x1;
-        this.stroke.coords.y1 = this.y1;
-        this.stroke.coords.x2 = this.x2;
-        this.stroke.coords.y2 = this.y2;
-      }
-    }
-    if ((key === 'left' || key === 'top') && this.canvas && !this._updatingEndpoints) {
-      const deltaX = this.left - oldLeft;
-      const deltaY = this.top - oldTop;
-      if (deltaX !== 0 || deltaY !== 0) {
-        this._updatingEndpoints = true;
-        this.x1 += deltaX;
-        this.y1 += deltaY;
-        this.x2 += deltaX;
-        this.y2 += deltaY;
-
-        // Update gradient coordinates if stroke is a gradient
-        if (this.stroke instanceof Gradient) {
-          this.stroke.coords.x1 = this.x1;
-          this.stroke.coords.y1 = this.y1;
-          this.stroke.coords.x2 = this.x2;
-          this.stroke.coords.y2 = this.y2;
-        }
-        this._updatingEndpoints = false;
-      }
-    }
-    return this;
-  }
-  render(ctx) {
-    if (this._useEndpointCoords) {
-      this._renderDirectly(ctx);
-      return;
-    }
-    super.render(ctx);
-  }
-  _renderDirectly(ctx) {
-    if (!this.visible) return;
-    ctx.save();
-    ctx.globalAlpha = this.opacity;
-    ctx.lineWidth = this.strokeWidth;
-    ctx.lineCap = this.strokeLineCap || 'butt';
-    ctx.beginPath();
-    ctx.moveTo(this.x1, this.y1);
-    ctx.lineTo(this.x2, this.y2);
-    const origStrokeStyle = ctx.strokeStyle;
-    if (isFiller(this.stroke)) {
-      ctx.strokeStyle = this.stroke.toLive(ctx);
-    } else {
-      var _this$stroke;
-      ctx.strokeStyle = ((_this$stroke = this.stroke) === null || _this$stroke === void 0 ? void 0 : _this$stroke.toString()) || '#000';
-    }
-    ctx.stroke();
-    ctx.strokeStyle = origStrokeStyle;
-    ctx.restore();
-  }
-  _render(ctx) {
-    if (this._useEndpointCoords) return;
-    ctx.beginPath();
-    const p = this.calcLinePoints();
-    ctx.moveTo(p.x1, p.y1);
-    ctx.lineTo(p.x2, p.y2);
-    ctx.lineWidth = this.strokeWidth;
-    const origStrokeStyle = ctx.strokeStyle;
-    if (isFiller(this.stroke)) {
-      ctx.strokeStyle = this.stroke.toLive(ctx);
-    }
-    this.stroke && this._renderStroke(ctx);
-    ctx.strokeStyle = origStrokeStyle;
-  }
-  _findCenterFromElement() {
-    return new Point((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
-  }
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    if (this._useEndpointCoords) {
-      return {
-        ...super.toObject(propertiesToInclude),
-        x1: this.x1,
-        y1: this.y1,
-        x2: this.x2,
-        y2: this.y2
-      };
-    }
-    return {
-      ...super.toObject(propertiesToInclude),
-      ...this.calcLinePoints()
-    };
-  }
-  _getNonTransformedDimensions() {
-    const dim = super._getNonTransformedDimensions();
-    if (this.strokeLineCap === 'round') {
-      dim.x += this.strokeWidth;
-      dim.y += this.strokeWidth;
-    }
-    return dim;
-  }
-  calcLinePoints() {
-    if (this._updatingEndpoints) {
-      const centerX = (this.x1 + this.x2) / 2;
-      const centerY = (this.y1 + this.y2) / 2;
-      return {
-        x1: this.x1 - centerX,
-        y1: this.y1 - centerY,
-        x2: this.x2 - centerX,
-        y2: this.y2 - centerY
-      };
-    }
-    const {
-      x1: _x1,
-      x2: _x2,
-      y1: _y1,
-      y2: _y2,
-      width,
-      height
-    } = this;
-    const xMult = _x1 <= _x2 ? -1 : 1;
-    const yMult = _y1 <= _y2 ? -1 : 1;
-    return {
-      x1: xMult * width / 2,
-      y1: yMult * height / 2,
-      x2: xMult * -width / 2,
-      y2: yMult * -height / 2
-    };
-  }
-  _toSVG() {
-    if (this._useEndpointCoords) {
-      // Use absolute coordinates to bypass all Fabric.js transforms
-      // Handle gradients manually for proper SVG export
-      let strokeAttr = '';
-      if (this.stroke instanceof Gradient) {
-        // Let Fabric.js handle gradient definition, but we'll use the reference
-        strokeAttr = `stroke="url(#${this.stroke.id})"`;
-      } else {
-        strokeAttr = `stroke="${this.stroke || 'none'}"`;
-      }
-      return [`<line ${strokeAttr} stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `, `stroke-dasharray="${this.strokeDashArray ? this.strokeDashArray.join(' ') : 'none'}" `, `stroke-dashoffset="${this.strokeDashOffset}" stroke-linejoin="${this.strokeLineJoin}" `, `stroke-miterlimit="${this.strokeMiterLimit}" fill="${this.fill || 'none'}" `, `fill-rule="${this.fillRule}" opacity="${this.opacity}" `, `x1="${this.x1}" y1="${this.y1}" x2="${this.x2}" y2="${this.y2}" />\n`];
-    } else {
-      // Use standard calcLinePoints for legacy mode
-      const {
-        x1,
-        x2,
-        y1,
-        y2
-      } = this.calcLinePoints();
-      return ['<line ', 'COMMON_PARTS', `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />\n`];
-    }
-  }
-  toSVG(reviver) {
-    if (this._useEndpointCoords) {
-      // For endpoint coords, we need to bypass transforms but still allow gradients
-      // Let's temporarily disable transforms during SVG generation
-      const originalLeft = this.left;
-      const originalTop = this.top;
-
-      // Set position to center of line for gradient calculation
-      this.left = (this.x1 + this.x2) / 2;
-      this.top = (this.y1 + this.y2) / 2;
-
-      // Get the SVG with standard system (for gradient handling)
-      const standardSVG = super.toSVG(reviver);
-
-      // Restore original position
-      this.left = originalLeft;
-      this.top = originalTop;
-
-      // Extract gradient definition and clean up the line element
-      // Remove the transform wrapper and update coordinates
-      const cleanSVG = standardSVG.replace(/<g transform="[^"]*"[^>]*>/g, '').replace(/<\/g>/g, '').replace(/x1="[^"]*"/g, `x1="${this.x1}"`).replace(/y1="[^"]*"/g, `y1="${this.y1}"`).replace(/x2="[^"]*"/g, `x2="${this.x2}"`).replace(/y2="[^"]*"/g, `y2="${this.y2}"`);
-      return cleanSVG;
-    }
-    // Use default behavior for legacy mode
-    return super.toSVG(reviver);
-  }
-  static async fromElement(element, options, cssRules) {
-    const {
-      x1 = 0,
-      y1 = 0,
-      x2 = 0,
-      y2 = 0,
-      ...parsedAttributes
-    } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
-    return new this([x1, y1, x2, y2], parsedAttributes);
-  }
-  static fromObject(_ref) {
-    let {
-      x1,
-      y1,
-      x2,
-      y2,
-      ...object
-    } = _ref;
-    return this._fromObject({
-      ...object,
-      points: [x1, y1, x2, y2]
-    }, {
-      extraParam: 'points'
-    });
-  }
-}
-_defineProperty(Line, "type", 'Line');
-_defineProperty(Line, "cacheProperties", [...cacheProperties, ...coordProps]);
-_defineProperty(Line, "ATTRIBUTE_NAMES", SHARED_ATTRIBUTES.concat(coordProps));
-classRegistry.setClass(Line);
-classRegistry.setSVGClass(Line);
-
-/**
- * Calculate the distance between two points
- */
-function pointDistance(p1, p2) {
-  return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-}
-
-/**
- * Normalize a vector
- */
-function normalizeVector(vector) {
-  const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
-  if (length === 0) return {
-    x: 0,
-    y: 0
-  };
-  return {
-    x: vector.x / length,
-    y: vector.y / length
-  };
-}
-
-/**
- * Get the maximum allowed radius for a corner based on adjacent edge lengths
- */
-function getMaxRadius(prevPoint, currentPoint, nextPoint) {
-  const dist1 = pointDistance(prevPoint, currentPoint);
-  const dist2 = pointDistance(currentPoint, nextPoint);
-  return Math.min(dist1, dist2) / 2;
-}
-
-/**
- * Calculate rounded corner data for a single corner
- */
-function calculateRoundedCorner(prevPoint, currentPoint, nextPoint, radius) {
-  // Calculate edge vectors
-  const edge1 = {
-    x: currentPoint.x - prevPoint.x,
-    y: currentPoint.y - prevPoint.y
-  };
-  const edge2 = {
-    x: nextPoint.x - currentPoint.x,
-    y: nextPoint.y - currentPoint.y
-  };
-
-  // Normalize edge vectors
-  const norm1 = normalizeVector(edge1);
-  const norm2 = normalizeVector(edge2);
-
-  // Calculate the maximum allowed radius
-  const maxRadius = getMaxRadius(prevPoint, currentPoint, nextPoint);
-  const actualRadius = Math.min(radius, maxRadius);
-
-  // Calculate start and end points of the rounded corner
-  const startPoint = {
-    x: currentPoint.x - norm1.x * actualRadius,
-    y: currentPoint.y - norm1.y * actualRadius
-  };
-  const endPoint = {
-    x: currentPoint.x + norm2.x * actualRadius,
-    y: currentPoint.y + norm2.y * actualRadius
-  };
-
-  // Calculate control points for bezier curve
-  // Using the magic number kRect for optimal circular approximation
-  const controlOffset = actualRadius * kRect;
-  const cp1 = {
-    x: startPoint.x + norm1.x * controlOffset,
-    y: startPoint.y + norm1.y * controlOffset
-  };
-  const cp2 = {
-    x: endPoint.x - norm2.x * controlOffset,
-    y: endPoint.y - norm2.y * controlOffset
-  };
-  return {
-    corner: currentPoint,
-    start: startPoint,
-    end: endPoint,
-    cp1,
-    cp2,
-    actualRadius
-  };
-}
-
-/**
- * Apply corner radius to a polygon defined by points
- */
-function applyCornerRadiusToPolygon(points, radius) {
-  let radiusAsPercentage = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
-  if (points.length < 3) {
-    throw new Error('Polygon must have at least 3 points');
-  }
-
-  // Calculate bounding box if radius is percentage-based
-  let actualRadius = radius;
-  if (radiusAsPercentage) {
-    const minX = Math.min(...points.map(p => p.x));
-    const maxX = Math.max(...points.map(p => p.x));
-    const minY = Math.min(...points.map(p => p.y));
-    const maxY = Math.max(...points.map(p => p.y));
-    const width = maxX - minX;
-    const height = maxY - minY;
-    const minDimension = Math.min(width, height);
-    actualRadius = radius / 100 * minDimension;
-  }
-  const roundedCorners = [];
-  for (let i = 0; i < points.length; i++) {
-    const prevIndex = (i - 1 + points.length) % points.length;
-    const nextIndex = (i + 1) % points.length;
-    const prevPoint = points[prevIndex];
-    const currentPoint = points[i];
-    const nextPoint = points[nextIndex];
-    const roundedCorner = calculateRoundedCorner(prevPoint, currentPoint, nextPoint, actualRadius);
-    roundedCorners.push(roundedCorner);
-  }
-  return roundedCorners;
-}
-
-/**
- * Render a rounded polygon to a canvas context
- */
-function renderRoundedPolygon(ctx, roundedCorners) {
-  let closed = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
-  if (roundedCorners.length === 0) return;
-  ctx.beginPath();
-
-  // Start at the first corner's start point
-  const firstCorner = roundedCorners[0];
-  ctx.moveTo(firstCorner.start.x, firstCorner.start.y);
-  for (let i = 0; i < roundedCorners.length; i++) {
-    const corner = roundedCorners[i];
-    const nextIndex = (i + 1) % roundedCorners.length;
-    const nextCorner = roundedCorners[nextIndex];
-
-    // Draw the rounded corner using bezier curve
-    ctx.bezierCurveTo(corner.cp1.x, corner.cp1.y, corner.cp2.x, corner.cp2.y, corner.end.x, corner.end.y);
-
-    // Draw line to next corner's start point (if not the last segment in open path)
-    if (i < roundedCorners.length - 1 || closed) {
-      ctx.lineTo(nextCorner.start.x, nextCorner.start.y);
-    }
-  }
-  if (closed) {
-    ctx.closePath();
-  }
-}
-
-/**
- * Generate SVG path data for a rounded polygon
- */
-function generateRoundedPolygonPath(roundedCorners) {
-  let closed = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
-  if (roundedCorners.length === 0) return '';
-  const pathData = [];
-  const firstCorner = roundedCorners[0];
-
-  // Move to first corner's start point
-  pathData.push(`M ${firstCorner.start.x} ${firstCorner.start.y}`);
-  for (let i = 0; i < roundedCorners.length; i++) {
-    const corner = roundedCorners[i];
-    const nextIndex = (i + 1) % roundedCorners.length;
-    const nextCorner = roundedCorners[nextIndex];
-
-    // Add bezier curve for the rounded corner
-    pathData.push(`C ${corner.cp1.x} ${corner.cp1.y} ${corner.cp2.x} ${corner.cp2.y} ${corner.end.x} ${corner.end.y}`);
-
-    // Add line to next corner's start point (if not the last segment in open path)
-    if (i < roundedCorners.length - 1 || closed) {
-      pathData.push(`L ${nextCorner.start.x} ${nextCorner.start.y}`);
-    }
-  }
-  if (closed) {
-    pathData.push('Z');
-  }
-  return pathData.join(' ');
-}
-
-const triangleDefaultValues = {
-  width: 100,
-  height: 100,
-  cornerRadius: 0
-};
-const TRIANGLE_PROPS = ['cornerRadius'];
-class Triangle extends FabricObject {
-  static getDefaults() {
-    return {
-      ...super.getDefaults(),
-      ...Triangle.ownDefaults
-    };
-  }
-
-  /**
-   * Constructor
-   * @param {Object} [options] Options object
-   */
-  constructor(options) {
-    super();
-    Object.assign(this, Triangle.ownDefaults);
-    this.setOptions(options);
-  }
-
-  /**
-   * Get triangle points as an array of XY coordinates
-   * @private
-   */
-  _getTrianglePoints() {
-    const widthBy2 = this.width / 2;
-    const heightBy2 = this.height / 2;
-    return [{
-      x: -widthBy2,
-      y: heightBy2
-    },
-    // bottom left
-    {
-      x: 0,
-      y: -heightBy2
-    },
-    // top center
-    {
-      x: widthBy2,
-      y: heightBy2
-    } // bottom right
-    ];
-  }
-
-  /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx Context to render on
-   */
-  _render(ctx) {
-    if (this.cornerRadius > 0) {
-      // Render rounded triangle
-      const points = this._getTrianglePoints();
-      const roundedCorners = applyCornerRadiusToPolygon(points, this.cornerRadius);
-      renderRoundedPolygon(ctx, roundedCorners, true);
-    } else {
-      // Render sharp triangle (original implementation)
-      const widthBy2 = this.width / 2;
-      const heightBy2 = this.height / 2;
-      ctx.beginPath();
-      ctx.moveTo(-widthBy2, heightBy2);
-      ctx.lineTo(0, -heightBy2);
-      ctx.lineTo(widthBy2, heightBy2);
-      ctx.closePath();
-    }
-    this._renderPaintInOrder(ctx);
-  }
-
-  /**
-   * Returns object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} object representation of an instance
-   */
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    return super.toObject([...TRIANGLE_PROPS, ...propertiesToInclude]);
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
-  _toSVG() {
-    if (this.cornerRadius > 0) {
-      // Generate rounded triangle as path
-      const points = this._getTrianglePoints();
-      const roundedCorners = applyCornerRadiusToPolygon(points, this.cornerRadius);
-      const pathData = generateRoundedPolygonPath(roundedCorners, true);
-      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />`];
-    } else {
-      // Original sharp triangle implementation
-      const widthBy2 = this.width / 2;
-      const heightBy2 = this.height / 2;
-      const points = `${-widthBy2} ${heightBy2},0 ${-heightBy2},${widthBy2} ${heightBy2}`;
-      return ['<polygon ', 'COMMON_PARTS', 'points="', points, '" />'];
-    }
-  }
-}
-/**
- * Corner radius for rounded triangle corners
- * @type Number
- */
-_defineProperty(Triangle, "type", 'Triangle');
-_defineProperty(Triangle, "cacheProperties", [...cacheProperties, ...TRIANGLE_PROPS]);
-_defineProperty(Triangle, "ownDefaults", triangleDefaultValues);
-classRegistry.setClass(Triangle);
-classRegistry.setSVGClass(Triangle);
-
-const ellipseDefaultValues = {
-  rx: 0,
-  ry: 0
-};
-const ELLIPSE_PROPS = ['rx', 'ry'];
-class Ellipse extends FabricObject {
-  static getDefaults() {
-    return {
-      ...super.getDefaults(),
-      ...Ellipse.ownDefaults
-    };
-  }
-
-  /**
-   * Constructor
-   * @param {Object} [options] Options object
-   */
-  constructor(options) {
-    super();
-    Object.assign(this, Ellipse.ownDefaults);
-    this.setOptions(options);
-  }
-
-  /**
-   * @private
-   * @param {String} key
-   * @param {*} value
-   * @return {Ellipse} thisArg
-   */
-  _set(key, value) {
-    super._set(key, value);
-    switch (key) {
-      case 'rx':
-        this.rx = value;
-        this.set('width', value * 2);
-        break;
-      case 'ry':
-        this.ry = value;
-        this.set('height', value * 2);
-        break;
-    }
-    return this;
-  }
-
-  /**
-   * Returns horizontal radius of an object (according to how an object is scaled)
-   * @return {Number}
-   */
-  getRx() {
-    return this.get('rx') * this.get(SCALE_X);
-  }
-
-  /**
-   * Returns Vertical radius of an object (according to how an object is scaled)
-   * @return {Number}
-   */
-  getRy() {
-    return this.get('ry') * this.get(SCALE_Y);
-  }
-
-  /**
-   * Returns object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} object representation of an instance
-   */
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    return super.toObject([...ELLIPSE_PROPS, ...propertiesToInclude]);
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
-  _toSVG() {
-    return ['<ellipse ', 'COMMON_PARTS', `cx="0" cy="0" rx="${this.rx}" ry="${this.ry}" />\n`];
-  }
-
-  /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx context to render on
-   */
-  _render(ctx) {
-    ctx.beginPath();
-    ctx.save();
-    ctx.transform(1, 0, 0, this.ry / this.rx, 0, 0);
-    ctx.arc(0, 0, this.rx, 0, twoMathPi, false);
-    ctx.restore();
-    this._renderPaintInOrder(ctx);
-  }
-
-  /* _FROM_SVG_START_ */
-
-  /**
-   * List of attribute names to account for when parsing SVG element (used by {@link Ellipse.fromElement})
-   * @see http://www.w3.org/TR/SVG/shapes.html#EllipseElement
-   */
-
-  /**
-   * Returns {@link Ellipse} instance from an SVG element
-   * @param {HTMLElement} element Element to parse
-   * @return {Ellipse}
-   */
-  static async fromElement(element, options, cssRules) {
-    const parsedAttributes = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
-    parsedAttributes.left = (parsedAttributes.left || 0) - parsedAttributes.rx;
-    parsedAttributes.top = (parsedAttributes.top || 0) - parsedAttributes.ry;
-    return new this(parsedAttributes);
-  }
-
-  /* _FROM_SVG_END_ */
-}
-/**
- * Horizontal radius
- * @type Number
- */
-/**
- * Vertical radius
- * @type Number
- */
-_defineProperty(Ellipse, "type", 'Ellipse');
-_defineProperty(Ellipse, "cacheProperties", [...cacheProperties, ...ELLIPSE_PROPS]);
-_defineProperty(Ellipse, "ownDefaults", ellipseDefaultValues);
-_defineProperty(Ellipse, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES, 'cx', 'cy', 'rx', 'ry']);
-classRegistry.setClass(Ellipse);
-classRegistry.setSVGClass(Ellipse);
-
-/**
- * Parses "points" attribute, returning an array of values
- * @param {String} points points attribute string
- * @return {Array} array of points
- */
-function parsePointsAttribute(points) {
-  // points attribute is required and must not be empty
-  if (!points) {
-    return [];
-  }
-
-  // replace commas with whitespace and remove bookending whitespace
-  const pointsSplit = points.replace(/,/g, ' ').trim().split(/\s+/);
-  const parsedPoints = [];
-  for (let i = 0; i < pointsSplit.length; i += 2) {
-    parsedPoints.push({
-      x: parseFloat(pointsSplit[i]),
-      y: parseFloat(pointsSplit[i + 1])
-    });
-  }
-
-  // odd number of points is an error
-  // if (parsedPoints.length % 2 !== 0) {
-  //   return null;
-  // }
-  return parsedPoints;
-}
-
-const polylineDefaultValues = {
-  /**
-   * @deprecated transient option soon to be removed in favor of a different design
-   */
-  exactBoundingBox: false,
-  cornerRadius: 0
-};
-class Polyline extends FabricObject {
-  static getDefaults() {
-    return {
-      ...super.getDefaults(),
-      ...Polyline.ownDefaults
-    };
-  }
-
-  /**
-   * A list of properties that if changed trigger a recalculation of dimensions
-   * @todo check if you really need to recalculate for all cases
-   */
-
-  /**
-   * Constructor
-   * @param {Array} points Array of points (where each point is an object with x and y)
-   * @param {Object} [options] Options object
-   * @return {Polyline} thisArg
-   * @example
-   * var poly = new Polyline([
-   *     { x: 10, y: 10 },
-   *     { x: 50, y: 30 },
-   *     { x: 40, y: 70 },
-   *     { x: 60, y: 50 },
-   *     { x: 100, y: 150 },
-   *     { x: 40, y: 100 }
-   *   ], {
-   *   stroke: 'red',
-   *   left: 100,
-   *   top: 100
-   * });
-   */
-  constructor() {
-    let points = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    super();
-    _defineProperty(this, "strokeDiff", void 0);
-    Object.assign(this, Polyline.ownDefaults);
-    this.setOptions(options);
-    this.points = points;
-    const {
-      left,
-      top
-    } = options;
-    this.initialized = true;
-    this.setBoundingBox(true);
-    typeof left === 'number' && this.set(LEFT, left);
-    typeof top === 'number' && this.set(TOP, top);
-  }
-  isOpen() {
-    return true;
-  }
-  _projectStrokeOnPoints(options) {
-    return projectStrokeOnPoints(this.points, options, this.isOpen());
-  }
-
-  /**
-   * Calculate the polygon bounding box
-   * @private
-   */
-  _calcDimensions(options) {
-    options = {
-      scaleX: this.scaleX,
-      scaleY: this.scaleY,
-      skewX: this.skewX,
-      skewY: this.skewY,
-      strokeLineCap: this.strokeLineCap,
-      strokeLineJoin: this.strokeLineJoin,
-      strokeMiterLimit: this.strokeMiterLimit,
-      strokeUniform: this.strokeUniform,
-      strokeWidth: this.strokeWidth,
-      ...(options || {})
-    };
-    const points = this.exactBoundingBox ? this._projectStrokeOnPoints(options).map(projection => projection.projectedPoint) : this.points;
-    if (points.length === 0) {
-      return {
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-        pathOffset: new Point(),
-        strokeOffset: new Point(),
-        strokeDiff: new Point()
-      };
-    }
-    const bbox = makeBoundingBoxFromPoints(points),
-      // Remove scale effect, since it's applied after
-      matrix = calcDimensionsMatrix({
-        ...options,
-        scaleX: 1,
-        scaleY: 1
-      }),
-      bboxNoStroke = makeBoundingBoxFromPoints(this.points.map(p => transformPoint(p, matrix, true))),
-      scale = new Point(this.scaleX, this.scaleY);
-    let offsetX = bbox.left + bbox.width / 2,
-      offsetY = bbox.top + bbox.height / 2;
-    if (this.exactBoundingBox) {
-      offsetX = offsetX - offsetY * Math.tan(degreesToRadians(this.skewX));
-      // Order of those assignments is important.
-      // offsetY relies on offsetX being already changed by the line above
-      offsetY = offsetY - offsetX * Math.tan(degreesToRadians(this.skewY));
-    }
-    return {
-      ...bbox,
-      pathOffset: new Point(offsetX, offsetY),
-      strokeOffset: new Point(bboxNoStroke.left, bboxNoStroke.top).subtract(new Point(bbox.left, bbox.top)).multiply(scale),
-      strokeDiff: new Point(bbox.width, bbox.height).subtract(new Point(bboxNoStroke.width, bboxNoStroke.height)).multiply(scale)
-    };
-  }
-
-  /**
-   * This function is an helper for svg import. it returns the center of the object in the svg
-   * untransformed coordinates, by look at the polyline/polygon points.
-   * @private
-   * @return {Point} center point from element coordinates
-   */
-  _findCenterFromElement() {
-    const bbox = makeBoundingBoxFromPoints(this.points);
-    return new Point(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2);
-  }
-  setDimensions() {
-    this.setBoundingBox();
-  }
-  setBoundingBox(adjustPosition) {
-    const {
-      left,
-      top,
-      width,
-      height,
-      pathOffset,
-      strokeOffset,
-      strokeDiff
-    } = this._calcDimensions();
-    this.set({
-      width,
-      height,
-      pathOffset,
-      strokeOffset,
-      strokeDiff
-    });
-    adjustPosition && this.setPositionByOrigin(new Point(left + width / 2, top + height / 2), CENTER, CENTER);
-  }
-
-  /**
-   * @deprecated intermidiate method to be removed, do not use
-   */
-  isStrokeAccountedForInDimensions() {
-    return this.exactBoundingBox;
-  }
-
-  /**
-   * @override stroke is taken in account in size
-   */
-  _getNonTransformedDimensions() {
-    return this.exactBoundingBox ?
-    // TODO: fix this
-    new Point(this.width, this.height) : super._getNonTransformedDimensions();
-  }
-
-  /**
-   * @override stroke and skewing are taken into account when projecting stroke on points,
-   * therefore we don't want the default calculation to account for skewing as well.
-   * Though it is possible to pass `width` and `height` in `options`, doing so is very strange, use with discretion.
-   *
-   * @private
-   */
-  _getTransformedDimensions() {
-    let options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-    if (this.exactBoundingBox) {
-      let size;
-      /* When `strokeUniform = true`, any changes to the properties require recalculating the `width` and `height` because
-        the stroke projections are affected.
-        When `strokeUniform = false`, we don't need to recalculate for scale transformations, as the effect of scale on
-        projections follows a linear function (e.g. scaleX of 2 just multiply width by 2)*/
-      if (Object.keys(options).some(key => this.strokeUniform || this.constructor.layoutProperties.includes(key))) {
-        var _options$width, _options$height;
+    if (this.isActive() && this.__dragStartFired) {
+      //  once the drop event finishes we check if we need to change the drag source
+      //  if the drag source received the drop we bail out since the drop handler has already handled logic
+      if (this.__dragStartSelection) {
+        var _e$dataTransfer3;
+        const target = this.target;
+        const canvas = this.target.canvas;
         const {
-          width,
-          height
-        } = this._calcDimensions(options);
-        size = new Point((_options$width = options.width) !== null && _options$width !== void 0 ? _options$width : width, (_options$height = options.height) !== null && _options$height !== void 0 ? _options$height : height);
-      } else {
-        var _options$width2, _options$height2;
-        size = new Point((_options$width2 = options.width) !== null && _options$width2 !== void 0 ? _options$width2 : this.width, (_options$height2 = options.height) !== null && _options$height2 !== void 0 ? _options$height2 : this.height);
+          selectionStart,
+          selectionEnd
+        } = this.__dragStartSelection;
+        const dropEffect = ((_e$dataTransfer3 = e.dataTransfer) === null || _e$dataTransfer3 === void 0 ? void 0 : _e$dataTransfer3.dropEffect) || NONE;
+        if (dropEffect === NONE) {
+          // pointer is back over selection
+          target.selectionStart = selectionStart;
+          target.selectionEnd = selectionEnd;
+          target._updateTextarea();
+          target.hiddenTextarea.focus();
+        } else {
+          target.clearContextTop();
+          if (dropEffect === 'move') {
+            target.removeChars(selectionStart, selectionEnd);
+            target.selectionStart = target.selectionEnd = selectionStart;
+            target.hiddenTextarea && (target.hiddenTextarea.value = target.text);
+            target._updateTextarea();
+            target.fire(CHANGED, {
+              index: selectionStart,
+              action: 'dragend'
+            });
+            canvas.fire('text:changed', {
+              target
+            });
+            canvas.requestRenderAll();
+          }
+          target.exitEditing();
+        }
       }
-      return size.multiply(new Point(options.scaleX || this.scaleX, options.scaleY || this.scaleY));
-    } else {
-      return super._getTransformedDimensions(options);
     }
+    this.__dragImageDisposer && this.__dragImageDisposer();
+    delete this.__dragImageDisposer;
+    delete this.__dragStartSelection;
+    this.__isDraggingOver = false;
   }
-
-  /**
-   * Recalculates dimensions when changing skew and scale
-   * @private
-   */
-  _set(key, value) {
-    const changed = this.initialized && this[key] !== value;
-    const output = super._set(key, value);
-    if (this.exactBoundingBox && changed && ((key === SCALE_X || key === SCALE_Y) && this.strokeUniform && this.constructor.layoutProperties.includes('strokeUniform') || this.constructor.layoutProperties.includes(key))) {
-      this.setDimensions();
-    }
-    return output;
-  }
-
-  /**
-   * Returns object representation of an instance
-   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
-   * @return {Object} Object representation of an instance
-   */
-  toObject() {
-    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
-    return {
-      ...super.toObject(['cornerRadius', ...propertiesToInclude]),
-      points: this.points.map(_ref => {
-        let {
-          x,
-          y
-        } = _ref;
-        return {
-          x,
-          y
-        };
-      })
-    };
-  }
-
-  /**
-   * Returns svg representation of an instance
-   * @return {Array} an array of strings with the specific svg representation
-   * of the instance
-   */
-  _toSVG() {
-    if (this.cornerRadius > 0 && this.points.length >= 3) {
-      // Generate rounded polygon/polyline as path
-      const diffX = this.pathOffset.x;
-      const diffY = this.pathOffset.y;
-      const adjustedPoints = this.points.map(point => ({
-        x: point.x - diffX,
-        y: point.y - diffY
-      }));
-      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
-      const pathData = generateRoundedPolygonPath(roundedCorners, !this.isOpen());
-      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />\n`];
-    } else {
-      // Original sharp corners implementation
-      const points = [];
-      const diffX = this.pathOffset.x;
-      const diffY = this.pathOffset.y;
-      const NUM_FRACTION_DIGITS = config.NUM_FRACTION_DIGITS;
-      for (let i = 0, len = this.points.length; i < len; i++) {
-        points.push(toFixed(this.points[i].x - diffX, NUM_FRACTION_DIGITS), ',', toFixed(this.points[i].y - diffY, NUM_FRACTION_DIGITS), ' ');
-      }
-      return [`<${this.constructor.type.toLowerCase()} `, 'COMMON_PARTS', `points="${points.join('')}" />\n`];
-    }
-  }
-
-  /**
-   * @private
-   * @param {CanvasRenderingContext2D} ctx Context to render on
-   */
-  _render(ctx) {
-    const len = this.points.length,
-      x = this.pathOffset.x,
-      y = this.pathOffset.y;
-    if (!len || isNaN(this.points[len - 1].y)) {
-      // do not draw if no points or odd points
-      // NaN comes from parseFloat of a empty string in parser
-      return;
-    }
-    if (this.cornerRadius > 0 && len >= 3) {
-      // Render with rounded corners
-      const adjustedPoints = this.points.map(point => ({
-        x: point.x - x,
-        y: point.y - y
-      }));
-      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
-      renderRoundedPolygon(ctx, roundedCorners, !this.isOpen());
-    } else {
-      // Original sharp corners implementation
-      ctx.beginPath();
-      ctx.moveTo(this.points[0].x - x, this.points[0].y - y);
-      for (let i = 0; i < len; i++) {
-        const point = this.points[i];
-        ctx.lineTo(point.x - x, point.y - y);
-      }
-      !this.isOpen() && ctx.closePath();
-    }
-    this._renderPaintInOrder(ctx);
-  }
-
-  /**
-   * Returns complexity of an instance
-   * @return {Number} complexity of this instance
-   */
-  complexity() {
-    return this.points.length;
-  }
-
-  /* _FROM_SVG_START_ */
-
-  /**
-   * List of attribute names to account for when parsing SVG element (used by {@link Polyline.fromElement})
-   * @see: http://www.w3.org/TR/SVG/shapes.html#PolylineElement
-   */
-
-  /**
-   * Returns Polyline instance from an SVG element
-   * @param {HTMLElement} element Element to parser
-   * @param {Object} [options] Options object
-   */
-  static async fromElement(element, options, cssRules) {
-    const points = parsePointsAttribute(element.getAttribute('points')),
-      // we omit left and top to instruct the constructor to position the object using the bbox
-
-      {
-        left,
-        top,
-        ...parsedAttributes
-      } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
-    return new this(points, {
-      ...parsedAttributes,
-      ...options
-    });
-  }
-
-  /* _FROM_SVG_END_ */
-
-  /**
-   * Returns Polyline instance from an object representation
-   * @param {Object} object Object to create an instance from
-   * @returns {Promise<Polyline>}
-   */
-  static fromObject(object) {
-    return this._fromObject(object, {
-      extraParam: 'points'
-    });
+  dispose() {
+    this._dispose && this._dispose();
   }
 }
-/**
- * Points array
- * @type Array
- */
-/**
- * WARNING: Feature in progress
- * Calculate the exact bounding box taking in account strokeWidth on acute angles
- * this will be turned to true by default on fabric 6.0
- * maybe will be left in as an optimization since calculations may be slow
- * @deprecated transient option soon to be removed in favor of a different design
- * @type Boolean
- * @default false
- */
-/**
- * Corner radius for rounded corners
- * @type Number
- * @default 0
- */
-_defineProperty(Polyline, "ownDefaults", polylineDefaultValues);
-_defineProperty(Polyline, "type", 'Polyline');
-_defineProperty(Polyline, "layoutProperties", [SKEW_X, SKEW_Y, 'strokeLineCap', 'strokeLineJoin', 'strokeMiterLimit', 'strokeWidth', 'strokeUniform', 'points']);
-_defineProperty(Polyline, "cacheProperties", [...cacheProperties, 'points', 'cornerRadius']);
-_defineProperty(Polyline, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES]);
-classRegistry.setClass(Polyline);
-classRegistry.setSVGClass(Polyline);
-
-class Polygon extends Polyline {
-  isOpen() {
-    return false;
-  }
-}
-_defineProperty(Polygon, "ownDefaults", polylineDefaultValues);
-_defineProperty(Polygon, "type", 'Polygon');
-classRegistry.setClass(Polygon);
-classRegistry.setSVGClass(Polygon);
 
 class StyledText extends FabricObject {
   /**
@@ -20577,13 +17730,6 @@ function analyzeBiDi(text) {
 }
 
 /**
- * Character classification functions
- */
-function isWhitespace(grapheme) {
-  return /\s/.test(grapheme);
-}
-
-/**
  * Get bidirectional character type
  */
 function getBidiDirection(char, baseDirection) {
@@ -20710,17 +17856,18 @@ const ARABIC_NON_CONNECTING = new Set(['\u0627',
  */
 function isArabicLetter(char) {
   if (!char) return false;
-  const code = char.charCodeAt(0);
+  const base = Array.from(char)[0];
+  const code = base.codePointAt(0) || 0;
   // Arabic: U+0600-U+06FF (main block)
   // Arabic Supplement: U+0750-U+077F
   // Arabic Extended-A: U+08A0-U+08FF
-  return code >= 0x0620 && code <= 0x064A ||
+  return base !== ARABIC_TATWEEL && /\p{Letter}/u.test(base) && (code >= 0x0620 && code <= 0x064a ||
   // Main letters
-  code >= 0x066E && code <= 0x06D3 ||
+  code >= 0x066e && code <= 0x06d3 ||
   // Extended letters
-  code >= 0x0750 && code <= 0x077F ||
+  code >= 0x0750 && code <= 0x077f ||
   // Arabic Supplement
-  code >= 0x08A0 && code <= 0x08FF // Arabic Extended-A
+  code >= 0x08a0 && code <= 0x08ff) // Arabic Extended-A
   ;
 }
 
@@ -20746,74 +17893,32 @@ const ARABIC_ALEF_VARIANTS = new Set(['\u0627',
 // Lam character
 const ARABIC_LAM = '\u0644'; // ل
 
+const ARABIC_NON_JOINING = new Set(['\u0621',
+// Hamza
+'\u0674' // High Hamza
+]);
+const baseCharacter$1 = grapheme => Array.from(grapheme || '')[0] || '';
 function canInsertKashida(prevChar, nextChar) {
   if (!prevChar || !nextChar) return false;
+  const prev = baseCharacter$1(prevChar);
+  const next = baseCharacter$1(nextChar);
+  if (/\s/.test(prev) || /\s/.test(next)) return false;
 
-  // Can't insert at whitespace boundaries
-  if (/\s/.test(prevChar) || /\s/.test(nextChar)) return false;
-
-  // Both must be Arabic letters
-  if (!isArabicLetter(prevChar) || !isArabicLetter(nextChar)) return false;
+  // Preserve authored elongation and explicit joining controls.
+  if (prev === ARABIC_TATWEEL || next === ARABIC_TATWEEL || prev === '\u200c' || next === '\u200c' || prev === '\u200d' || next === '\u200d') {
+    return false;
+  }
+  if (!isArabicLetter(prev) || !isArabicLetter(next)) return false;
 
   // Previous char must connect to the next (not be non-connecting)
-  if (ARABIC_NON_CONNECTING.has(prevChar)) return false;
+  if (ARABIC_NON_CONNECTING.has(prev)) return false;
+
+  // The following character must accept a connection from its right.
+  if (ARABIC_NON_JOINING.has(next)) return false;
 
   // NEVER insert kashida between lam and alef - they form a ligature (لا)
-  if (prevChar === ARABIC_LAM && ARABIC_ALEF_VARIANTS.has(nextChar)) return false;
+  if (prev === ARABIC_LAM && ARABIC_ALEF_VARIANTS.has(next)) return false;
   return true;
-}
-
-/**
- * Represents a valid kashida insertion point
- */
-
-/**
- * Find all valid kashida insertion points in a line of text.
- * Returns points sorted by priority (highest first).
- *
- * Priority rules (similar to Adobe Illustrator):
- * 1. Between connected letters (ب + ب = highest)
- * 2. Prefer middle of words over edges
- * 3. Avoid inserting right before/after spaces
- */
-function findKashidaPoints(graphemes) {
-  const points = [];
-  for (let i = 0; i < graphemes.length - 1; i++) {
-    const prev = graphemes[i];
-    const next = graphemes[i + 1];
-    if (canInsertKashida(prev, next)) {
-      // Calculate priority based on position in word
-      let priority = 1;
-
-      // Find word boundaries
-      let wordStart = i;
-      let wordEnd = i + 1;
-      while (wordStart > 0 && !isWhitespace(graphemes[wordStart - 1])) {
-        wordStart--;
-      }
-      while (wordEnd < graphemes.length && !isWhitespace(graphemes[wordEnd])) {
-        wordEnd++;
-      }
-      const wordLength = wordEnd - wordStart;
-      const posInWord = i - wordStart;
-
-      // Higher priority for middle positions
-      const distFromEdge = Math.min(posInWord, wordLength - 1 - posInWord);
-      priority = distFromEdge + 1;
-
-      // Boost priority for longer words
-      if (wordLength > 4) priority += 1;
-      if (wordLength > 6) priority += 1;
-      points.push({
-        charIndex: i,
-        priority
-      });
-    }
-  }
-
-  // Sort by priority descending
-  points.sort((a, b) => b.priority - a.priority);
-  return points;
 }
 
 /**
@@ -21559,6 +18664,182 @@ function createMeasurementOptions(options) {
   };
 }
 
+const ALEF_CLASS = new Set(['\u0622', '\u0623', '\u0625', '\u0627', '\u0671']);
+const BEH_CLASS = new Set(['\u0626', '\u0628', '\u062a', '\u062b', '\u0646', '\u0649', '\u064a', '\u0678', '\u0679', '\u067a', '\u067b', '\u067e', '\u06a6', '\u06cc', '\u06d0']);
+const HEH_CLASS = new Set(['\u0629', '\u0647']);
+const REH_CLASS = new Set(['\u0631', '\u0632', '\u0691', '\u0698']);
+const SEEN_CLASS = new Set(['\u0633', '\u0634', '\u0635', '\u0636']);
+const baseCharacter = grapheme => Array.from(grapheme || '')[0] || '';
+const isTatweel = grapheme => baseCharacter(grapheme) === ARABIC_TATWEEL;
+const isArabicWordGrapheme = grapheme => isArabicLetter(grapheme) || isTatweel(grapheme);
+
+/**
+ * Finds typographically eligible Arabic joins and orders them by the broad
+ * priority hierarchy exposed by professional shaping systems:
+ * seen-class initial/medial forms, selected final forms, then normal medial
+ * joins. Position in the middle of a word is used as a tie-breaker.
+ */
+const findProfessionalKashidaPoints = graphemes => {
+  const points = [];
+  const addCandidate = function (previousIndex, nextIndex, insertionIndex) {
+    let authoredTatweel = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
+    const previous = graphemes[previousIndex];
+    const next = graphemes[nextIndex];
+    let wordStart = previousIndex;
+    while (wordStart > 0 && isArabicWordGrapheme(graphemes[wordStart - 1])) {
+      wordStart--;
+    }
+    let wordEnd = nextIndex + 1;
+    while (wordEnd < graphemes.length && isArabicWordGrapheme(graphemes[wordEnd])) {
+      wordEnd++;
+    }
+    const previousBase = baseCharacter(previous);
+    const nextBase = baseCharacter(next);
+    const nextIsFinal = nextIndex === wordEnd - 1;
+    const wordLength = graphemes.slice(wordStart, wordEnd).filter(isArabicLetter).length;
+    const positionInWord = graphemes.slice(wordStart, previousIndex + 1).filter(isArabicLetter).length;
+    const distanceFromEdge = Math.min(positionInWord, wordLength - positionInWord - 1);
+    let priority = 10;
+    if (SEEN_CLASS.has(previousBase)) {
+      priority += 100;
+    }
+    if (nextIsFinal) {
+      if (BEH_CLASS.has(nextBase)) {
+        priority += 80;
+      } else if (REH_CLASS.has(nextBase)) {
+        priority += 70;
+      } else if (HEH_CLASS.has(nextBase)) {
+        priority += 60;
+      } else if (ALEF_CLASS.has(nextBase)) {
+        priority += 50;
+      }
+    }
+    if (authoredTatweel) {
+      // Preserve the typographer's chosen elongation location.
+      priority += 200;
+    }
+    priority += distanceFromEdge * 4 + Math.min(wordLength, 8);
+    points.push({
+      charIndex: insertionIndex,
+      priority,
+      wordStart,
+      wordEnd
+    });
+  };
+  for (let charIndex = 0; charIndex < graphemes.length - 1; charIndex++) {
+    if (isTatweel(graphemes[charIndex])) {
+      const runStart = charIndex;
+      let runEnd = runStart + 1;
+      while (runEnd < graphemes.length && isTatweel(graphemes[runEnd])) {
+        runEnd++;
+      }
+      if (runStart > 0 && runEnd < graphemes.length && canInsertKashida(graphemes[runStart - 1], graphemes[runEnd])) {
+        addCandidate(runStart - 1, runEnd, runEnd - 1, true);
+      }
+      charIndex = runEnd - 1;
+      continue;
+    }
+    if (canInsertKashida(graphemes[charIndex], graphemes[charIndex + 1])) {
+      addCandidate(charIndex, charIndex + 1, charIndex);
+    }
+  }
+  return points.sort((a, b) => b.priority - a.priority || a.wordStart - b.wordStart);
+};
+const LEVEL_CONFIG = {
+  none: {
+    ratio: 0,
+    maxTatweelsPerWord: 0
+  },
+  short: {
+    ratio: 0.25,
+    maxTatweelsPerWord: 1
+  },
+  medium: {
+    ratio: 0.5,
+    maxTatweelsPerWord: 1
+  },
+  long: {
+    ratio: 0.75,
+    maxTatweelsPerWord: 2
+  },
+  stylistic: {
+    ratio: 1,
+    maxTatweelsPerWord: Number.POSITIVE_INFINITY
+  }
+};
+
+/**
+ * Builds one balanced kashida plan for a justified line.
+ *
+ * A line uses only the best join in each word. Longer presets extend that
+ * preferred join in balanced passes instead of producing multiple kashida
+ * locations in the same word. The caller fills any residual width using
+ * inter-word spacing after measuring the actual shaped result.
+ */
+const planKashida = (graphemes, extraWidth, tatweelWidth, level) => {
+  const config = LEVEL_CONFIG[level] || LEVEL_CONFIG.none;
+  const targetWidth = Math.max(0, extraWidth) * config.ratio;
+  if (targetWidth <= 0 || !Number.isFinite(tatweelWidth) || tatweelWidth <= 0) {
+    return {
+      points: [],
+      targetWidth,
+      estimatedWidth: 0,
+      totalTatweels: 0
+    };
+  }
+  const bestByWord = new Map();
+  for (const point of findProfessionalKashidaPoints(graphemes)) {
+    if (!bestByWord.has(point.wordStart)) {
+      bestByWord.set(point.wordStart, point);
+    }
+  }
+  const preferredPoints = [...bestByWord.values()].sort((a, b) => b.priority - a.priority || a.wordStart - b.wordStart);
+  if (preferredPoints.length === 0) {
+    return {
+      points: [],
+      targetWidth,
+      estimatedWidth: 0,
+      totalTatweels: 0
+    };
+  }
+  const capacity = preferredPoints.length * config.maxTatweelsPerWord;
+  const requestedTatweels = Math.floor(targetWidth / tatweelWidth);
+  const totalTatweels = Math.min(requestedTatweels, capacity);
+  if (totalTatweels === 0) {
+    return {
+      points: [],
+      targetWidth,
+      estimatedWidth: 0,
+      totalTatweels: 0
+    };
+  }
+  const counts = new Map();
+  let allocated = 0;
+  for (let pass = 0; pass < config.maxTatweelsPerWord && allocated < totalTatweels; pass++) {
+    for (const point of preferredPoints) {
+      if (allocated >= totalTatweels) {
+        break;
+      }
+      counts.set(point.wordStart, (counts.get(point.wordStart) || 0) + 1);
+      allocated++;
+    }
+  }
+  const points = preferredPoints.filter(point => counts.has(point.wordStart)).map(point => {
+    const tatweelCount = counts.get(point.wordStart) || 0;
+    return {
+      ...point,
+      tatweelCount,
+      width: tatweelCount * tatweelWidth
+    };
+  });
+  return {
+    points,
+    targetWidth,
+    estimatedWidth: allocated * tatweelWidth,
+    totalTatweels: allocated
+  };
+};
+
 const multipleSpacesRegex = /  +/g;
 const dblQuoteRegex = /"/g;
 function createSVGInlineRect(color, left, top, width, height) {
@@ -22129,17 +19410,6 @@ class FabricText extends StyledText {
    * When kashida is enabled, actual tatweel characters are inserted into the text.
    */
   enlargeSpaces() {
-    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
-    const kashidaRatios = {
-      none: 0,
-      short: 0.25,
-      medium: 0.5,
-      long: 0.75,
-      stylistic: 1.0
-    };
-    const kashidaRatio = kashidaRatios[this.kashida] || 0;
-    // console.log('kashidaRatio:', kashidaRatio);
-
     // Reset kashida info
     this.__kashidaInfo = [];
     for (let i = 0, len = this._textLines.length; i < len; i++) {
@@ -22175,76 +19445,32 @@ class FabricText extends StyledText {
       // Find spaces for space expansion
       const spaces = this.textLines[i].match(this._reSpacesAndTabs);
       const numberOfSpaces = spaces ? spaces.length : 0;
-
-      // Find kashida points if enabled
-      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
-      const hasKashidaPoints = kashidaPoints.length > 0;
-
-      // Calculate space distribution
-      let kashidaSpace = 0;
-      if (hasKashidaPoints && kashidaRatio > 0) {
-        // Distribute between kashida and spaces
-        kashidaSpace = totalExtraSpace * kashidaRatio;
-      }
-
-      // Calculate per-kashida and per-space widths
-      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
-
-      // If kashida is enabled, insert tatweel characters into the text
-      if (hasKashidaPoints && perKashidaWidth > 0) {
-        // console.log(`=== Inserting kashida for line ${i} ===`);
-        // console.log(`  kashidaPoints: ${kashidaPoints.length}, perKashidaWidth: ${perKashidaWidth}`);
-
-        // Sort by charIndex descending to insert from end (so indices stay valid)
-        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
-
-        // Calculate how many tatweels to insert per point
-        // Measure tatweel width to determine count
+      if (this.kashida !== 'none') {
         const ctx = getMeasuringContext();
-        // console.log(`  getMeasuringContext: ${ctx ? 'OK' : 'NULL'}`);
-
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          // console.log(`  tatweelWidth: ${tatweelWidth}`);
-
           if (tatweelWidth > 0) {
+            const plan = planKashida(line, totalExtraSpace, tatweelWidth, this.kashida);
+            const sortedPoints = [...plan.points].sort((a, b) => b.charIndex - a.charIndex);
             const newLine = [...line];
             for (const point of sortedPoints) {
-              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
-
-              // Insert tatweels after the character
-              for (let t = 0; t < tatweelCount; t++) {
-                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
-              }
-
-              // Store kashida info with updated indices and tatweel count
+              newLine.splice(point.charIndex + 1, 0, ...Array(point.tatweelCount).fill(ARABIC_TATWEEL));
               this.__kashidaInfo[i].push({
                 charIndex: point.charIndex,
-                width: perKashidaWidth,
-                tatweelCount: tatweelCount
+                width: point.width,
+                tatweelCount: point.tatweelCount
               });
             }
-
-            // console.log(`  Total inserted: ${insertedCount} tatweels`);
-            // console.log(`  Original line length: ${line.length}, new line length: ${newLine.length}`);
-            // console.log(`  New line: ${newLine.join('')}`);
-
-            // Update _textLines with the new line containing tatweels
-            this._textLines[i] = newLine;
-
-            // Update textLines string version
-            if (this.textLines && this.textLines[i] !== undefined) {
-              this.textLines[i] = newLine.join('');
+            if (plan.points.length > 0) {
+              this._textLines[i] = newLine;
+              if (this.textLines && this.textLines[i] !== undefined) {
+                this.textLines[i] = newLine.join('');
+              }
+              this.__charBounds[i] = [];
+              this.__lineWidths[i] = undefined;
+              this._measureLine(i);
             }
-
-            // Recalculate charBounds for this line since text changed
-            this.__charBounds[i] = [];
-            this.__lineWidths[i] = undefined;
-            this._measureLine(i);
-
-            // console.log(`  After remeasure, lineWidth: ${this.__lineWidths[i]}`);
           }
         }
       }
@@ -22368,8 +19594,14 @@ class FabricText extends StyledText {
     this._textLines = layout.lines.map(line => line.graphemes);
     this.textLines = layout.lines.map(line => line.text);
 
-    // Set _text as flat array of all graphemes (required for editing)
-    this._text = layout.lines.flatMap(line => line.graphemes);
+    // Keep the editor in the original logical text space. Wrapped layout lines
+    // may omit the whitespace consumed at a soft line break; flattening those
+    // lines shortens _text and makes Ctrl+A/input stop before the real end.
+    const logicalLines = this.text.split(this._reNewline);
+    this._text = logicalLines.flatMap((line, index) => {
+      const graphemes = this.direction === 'rtl' || this._containsArabicText(line) ? segmentGraphemes(line) : this.graphemeSplit(line);
+      return index < logicalLines.length - 1 ? [...graphemes, '\n'] : graphemes;
+    });
 
     // Convert bounds to legacy format
     // IMPORTANT: Preserve both logical (left) and visual (renderLeft) positions
@@ -23365,6 +20597,7 @@ class FabricText extends StyledText {
    * @private
    */
   _clearCache() {
+    var _clearNativeRtlEditin, _ref3;
     // console.log('🗑️ _clearCache called');
     // console.trace('🗑️ _clearCache stack trace');
     this._forceClearCache = false;
@@ -23372,6 +20605,10 @@ class FabricText extends StyledText {
     this.__lineHeights = [];
     this.__charBounds = [];
     this.__kashidaInfo = [];
+    // Reflow changes line breaks and generated kashida display indices.
+    // Never reuse a visual caret or native BiDi layout across dimensions.
+    this.__nativeRtlCaretState = undefined;
+    (_clearNativeRtlEditin = (_ref3 = this)._clearNativeRtlEditingCache) === null || _clearNativeRtlEditin === void 0 || _clearNativeRtlEditin.call(_ref3);
     // Reset justify applied flag
     this._justifyApplied = false;
     // Reset dimension state to force recalculation
@@ -24033,344 +21270,6 @@ _defineProperty(FabricText, "ATTRIBUTE_NAMES", SHARED_ATTRIBUTES.concat('x', 'y'
 applyMixins(FabricText, [TextSVGExportMixin]);
 classRegistry.setClass(FabricText);
 classRegistry.setSVGClass(FabricText);
-
-/**
- * #### Dragging IText/Textbox Lifecycle
- * - {@link start} is called from `mousedown` {@link IText#_mouseDownHandler} and determines if dragging should start by testing {@link isPointerOverSelection}
- * - if true `mousedown` {@link IText#_mouseDownHandler} is blocked to keep selection
- * - if the pointer moves, canvas fires numerous mousemove {@link Canvas#_onMouseMove} that we make sure **aren't** prevented ({@link IText#shouldStartDragging}) in order for the window to start a drag session
- * - once/if the session starts canvas calls {@link onDragStart} on the active object to determine if dragging should occur
- * - canvas fires relevant drag events that are handled by the handlers defined in this scope
- * - {@link end} is called from `mouseup` {@link IText#mouseUpHandler}, blocking IText default click behavior
- * - in case the drag session didn't occur, {@link end} handles a click, since logic to do so was blocked during `mousedown`
- */
-class DraggableTextDelegate {
-  constructor(target) {
-    _defineProperty(this, "target", void 0);
-    _defineProperty(this, "__mouseDownInPlace", false);
-    _defineProperty(this, "__dragStartFired", false);
-    _defineProperty(this, "__isDraggingOver", false);
-    _defineProperty(this, "__dragStartSelection", void 0);
-    _defineProperty(this, "__dragImageDisposer", void 0);
-    _defineProperty(this, "_dispose", void 0);
-    this.target = target;
-    const disposers = [this.target.on('dragenter', this.dragEnterHandler.bind(this)), this.target.on('dragover', this.dragOverHandler.bind(this)), this.target.on('dragleave', this.dragLeaveHandler.bind(this)), this.target.on('dragend', this.dragEndHandler.bind(this)), this.target.on('drop', this.dropHandler.bind(this))];
-    this._dispose = () => {
-      disposers.forEach(d => d());
-      this._dispose = undefined;
-    };
-  }
-  isPointerOverSelection(e) {
-    const target = this.target;
-    const newSelection = target.getSelectionStartFromPointer(e);
-    return target.isEditing && newSelection >= target.selectionStart && newSelection <= target.selectionEnd && target.selectionStart < target.selectionEnd;
-  }
-
-  /**
-   * @public override this method to disable dragging and default to mousedown logic
-   */
-  start(e) {
-    return this.__mouseDownInPlace = this.isPointerOverSelection(e);
-  }
-
-  /**
-   * @public override this method to disable dragging without discarding selection
-   */
-  isActive() {
-    return this.__mouseDownInPlace;
-  }
-
-  /**
-   * Ends interaction and sets cursor in case of a click
-   * @returns true if was active
-   */
-  end(e) {
-    const active = this.isActive();
-    if (active && !this.__dragStartFired) {
-      // mousedown has been blocked since `active` is true => cursor has not been set.
-      // `__dragStartFired` is false => dragging didn't occur, pointer didn't move and is over selection.
-      // meaning this is actually a click, `active` is a false positive.
-      this.target.setCursorByClick(e);
-      this.target.initDelayedCursor(true);
-    }
-    this.__mouseDownInPlace = false;
-    this.__dragStartFired = false;
-    this.__isDraggingOver = false;
-    return active;
-  }
-  getDragStartSelection() {
-    return this.__dragStartSelection;
-  }
-
-  /**
-   * Override to customize the drag image
-   * https://developer.mozilla.org/en-US/docs/Web/API/DataTransfer/setDragImage
-   */
-  setDragImage(e, _ref) {
-    var _e$dataTransfer;
-    let {
-      selectionStart,
-      selectionEnd
-    } = _ref;
-    const target = this.target;
-    const canvas = target.canvas;
-    const flipFactor = new Point(target.flipX ? -1 : 1, target.flipY ? -1 : 1);
-    const boundaries = target._getCursorBoundaries(selectionStart);
-    const selectionPosition = new Point(boundaries.left + boundaries.leftOffset, boundaries.top + boundaries.topOffset).multiply(flipFactor);
-    const pos = selectionPosition.transform(target.calcTransformMatrix());
-    const pointer = canvas.getScenePoint(e);
-    const diff = pointer.subtract(pos);
-    const retinaScaling = target.getCanvasRetinaScaling();
-    const bbox = target.getBoundingRect();
-    const correction = pos.subtract(new Point(bbox.left, bbox.top));
-    const vpt = canvas.viewportTransform;
-    const offset = correction.add(diff).transform(vpt, true);
-    //  prepare instance for drag image snapshot by making all non selected text invisible
-    const bgc = target.backgroundColor;
-    const styles = cloneStyles(target.styles);
-    target.backgroundColor = '';
-    const styleOverride = {
-      stroke: 'transparent',
-      fill: 'transparent',
-      textBackgroundColor: 'transparent'
-    };
-    target.setSelectionStyles(styleOverride, 0, selectionStart);
-    target.setSelectionStyles(styleOverride, selectionEnd, target.text.length);
-    target.dirty = true;
-    const dragImage = target.toCanvasElement({
-      enableRetinaScaling: canvas.enableRetinaScaling,
-      viewportTransform: true
-    });
-    // restore values
-    target.backgroundColor = bgc;
-    target.styles = styles;
-    target.dirty = true;
-    //  position drag image offscreen
-    setStyle(dragImage, {
-      position: 'fixed',
-      left: `${-dragImage.width}px`,
-      border: NONE,
-      width: `${dragImage.width / retinaScaling}px`,
-      height: `${dragImage.height / retinaScaling}px`
-    });
-    this.__dragImageDisposer && this.__dragImageDisposer();
-    this.__dragImageDisposer = () => {
-      dragImage.remove();
-    };
-    getDocumentFromElement(e.target || this.target.hiddenTextarea).body.appendChild(dragImage);
-    (_e$dataTransfer = e.dataTransfer) === null || _e$dataTransfer === void 0 || _e$dataTransfer.setDragImage(dragImage, offset.x, offset.y);
-  }
-
-  /**
-   * @returns {boolean} determines whether {@link target} should/shouldn't become a drag source
-   */
-  onDragStart(e) {
-    this.__dragStartFired = true;
-    const target = this.target;
-    const active = this.isActive();
-    if (active && e.dataTransfer) {
-      const selection = this.__dragStartSelection = {
-        selectionStart: target.selectionStart,
-        selectionEnd: target.selectionEnd
-      };
-      const value = target._text.slice(selection.selectionStart, selection.selectionEnd).join('');
-      const data = {
-        text: target.text,
-        value,
-        ...selection
-      };
-      e.dataTransfer.setData('text/plain', value);
-      e.dataTransfer.setData('application/fabric', JSON.stringify({
-        value: value,
-        styles: target.getSelectionStyles(selection.selectionStart, selection.selectionEnd, true)
-      }));
-      e.dataTransfer.effectAllowed = 'copyMove';
-      this.setDragImage(e, data);
-    }
-    target.abortCursorAnimation();
-    return active;
-  }
-
-  /**
-   * use {@link targetCanDrop} to respect overriding
-   * @returns {boolean} determines whether {@link target} should/shouldn't become a drop target
-   */
-  canDrop(e) {
-    if (this.target.editable && !this.target.getActiveControl() && !e.defaultPrevented) {
-      if (this.isActive() && this.__dragStartSelection) {
-        //  drag source trying to drop over itself
-        //  allow dropping only outside of drag start selection
-        const index = this.target.getSelectionStartFromPointer(e);
-        const dragStartSelection = this.__dragStartSelection;
-        return index < dragStartSelection.selectionStart || index > dragStartSelection.selectionEnd;
-      }
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * in order to respect overriding {@link IText#canDrop} we call that instead of calling {@link canDrop} directly
-   */
-  targetCanDrop(e) {
-    return this.target.canDrop(e);
-  }
-  dragEnterHandler(_ref2) {
-    let {
-      e
-    } = _ref2;
-    const canDrop = this.targetCanDrop(e);
-    if (!this.__isDraggingOver && canDrop) {
-      this.__isDraggingOver = true;
-    }
-  }
-  dragOverHandler(ev) {
-    const {
-      e
-    } = ev;
-    const canDrop = this.targetCanDrop(e);
-    if (!this.__isDraggingOver && canDrop) {
-      this.__isDraggingOver = true;
-    } else if (this.__isDraggingOver && !canDrop) {
-      //  drop state has changed
-      this.__isDraggingOver = false;
-    }
-    if (this.__isDraggingOver) {
-      //  can be dropped, inform browser
-      e.preventDefault();
-      //  inform event subscribers
-      ev.canDrop = true;
-      ev.dropTarget = this.target;
-    }
-  }
-  dragLeaveHandler() {
-    if (this.__isDraggingOver || this.isActive()) {
-      this.__isDraggingOver = false;
-    }
-  }
-
-  /**
-   * Override the `text/plain | application/fabric` types of {@link DragEvent#dataTransfer}
-   * in order to change the drop value or to customize styling respectively, by listening to the `drop:before` event
-   * https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/Drag_operations#performing_a_drop
-   */
-  dropHandler(ev) {
-    var _e$dataTransfer2;
-    const {
-      e
-    } = ev;
-    const didDrop = e.defaultPrevented;
-    this.__isDraggingOver = false;
-    // inform browser that the drop has been accepted
-    e.preventDefault();
-    let insert = (_e$dataTransfer2 = e.dataTransfer) === null || _e$dataTransfer2 === void 0 ? void 0 : _e$dataTransfer2.getData('text/plain');
-    if (insert && !didDrop) {
-      const target = this.target;
-      const canvas = target.canvas;
-      let insertAt = target.getSelectionStartFromPointer(e);
-      const {
-        styles
-      } = e.dataTransfer.types.includes('application/fabric') ? JSON.parse(e.dataTransfer.getData('application/fabric')) : {};
-      const trailing = insert[Math.max(0, insert.length - 1)];
-      const selectionStartOffset = 0;
-      //  drag and drop in same instance
-      if (this.__dragStartSelection) {
-        const selectionStart = this.__dragStartSelection.selectionStart;
-        const selectionEnd = this.__dragStartSelection.selectionEnd;
-        if (insertAt > selectionStart && insertAt <= selectionEnd) {
-          insertAt = selectionStart;
-        } else if (insertAt > selectionEnd) {
-          insertAt -= selectionEnd - selectionStart;
-        }
-        target.removeChars(selectionStart, selectionEnd);
-        // prevent `dragend` from handling event
-        delete this.__dragStartSelection;
-      }
-      //  remove redundant line break
-      if (target._reNewline.test(trailing) && (target._reNewline.test(target._text[insertAt]) || insertAt === target._text.length)) {
-        insert = insert.trimEnd();
-      }
-      //  inform subscribers
-      ev.didDrop = true;
-      ev.dropTarget = target;
-      //  finalize
-      target.insertChars(insert, styles, insertAt);
-      // can this part be moved in an outside event? andrea to check.
-      canvas.setActiveObject(target);
-      target.enterEditing(e);
-      target.selectionStart = Math.min(insertAt + selectionStartOffset, target._text.length);
-      target.selectionEnd = Math.min(target.selectionStart + insert.length, target._text.length);
-      target.hiddenTextarea.value = target.text;
-      target._updateTextarea();
-      target.hiddenTextarea.focus();
-      target.fire(CHANGED, {
-        index: insertAt + selectionStartOffset,
-        action: 'drop'
-      });
-      canvas.fire('text:changed', {
-        target
-      });
-      canvas.contextTopDirty = true;
-      canvas.requestRenderAll();
-    }
-  }
-
-  /**
-   * fired only on the drag source after drop (if occurred)
-   * handle changes to the drag source in case of a drop on another object or a cancellation
-   * https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/Drag_operations#finishing_a_drag
-   */
-  dragEndHandler(_ref3) {
-    let {
-      e
-    } = _ref3;
-    if (this.isActive() && this.__dragStartFired) {
-      //  once the drop event finishes we check if we need to change the drag source
-      //  if the drag source received the drop we bail out since the drop handler has already handled logic
-      if (this.__dragStartSelection) {
-        var _e$dataTransfer3;
-        const target = this.target;
-        const canvas = this.target.canvas;
-        const {
-          selectionStart,
-          selectionEnd
-        } = this.__dragStartSelection;
-        const dropEffect = ((_e$dataTransfer3 = e.dataTransfer) === null || _e$dataTransfer3 === void 0 ? void 0 : _e$dataTransfer3.dropEffect) || NONE;
-        if (dropEffect === NONE) {
-          // pointer is back over selection
-          target.selectionStart = selectionStart;
-          target.selectionEnd = selectionEnd;
-          target._updateTextarea();
-          target.hiddenTextarea.focus();
-        } else {
-          target.clearContextTop();
-          if (dropEffect === 'move') {
-            target.removeChars(selectionStart, selectionEnd);
-            target.selectionStart = target.selectionEnd = selectionStart;
-            target.hiddenTextarea && (target.hiddenTextarea.value = target.text);
-            target._updateTextarea();
-            target.fire(CHANGED, {
-              index: selectionStart,
-              action: 'dragend'
-            });
-            canvas.fire('text:changed', {
-              target
-            });
-            canvas.requestRenderAll();
-          }
-          target.exitEditing();
-        }
-      }
-    }
-    this.__dragImageDisposer && this.__dragImageDisposer();
-    delete this.__dragImageDisposer;
-    delete this.__dragStartSelection;
-    this.__isDraggingOver = false;
-  }
-  dispose() {
-    this._dispose && this._dispose();
-  }
-}
 
 class OverlayEditor {
   constructor(options) {
@@ -28491,6 +25390,4192 @@ classRegistry.setClass(IText);
 // legacy
 classRegistry.setClass(IText, 'i-text');
 
+const ARABIC_LETTER = /\p{Script=Arabic}/u;
+const HEBREW_LETTER = /\p{Script=Hebrew}/u;
+const LETTER = /\p{Letter}/u;
+const MARK = /\p{Mark}/u;
+const NUMBER = /\p{Number}/u;
+const WHITESPACE = /\s/u;
+const classify = grapheme => {
+  if (grapheme === '\n' || grapheme === '\r' || grapheme === '\r\n') {
+    return 'B';
+  }
+  if (grapheme === '\t') {
+    return 'S';
+  }
+  if (WHITESPACE.test(grapheme)) {
+    return 'WS';
+  }
+  if (/^[\u0660-\u0669]+$/u.test(grapheme)) {
+    return 'AN';
+  }
+  if (NUMBER.test(grapheme)) {
+    return 'EN';
+  }
+  // U+0640 ARABIC TATWEEL has the Unicode Script=Common property even though
+  // its BiDi class is AL. Handle it before the generic Letter rule.
+  if (/^\u0640+$/u.test(grapheme)) {
+    return 'AL';
+  }
+  if (ARABIC_LETTER.test(grapheme)) {
+    return 'AL';
+  }
+  if (HEBREW_LETTER.test(grapheme)) {
+    return 'R';
+  }
+  if (LETTER.test(grapheme)) {
+    return 'L';
+  }
+  // Fabric segments a base letter and its combining marks as one grapheme.
+  // Test scripts/letters before marks so Arabic tashkeel inherits its base
+  // letter's direction rather than the preceding paragraph character.
+  if (MARK.test(grapheme)) {
+    return 'NSM';
+  }
+  if (/^[+\-\u2212]$/u.test(grapheme)) {
+    return 'ES';
+  }
+  if (/^[,.:/\u060C\u066B\u066C]$/u.test(grapheme)) {
+    return 'CS';
+  }
+  if (/^[#$%\u00A2-\u00A5\u0609\u060A\u066A]$/u.test(grapheme)) {
+    return 'ET';
+  }
+  return 'ON';
+};
+const strongForNeutral = type => {
+  if (type === 'L') {
+    return 'L';
+  }
+  if (type === 'R' || type === 'EN' || type === 'AN') {
+    return 'R';
+  }
+  return null;
+};
+
+/**
+ * Resolves the UAX #9 rules needed by Fabric's inline editing geometry.
+ * Explicit embedding controls are intentionally treated as neutral because
+ * Fabric does not currently expose paragraph-level embedding controls.
+ */
+const resolveBidiLevels = (graphemes, baseDirection) => {
+  const baseType = baseDirection === 'rtl' ? 'R' : 'L';
+  const baseLevel = baseDirection === 'rtl' ? 1 : 0;
+  const original = graphemes.map(classify);
+  const types = [...original];
+
+  // W1: non-spacing marks inherit the previous character type.
+  let previousType = baseType;
+  for (let index = 0; index < types.length; index++) {
+    if (types[index] === 'NSM') {
+      types[index] = previousType;
+    } else {
+      previousType = types[index];
+    }
+  }
+
+  // W2: European numbers following an Arabic letter become Arabic numbers.
+  let previousStrong = baseType;
+  for (let index = 0; index < types.length; index++) {
+    const type = types[index];
+    if (type === 'R' || type === 'L' || type === 'AL') {
+      previousStrong = type;
+    } else if (type === 'EN' && previousStrong === 'AL') {
+      types[index] = 'AN';
+    }
+  }
+
+  // W3: Arabic letters resolve as strong RTL.
+  for (let index = 0; index < types.length; index++) {
+    if (types[index] === 'AL') {
+      types[index] = 'R';
+    }
+  }
+
+  // W4: separators between like numbers adopt the number type.
+  for (let index = 1; index < types.length - 1; index++) {
+    const before = types[index - 1];
+    const after = types[index + 1];
+    if (types[index] === 'ES' && before === 'EN' && after === 'EN') {
+      types[index] = 'EN';
+    } else if (types[index] === 'CS' && before === after && (before === 'EN' || before === 'AN')) {
+      types[index] = before;
+    }
+  }
+
+  // W5: a run of terminators touching an EN run adopts EN.
+  for (let index = 0; index < types.length;) {
+    if (types[index] !== 'ET') {
+      index++;
+      continue;
+    }
+    const start = index;
+    while (index < types.length && types[index] === 'ET') {
+      index++;
+    }
+    const before = start > 0 ? types[start - 1] : null;
+    const after = index < types.length ? types[index] : null;
+    if (before === 'EN' || after === 'EN') {
+      for (let cursor = start; cursor < index; cursor++) {
+        types[cursor] = 'EN';
+      }
+    }
+  }
+
+  // W6: remaining separators and terminators become neutral.
+  for (let index = 0; index < types.length; index++) {
+    if (types[index] === 'ES' || types[index] === 'ET' || types[index] === 'CS') {
+      types[index] = 'ON';
+    }
+  }
+
+  // W7: EN following strong L behaves as L.
+  previousStrong = baseType;
+  for (let index = 0; index < types.length; index++) {
+    const type = types[index];
+    if (type === 'L' || type === 'R') {
+      previousStrong = type;
+    } else if (type === 'EN' && previousStrong === 'L') {
+      types[index] = 'L';
+    }
+  }
+
+  // N1/N2: resolve contiguous neutral sequences from surrounding context.
+  for (let index = 0; index < types.length;) {
+    const type = types[index];
+    if (type !== 'WS' && type !== 'ON' && type !== 'B' && type !== 'S') {
+      index++;
+      continue;
+    }
+    const start = index;
+    while (index < types.length && (types[index] === 'WS' || types[index] === 'ON' || types[index] === 'B' || types[index] === 'S')) {
+      index++;
+    }
+    let before = baseType;
+    for (let cursor = start - 1; cursor >= 0; cursor--) {
+      const strong = strongForNeutral(types[cursor]);
+      if (strong) {
+        before = strong;
+        break;
+      }
+    }
+    let after = baseType;
+    for (let cursor = index; cursor < types.length; cursor++) {
+      const strong = strongForNeutral(types[cursor]);
+      if (strong) {
+        after = strong;
+        break;
+      }
+    }
+    const resolved = before === after ? before : baseType;
+    for (let cursor = start; cursor < index; cursor++) {
+      types[cursor] = resolved;
+    }
+  }
+
+  // I1/I2: implicit embedding levels.
+  return types.map(type => {
+    if ((baseLevel & 1) === 0) {
+      if (type === 'R') {
+        return baseLevel + 1;
+      }
+      if (type === 'AN' || type === 'EN') {
+        return baseLevel + 2;
+      }
+      return baseLevel;
+    }
+    if (type === 'L' || type === 'AN' || type === 'EN') {
+      return baseLevel + 1;
+    }
+    return baseLevel;
+  });
+};
+const reorderByLevels = levels => {
+  const order = levels.map((_, index) => index);
+  if (levels.length === 0) {
+    return order;
+  }
+  let highestLevel = 0;
+  let lowestOddLevel = Number.POSITIVE_INFINITY;
+  for (const level of levels) {
+    highestLevel = Math.max(highestLevel, level);
+    if ((level & 1) === 1) {
+      lowestOddLevel = Math.min(lowestOddLevel, level);
+    }
+  }
+  if (!Number.isFinite(lowestOddLevel)) {
+    return order;
+  }
+  for (let level = highestLevel; level >= lowestOddLevel; level--) {
+    let start = 0;
+    while (start < order.length) {
+      while (start < order.length && levels[order[start]] < level) {
+        start++;
+      }
+      if (start >= order.length) {
+        break;
+      }
+      let end = start + 1;
+      while (end < order.length && levels[order[end]] >= level) {
+        end++;
+      }
+      for (let left = start, right = end - 1; left < right; left++, right--) {
+        [order[left], order[right]] = [order[right], order[left]];
+      }
+      start = end;
+    }
+  }
+  return order;
+};
+const createVisualLineLayout = (graphemes, widths, baseDirection) => {
+  const levels = resolveBidiLevels(graphemes, baseDirection);
+  const visualOrder = reorderByLevels(levels);
+  const clusters = [];
+  const carets = [];
+  let visualX = 0;
+  for (const displayIndex of visualOrder) {
+    const width = Math.max(0, widths[displayIndex] || 0);
+    const isRtl = (levels[displayIndex] & 1) === 1;
+    const cluster = {
+      displayIndex,
+      visualX,
+      width,
+      level: levels[displayIndex],
+      isRtl
+    };
+    clusters.push(cluster);
+    carets.push({
+      displayIndex,
+      visualX: isRtl ? visualX + width : visualX,
+      affinity: 'before',
+      clusterDisplayIndex: displayIndex
+    });
+    carets.push({
+      displayIndex: displayIndex + 1,
+      visualX: isRtl ? visualX : visualX + width,
+      affinity: 'after',
+      clusterDisplayIndex: displayIndex
+    });
+    visualX += width;
+  }
+  return {
+    clusters,
+    carets,
+    visualOrder,
+    levels,
+    width: visualX
+  };
+};
+
+/**
+ * Fabric's legacy pair measurement can produce negative advances for joined
+ * Arabic glyphs because appending a letter reshapes the previous letter.
+ * Caret geometry must remain monotonic, so fall back to positive glyph widths
+ * and scale them to the measured line width whenever the cached advances are
+ * not safe to use.
+ */
+const normalizeVisualAdvances = (bounds, lineWidth) => {
+  if (bounds.length === 0) {
+    return [];
+  }
+  const measuredWidth = Math.max(0, lineWidth);
+  const rawAdvances = bounds.map(_ref => {
+    let {
+      kernedWidth
+    } = _ref;
+    return Number.isFinite(kernedWidth) ? Math.max(0, kernedWidth || 0) : 0;
+  });
+  const rawTotal = rawAdvances.reduce((sum, width) => sum + width, 0);
+  const hasInvalidAdvance = bounds.some(_ref2 => {
+    let {
+      kernedWidth
+    } = _ref2;
+    return !Number.isFinite(kernedWidth) || (kernedWidth || 0) <= 0;
+  });
+  let weights = rawAdvances;
+  if (hasInvalidAdvance || rawTotal === 0) {
+    weights = bounds.map(_ref3 => {
+      let {
+        width
+      } = _ref3;
+      return Number.isFinite(width) ? Math.max(0, width || 0) : 0;
+    });
+  }
+  let weightTotal = weights.reduce((sum, width) => sum + width, 0);
+  if (weightTotal === 0) {
+    weights = bounds.map(() => 1);
+    weightTotal = bounds.length;
+  }
+  const targetWidth = measuredWidth || weightTotal;
+  const scale = targetWidth / weightTotal;
+  const advances = weights.map(width => width * scale);
+
+  // Keep the right edge bit-for-bit aligned with Fabric's measured line.
+  const roundingDelta = targetWidth - advances.reduce((sum, width) => sum + width, 0);
+  advances[advances.length - 1] += roundingDelta;
+  return advances;
+};
+
+/**
+ * Converts Fabric's direction-dependent line anchor into a visual offset from
+ * the object's left edge.
+ */
+const getVisualLineOffset = (objectWidth, lineWidth, lineLeftOffset, direction) => direction === 'rtl' ? objectWidth + lineLeftOffset - lineWidth : lineLeftOffset;
+
+/**
+ * Resolve a pointer to the insertion caret belonging to the glyph half that
+ * was clicked. This avoids ambiguous equal-position carets at BiDi run edges.
+ */
+const hitTestVisualCaret = (layout, x) => {
+  const clusters = layout.clusters;
+  if (clusters.length === 0) {
+    return {
+      displayIndex: 0,
+      visualX: 0,
+      affinity: 'before',
+      clusterDisplayIndex: 0
+    };
+  }
+  const caretAtSide = (cluster, side) => {
+    const isBefore = cluster.isRtl ? side === 'right' : side === 'left';
+    return {
+      displayIndex: cluster.displayIndex + (isBefore ? 0 : 1),
+      visualX: side === 'left' ? cluster.visualX : cluster.visualX + cluster.width,
+      affinity: isBefore ? 'before' : 'after',
+      clusterDisplayIndex: cluster.displayIndex
+    };
+  };
+  const first = clusters[0];
+  if (x <= first.visualX) {
+    return caretAtSide(first, 'left');
+  }
+  for (let index = 0; index < clusters.length; index++) {
+    const cluster = clusters[index];
+    const right = cluster.visualX + cluster.width;
+    if (x <= right) {
+      return caretAtSide(cluster, x <= cluster.visualX + cluster.width / 2 ? 'left' : 'right');
+    }
+    const next = clusters[index + 1];
+    if (next && x < next.visualX) {
+      return x - right <= next.visualX - x ? caretAtSide(cluster, 'right') : caretAtSide(next, 'left');
+    }
+  }
+  return caretAtSide(clusters[clusters.length - 1], 'right');
+};
+const mergeVisualIntervals = function (intervals) {
+  let tolerance = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0.75;
+  const sorted = intervals.filter(_ref4 => {
+    let {
+      width
+    } = _ref4;
+    return width > 0;
+  }).sort((a, b) => a.x - b.x);
+  const result = [];
+  for (const interval of sorted) {
+    const previous = result[result.length - 1];
+    if (!previous) {
+      result.push({
+        ...interval
+      });
+      continue;
+    }
+    const previousEnd = previous.x + previous.width;
+    const intervalEnd = interval.x + interval.width;
+    if (interval.x <= previousEnd + tolerance) {
+      previous.width = Math.max(previousEnd, intervalEnd) - previous.x;
+    } else {
+      result.push({
+        ...interval
+      });
+    }
+  }
+  return result;
+};
+
+/**
+ * Splits a visually measured cursive run into independent grapheme cells.
+ *
+ * Browsers may expose repeated Arabic tatweels as one shaping cluster even
+ * though native editors still provide a caret stop for every U+0640. The run's
+ * outer bounds are authoritative; equal subdivision preserves those stops
+ * without changing the rendered extent.
+ */
+const subdivideVisualClusterRun = (clusters, displayStart, displayEnd, visualX, width) => {
+  const count = displayEnd - displayStart;
+  if (count <= 0 || !Number.isFinite(width) || width <= 0) {
+    return clusters;
+  }
+  const cellWidth = width / count;
+  return clusters.map(cluster => {
+    if (cluster.displayIndex < displayStart || cluster.displayIndex >= displayEnd) {
+      return cluster;
+    }
+    const logicalSlot = cluster.displayIndex - displayStart;
+    const visualSlot = cluster.isRtl ? count - logicalSlot - 1 : logicalSlot;
+    return {
+      ...cluster,
+      visualX: visualX + visualSlot * cellWidth,
+      width: cellWidth
+    };
+  });
+};
+
+const layoutCache = new WeakMap();
+let installed = false;
+const getOriginalLineLength = (target, lineIndex) => {
+  var _target$_textLines$li;
+  return typeof target._getOriginalLineLength === 'function' ? target._getOriginalLineLength(lineIndex) : ((_target$_textLines$li = target._textLines[lineIndex]) === null || _target$_textLines$li === void 0 ? void 0 : _target$_textLines$li.length) || 0;
+};
+const displayToOriginal = (target, lineIndex, displayIndex) => typeof target._displayToOriginalIndex === 'function' ? target._displayToOriginalIndex(lineIndex, displayIndex) : displayIndex;
+const originalToDisplay = (target, lineIndex, originalIndex) => typeof target._originalToDisplayIndex === 'function' ? target._originalToDisplayIndex(lineIndex, originalIndex) : originalIndex;
+const getLineStart = (target, lineIndex) => {
+  let start = 0;
+  for (let index = 0; index < lineIndex; index++) {
+    start += getOriginalLineLength(target, index) + target.missingNewlineOffset(index);
+  }
+  return start;
+};
+const getLineLocation = (target, globalIndex) => {
+  const clamped = Math.max(0, globalIndex);
+  let lineStart = 0;
+  for (let lineIndex = 0; lineIndex < target._textLines.length; lineIndex++) {
+    const lineLength = getOriginalLineLength(target, lineIndex);
+    if (clamped <= lineStart + lineLength || lineIndex === target._textLines.length - 1) {
+      return {
+        lineIndex,
+        originalIndex: Math.max(0, Math.min(lineLength, clamped - lineStart)),
+        lineStart
+      };
+    }
+    lineStart += lineLength + target.missingNewlineOffset(lineIndex);
+  }
+  return {
+    lineIndex: 0,
+    originalIndex: 0,
+    lineStart: 0
+  };
+};
+const getLineFromY = (target, yFromTop) => {
+  let top = 0;
+  for (let index = 0; index < target._textLines.length; index++) {
+    const height = target.getHeightOfLine(index);
+    if (yFromTop < top + height || index === target._textLines.length - 1) {
+      return index;
+    }
+    top += height;
+  }
+  return Math.max(0, target._textLines.length - 1);
+};
+const getLineTop = (target, lineIndex) => {
+  let top = 0;
+  for (let index = 0; index < lineIndex; index++) {
+    top += target.getHeightOfLine(index);
+  }
+  return top;
+};
+const getAlignmentOffset = (target, lineIndex) => {
+  const lineWidth = target.getLineWidth(lineIndex);
+  return getVisualLineOffset(target.width, lineWidth, target._getLineLeftOffset(lineIndex), target.direction === 'rtl' ? 'rtl' : 'ltr');
+};
+
+/**
+ * Canvas TextMetrics exposes only a run's total width, not the shaped glyph
+ * advances needed for character-accurate Arabic carets. In browsers, measure
+ * grapheme ranges in an invisible inline box so the same native shaping engine
+ * supplies the visual cluster rectangles. The editor and selection remain
+ * entirely canvas-rendered.
+ */
+const getBrowserShapedLayout = (target, lineIndex, line, lineWidth, targetAdvances, bounds) => {
+  var _target$canvas, _target$canvas$getEle, _target$isEmptyStyles, _target$_getWidthOfCh;
+  const element = (_target$canvas = target.canvas) === null || _target$canvas === void 0 || (_target$canvas$getEle = _target$canvas.getElement) === null || _target$canvas$getEle === void 0 ? void 0 : _target$canvas$getEle.call(_target$canvas);
+  const doc = element === null || element === void 0 ? void 0 : element.ownerDocument;
+  if (!(doc !== null && doc !== void 0 && doc.body) || typeof doc.createRange !== 'function' || target.path || !((_target$isEmptyStyles = target.isEmptyStyles) !== null && _target$isEmptyStyles !== void 0 && _target$isEmptyStyles.call(target, lineIndex)) || line.length === 0) {
+    return undefined;
+  }
+  const measurer = doc.createElement('span');
+  const textNode = doc.createTextNode(line.join(''));
+  const direction = target.direction === 'rtl' ? 'rtl' : 'ltr';
+  Object.assign(measurer.style, {
+    position: 'fixed',
+    left: '-100000px',
+    top: '0',
+    display: 'inline-block',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    whiteSpace: 'pre',
+    padding: '0',
+    margin: '0',
+    border: '0',
+    font: target._getFontDeclaration(),
+    fontKerning: 'normal',
+    fontVariantLigatures: 'normal',
+    letterSpacing: `${((_target$_getWidthOfCh = target._getWidthOfCharSpacing) === null || _target$_getWidthOfCh === void 0 ? void 0 : _target$_getWidthOfCh.call(target)) || 0}px`,
+    direction,
+    // Keep the measurement isolated from surrounding DOM while honoring
+    // Fabric's explicit paragraph direction. `plaintext` would instead choose
+    // the base direction from the first strong character ("Hello" => LTR).
+    unicodeBidi: 'isolate'
+  });
+  measurer.appendChild(textNode);
+  doc.body.appendChild(measurer);
+  try {
+    const containerRect = measurer.getBoundingClientRect();
+    if (!Number.isFinite(containerRect.width) || containerRect.width <= 0) {
+      return undefined;
+    }
+    const levels = resolveBidiLevels(line, direction);
+    const hasSingleBidiLevel = new Set(levels).size === 1;
+    const scale = hasSingleBidiLevel || lineWidth <= 0 ? 1 : lineWidth / containerRect.width;
+    let clusters = [];
+    const utf16Offsets = [0];
+    for (const grapheme of line) {
+      utf16Offsets.push(utf16Offsets[utf16Offsets.length - 1] + grapheme.length);
+    }
+    const measureRange = (utf16Start, utf16End) => {
+      var _range$detach;
+      const range = doc.createRange();
+      if (typeof range.getClientRects !== 'function') {
+        return undefined;
+      }
+      range.setStart(textNode, utf16Start);
+      range.setEnd(textNode, utf16End);
+      const rects = Array.from(range.getClientRects());
+      (_range$detach = range.detach) === null || _range$detach === void 0 || _range$detach.call(range);
+      if (rects.length === 0) {
+        return undefined;
+      }
+      const left = Math.min(...rects.map(rect => rect.left));
+      const right = Math.max(...rects.map(rect => rect.right));
+      const width = (right - left) * scale;
+      if (!Number.isFinite(width) || width <= 0) {
+        return undefined;
+      }
+      return {
+        visualX: (left - containerRect.left) * scale,
+        width
+      };
+    };
+    const measureCollapsedCaret = utf16Offset => {
+      var _range$detach2;
+      const range = doc.createRange();
+      range.setStart(textNode, utf16Offset);
+      range.collapse(true);
+      const rects = Array.from(range.getClientRects());
+      const rect = rects[0] || range.getBoundingClientRect();
+      (_range$detach2 = range.detach) === null || _range$detach2 === void 0 || _range$detach2.call(range);
+      if (!rect || !Number.isFinite(rect.left)) {
+        return undefined;
+      }
+      return (rect.left - containerRect.left) * scale;
+    };
+
+    // A collapsed DOM Range is the browser's native insertion position. For a
+    // single-direction line its consecutive positions form authoritative,
+    // non-overlapping caret cells even when cursive Arabic glyph bounds overlap.
+    // Mixed BiDi lines can expose two visual affinities for one logical index,
+    // so retain per-cluster range rectangles for those lines.
+    const collapsedCarets = hasSingleBidiLevel ? utf16Offsets.map(measureCollapsedCaret) : [];
+    for (let displayIndex = 0; displayIndex < line.length; displayIndex++) {
+      const before = collapsedCarets[displayIndex];
+      const after = collapsedCarets[displayIndex + 1];
+      const collapsedMeasurement = before !== undefined && after !== undefined && Math.abs(after - before) > 0.01 ? {
+        visualX: Math.min(before, after),
+        width: Math.abs(after - before)
+      } : undefined;
+      const measurement = collapsedMeasurement || measureRange(utf16Offsets[displayIndex], utf16Offsets[displayIndex + 1]);
+      if (!measurement) {
+        return undefined;
+      }
+      clusters.push({
+        displayIndex,
+        ...measurement,
+        level: levels[displayIndex],
+        isRtl: (levels[displayIndex] & 1) === 1
+      });
+    }
+
+    // Chromium exposes consecutive tatweels as overlapping pieces of one
+    // cursive shaping cluster. Measure the full stretch once, then restore a
+    // native-editor caret cell for each U+0640 without altering its total span.
+    for (let start = 0; start < line.length;) {
+      if (line[start].codePointAt(0) !== 0x0640) {
+        start++;
+        continue;
+      }
+      let end = start + 1;
+      while (end < line.length && line[end].codePointAt(0) === 0x0640) {
+        end++;
+      }
+      if (end - start > 1) {
+        const run = measureRange(utf16Offsets[start], utf16Offsets[end]);
+        if (run) {
+          clusters = subdivideVisualClusterRun(clusters, start, end, run.visualX, run.width);
+        }
+      }
+      start = end;
+    }
+    if (hasSingleBidiLevel) {
+      // Fabric renders justified text as native word runs and advances the
+      // drawing anchor separately by __charBounds (including stretched
+      // spaces). Reconstruct those exact anchors while retaining the browser's
+      // native caret proportions inside each cursive word.
+      let runStart = 0;
+      let anchor = direction === 'rtl' ? lineWidth : 0;
+      while (runStart < line.length) {
+        let wordEnd = runStart;
+        while (wordEnd < line.length && !/\s/u.test(line[wordEnd])) {
+          wordEnd++;
+        }
+        const wordClusters = clusters.filter(_ref => {
+          let {
+            displayIndex
+          } = _ref;
+          return displayIndex >= runStart && displayIndex < wordEnd;
+        });
+        const nativeLeft = wordClusters.length > 0 ? Math.min(...wordClusters.map(_ref2 => {
+          let {
+            visualX
+          } = _ref2;
+          return visualX;
+        })) : 0;
+        const nativeRight = wordClusters.length > 0 ? Math.max(...wordClusters.map(_ref3 => {
+          let {
+            visualX,
+            width
+          } = _ref3;
+          return visualX + width;
+        })) : nativeLeft;
+        const nativeWidth = nativeRight - nativeLeft;
+        const wordLeft = direction === 'rtl' ? anchor - nativeWidth : anchor;
+        for (const cluster of wordClusters) {
+          cluster.visualX = wordLeft + cluster.visualX - nativeLeft;
+        }
+        const hasTrailingSpace = wordEnd < line.length;
+        const runEnd = hasTrailingSpace ? wordEnd + 1 : wordEnd;
+        const renderedAdvance = Array.from({
+          length: runEnd - runStart
+        }, (_, offset) => runStart + offset).reduce((sum, index) => {
+          var _bounds$index;
+          return sum + (((_bounds$index = bounds[index]) === null || _bounds$index === void 0 ? void 0 : _bounds$index.kernedWidth) || 0);
+        }, 0);
+        const fallbackAdvance = targetAdvances.slice(runStart, runEnd).reduce((sum, width) => sum + width, 0);
+        const advance = Number.isFinite(renderedAdvance) && renderedAdvance > 0 ? renderedAdvance : fallbackAdvance;
+        const nextAnchor = direction === 'rtl' ? anchor - advance : anchor + advance;
+        if (hasTrailingSpace) {
+          const spaceCluster = clusters.find(_ref4 => {
+            let {
+              displayIndex
+            } = _ref4;
+            return displayIndex === wordEnd;
+          });
+          if (spaceCluster) {
+            const wordFarEdge = direction === 'rtl' ? wordLeft : wordLeft + nativeWidth;
+            spaceCluster.visualX = Math.min(wordFarEdge, nextAnchor);
+            spaceCluster.width = Math.abs(wordFarEdge - nextAnchor);
+          }
+        }
+        anchor = nextAnchor;
+        runStart = runEnd;
+      }
+    }
+    clusters.sort((a, b) => a.visualX - b.visualX);
+    const carets = [];
+    for (const cluster of clusters) {
+      carets.push({
+        displayIndex: cluster.displayIndex,
+        visualX: cluster.isRtl ? cluster.visualX + cluster.width : cluster.visualX,
+        affinity: 'before',
+        clusterDisplayIndex: cluster.displayIndex
+      });
+      carets.push({
+        displayIndex: cluster.displayIndex + 1,
+        visualX: cluster.isRtl ? cluster.visualX : cluster.visualX + cluster.width,
+        affinity: 'after',
+        clusterDisplayIndex: cluster.displayIndex
+      });
+    }
+    return {
+      clusters,
+      carets,
+      visualOrder: clusters.map(_ref5 => {
+        let {
+          displayIndex
+        } = _ref5;
+        return displayIndex;
+      }),
+      levels,
+      width: lineWidth
+    };
+  } finally {
+    measurer.remove();
+  }
+};
+const getLayout = (target, lineIndex) => {
+  var _target$_getFontDecla, _target$_getWidthOfCh2;
+  const line = target._textLines[lineIndex] || [];
+  // Ensure __charBounds has been populated lazily by Fabric.
+  target._getLineLeftOffset(lineIndex);
+  const bounds = target.__charBounds[lineIndex] || [];
+  const lineWidth = target.getLineWidth(lineIndex);
+  const widths = normalizeVisualAdvances(line.map((_, index) => bounds[index] || {}), lineWidth);
+  const hash = [target.direction, line.join(''), lineWidth, (_target$_getFontDecla = target._getFontDeclaration) === null || _target$_getFontDecla === void 0 ? void 0 : _target$_getFontDecla.call(target), (_target$_getWidthOfCh2 = target._getWidthOfCharSpacing) === null || _target$_getWidthOfCh2 === void 0 ? void 0 : _target$_getWidthOfCh2.call(target), widths.join(',')].join('|');
+  let targetCache = layoutCache.get(target);
+  if (!targetCache) {
+    targetCache = new Map();
+    layoutCache.set(target, targetCache);
+  }
+  const cached = targetCache.get(lineIndex);
+  if ((cached === null || cached === void 0 ? void 0 : cached.hash) === hash) {
+    return cached.layout;
+  }
+  const layout = getBrowserShapedLayout(target, lineIndex, line, lineWidth, widths, bounds) || createVisualLineLayout(line, widths, target.direction === 'rtl' ? 'rtl' : 'ltr');
+  targetCache.set(lineIndex, {
+    hash,
+    layout
+  });
+  return layout;
+};
+const getCaretCandidates = (layout, displayIndex) => layout.carets.filter(caret => caret.displayIndex === displayIndex);
+const chooseCaret = (target, globalIndex, lineIndex, originalIndex, layout) => {
+  const displayIndex = originalToDisplay(target, lineIndex, originalIndex);
+  const candidates = getCaretCandidates(layout, displayIndex);
+  const state = target.__nativeRtlCaretState;
+  if ((state === null || state === void 0 ? void 0 : state.globalIndex) === globalIndex && state.lineIndex === lineIndex) {
+    const exact = candidates.find(caret => caret.affinity === state.affinity && Math.abs(caret.visualX - state.visualX) < 0.75);
+    if (exact) {
+      return exact;
+    }
+  }
+  if (candidates.length > 0) {
+    if (originalIndex === 0) {
+      return target.direction === 'rtl' ? candidates.reduce((best, caret) => caret.visualX > best.visualX ? caret : best) : candidates.reduce((best, caret) => caret.visualX < best.visualX ? caret : best);
+    }
+    if (originalIndex >= getOriginalLineLength(target, lineIndex)) {
+      return target.direction === 'rtl' ? candidates.reduce((best, caret) => caret.visualX < best.visualX ? caret : best) : candidates.reduce((best, caret) => caret.visualX > best.visualX ? caret : best);
+    }
+    return candidates.find(caret => caret.affinity === 'before') || candidates[0];
+  }
+  return {
+    displayIndex,
+    visualX: target.direction === 'rtl' ? 0 : layout.width,
+    affinity: 'before',
+    clusterDisplayIndex: Math.max(0, displayIndex - 1)
+  };
+};
+const rememberCaret = (target, globalIndex, lineIndex, caret) => {
+  target.__nativeRtlCaretState = {
+    globalIndex,
+    lineIndex,
+    displayIndex: caret.displayIndex,
+    clusterDisplayIndex: caret.clusterDisplayIndex,
+    visualX: caret.visualX,
+    affinity: caret.affinity
+  };
+};
+const setCollapsedSelection = (target, globalIndex, lineIndex, caret) => {
+  target.selectionStart = globalIndex;
+  target.selectionEnd = globalIndex;
+  rememberCaret(target, globalIndex, lineIndex, caret);
+};
+const moveVisualCaret = (target, direction, event) => {
+  if (event.altKey || event.metaKey || event.ctrlKey || event.keyCode === 35 || event.keyCode === 36) {
+    return false;
+  }
+  if (target.selectionStart !== target.selectionEnd && !event.shiftKey) {
+    const start = getLineLocation(target, target.selectionStart);
+    const end = getLineLocation(target, target.selectionEnd);
+    if (start.lineIndex !== end.lineIndex) {
+      const index = direction < 0 ? target.selectionStart : target.selectionEnd;
+      const location = getLineLocation(target, index);
+      const layout = getLayout(target, location.lineIndex);
+      const caret = chooseCaret(target, index, location.lineIndex, location.originalIndex, layout);
+      setCollapsedSelection(target, index, location.lineIndex, caret);
+      return true;
+    }
+    const layout = getLayout(target, start.lineIndex);
+    const startCaret = chooseCaret(target, target.selectionStart, start.lineIndex, start.originalIndex, layout);
+    const endCaret = chooseCaret(target, target.selectionEnd, end.lineIndex, end.originalIndex, layout);
+    const chosen = direction < 0 ? startCaret.visualX <= endCaret.visualX ? {
+      index: target.selectionStart,
+      caret: startCaret
+    } : {
+      index: target.selectionEnd,
+      caret: endCaret
+    } : startCaret.visualX >= endCaret.visualX ? {
+      index: target.selectionStart,
+      caret: startCaret
+    } : {
+      index: target.selectionEnd,
+      caret: endCaret
+    };
+    setCollapsedSelection(target, chosen.index, start.lineIndex, chosen.caret);
+    return true;
+  }
+  const activeIndex = event.shiftKey ? target._selectionDirection === 'left' ? target.selectionStart : target.selectionEnd : target.selectionStart;
+  const location = getLineLocation(target, activeIndex);
+  const layout = getLayout(target, location.lineIndex);
+  const current = chooseCaret(target, activeIndex, location.lineIndex, location.originalIndex, layout);
+  const ordered = [...layout.carets].sort((a, b) => a.visualX - b.visualX);
+  const epsilon = 0.5;
+  const candidates = direction < 0 ? ordered.filter(caret => caret.visualX < current.visualX - epsilon) : ordered.filter(caret => caret.visualX > current.visualX + epsilon);
+  let next = direction < 0 ? candidates[candidates.length - 1] : candidates[0];
+  let nextLine = location.lineIndex;
+  if (!next) {
+    nextLine += direction < 0 ? -1 : 1;
+    if (nextLine < 0 || nextLine >= target._textLines.length) {
+      return false;
+    }
+    const nextLayout = getLayout(target, nextLine);
+    const nextOrdered = [...nextLayout.carets].sort((a, b) => a.visualX - b.visualX);
+    next = direction < 0 ? nextOrdered[nextOrdered.length - 1] : nextOrdered[0];
+  }
+  const originalIndex = displayToOriginal(target, nextLine, next.displayIndex);
+  const globalIndex = getLineStart(target, nextLine) + originalIndex;
+  if (event.shiftKey) {
+    target.setSelectionStartEndWithShift(target.selectionStart, target.selectionEnd, globalIndex);
+  } else {
+    target.selectionStart = globalIndex;
+    target.selectionEnd = globalIndex;
+  }
+  rememberCaret(target, globalIndex, nextLine, next);
+  return true;
+};
+const installNativeRtlEditing = () => {
+  if (installed) {
+    return;
+  }
+  installed = true;
+  const prototype = IText.prototype;
+  const originalSelectWord = prototype.selectWord;
+  const originalInitHiddenTextarea = prototype.initHiddenTextarea;
+  const originalMoveCursorLeft = prototype.moveCursorLeft;
+  const originalMoveCursorRight = prototype.moveCursorRight;
+  prototype._clearNativeRtlEditingCache = function () {
+    layoutCache.delete(this);
+    this.__nativeRtlCaretState = undefined;
+  };
+
+  // RTL key maps must call methods according to the visual arrow direction.
+  IText.ownDefaults.keysMapRtl = IText.ownDefaults.keysMap;
+  prototype.initHiddenTextarea = function () {
+    originalInitHiddenTextarea.call(this);
+    if (this.hiddenTextarea) {
+      this.hiddenTextarea.dir = this.direction === 'rtl' ? 'rtl' : 'ltr';
+      this.hiddenTextarea.style.direction = this.direction === 'rtl' ? 'rtl' : 'ltr';
+      this.hiddenTextarea.style.unicodeBidi = 'isolate';
+    }
+  };
+  prototype.getSelectionStartFromPointer = function (event) {
+    const scenePoint = this.canvas.getScenePoint(event);
+    const localPoint = scenePoint.transform(invertTransform(this.calcTransformMatrix()));
+    const xFromLeft = localPoint.x + this.width / 2;
+    const yFromTop = localPoint.y + this.height / 2;
+    const lineIndex = getLineFromY(this, yFromTop);
+    const layout = getLayout(this, lineIndex);
+    const lineX = xFromLeft - getAlignmentOffset(this, lineIndex);
+    const caret = hitTestVisualCaret(layout, lineX);
+    const originalIndex = displayToOriginal(this, lineIndex, caret.displayIndex);
+    const globalIndex = Math.min(getLineStart(this, lineIndex) + originalIndex, this._text.length);
+    rememberCaret(this, globalIndex, lineIndex, caret);
+    return globalIndex;
+  };
+  prototype._getNativeVisualLineLayout = function (lineIndex) {
+    return getLayout(this, lineIndex);
+  };
+  prototype.__getCursorBoundariesOffsets = function (globalIndex) {
+    const location = getLineLocation(this, globalIndex);
+    const layout = getLayout(this, location.lineIndex);
+    const caret = chooseCaret(this, globalIndex, location.lineIndex, location.originalIndex, layout);
+    const visualX = getAlignmentOffset(this, location.lineIndex) + caret.visualX;
+    const left = this.direction === 'rtl' ? visualX - this.width : visualX;
+    return {
+      top: getLineTop(this, location.lineIndex),
+      left
+    };
+  };
+  prototype._renderSelection = function (context, selection, boundaries) {
+    const selectionStart = Math.min(selection.selectionStart, selection.selectionEnd);
+    const selectionEnd = Math.max(selection.selectionStart, selection.selectionEnd);
+    if (selectionStart === selectionEnd) {
+      return;
+    }
+    const startLocation = getLineLocation(this, selectionStart);
+    const endLocation = getLineLocation(this, selectionEnd);
+    for (let lineIndex = startLocation.lineIndex; lineIndex <= endLocation.lineIndex; lineIndex++) {
+      const originalLength = getOriginalLineLength(this, lineIndex);
+      const originalStart = lineIndex === startLocation.lineIndex ? startLocation.originalIndex : 0;
+      const originalEnd = lineIndex === endLocation.lineIndex ? endLocation.originalIndex : originalLength;
+      const displayStart = originalToDisplay(this, lineIndex, originalStart);
+      const displayEnd = originalToDisplay(this, lineIndex, originalEnd);
+      const layout = getLayout(this, lineIndex);
+      const intervals = mergeVisualIntervals(layout.clusters.filter(cluster => cluster.displayIndex >= displayStart && cluster.displayIndex < displayEnd).map(cluster => ({
+        x: cluster.visualX,
+        width: cluster.width
+      })));
+      const lineHeight = this.getHeightOfLine(lineIndex);
+      const drawHeight = this.lineHeight < 1 || lineIndex === endLocation.lineIndex && this.lineHeight > 1 ? lineHeight / this.lineHeight : lineHeight;
+      const extraTop = this.inCompositionMode ? lineHeight : 0;
+      context.fillStyle = this.inCompositionMode ? this.compositionColor || 'black' : this.selectionColor;
+      const effectiveHeight = this.inCompositionMode ? 1 : drawHeight;
+      const baseX = -this.width / 2 + getAlignmentOffset(this, lineIndex);
+      const y = boundaries.top + getLineTop(this, lineIndex) + extraTop;
+      for (const interval of intervals) {
+        context.fillRect(baseX + interval.x, y, interval.width, effectiveHeight);
+      }
+    }
+  };
+  prototype.selectWord = function (selectionStart) {
+    let graphemeIndex = selectionStart !== null && selectionStart !== void 0 ? selectionStart : this.selectionStart;
+    if (typeof Intl === 'undefined' || !('Segmenter' in Intl)) {
+      return originalSelectWord.call(this, graphemeIndex);
+    }
+    const graphemes = this.graphemeSplit(this.text);
+    const caretState = this.__nativeRtlCaretState;
+    if (caretState && caretState.globalIndex === graphemeIndex) {
+      const clickedOriginalIndex = displayToOriginal(this, caretState.lineIndex, Math.max(0, caretState.clusterDisplayIndex));
+      graphemeIndex = getLineStart(this, caretState.lineIndex) + Math.min(clickedOriginalIndex, Math.max(0, getOriginalLineLength(this, caretState.lineIndex) - 1));
+    }
+    const offsets = new Array(graphemes.length + 1);
+    let utf16Offset = 0;
+    for (let index = 0; index < graphemes.length; index++) {
+      offsets[index] = utf16Offset;
+      utf16Offset += graphemes[index].length;
+    }
+    offsets[graphemes.length] = utf16Offset;
+    const targetOffset = offsets[Math.max(0, Math.min(graphemes.length, graphemeIndex))];
+    const segmenter = new Intl.Segmenter(undefined, {
+      granularity: 'word'
+    });
+    let found;
+    for (const segment of segmenter.segment(this.text)) {
+      const start = segment.index;
+      const end = start + segment.segment.length;
+      if (targetOffset >= start && targetOffset < end && segment.isWordLike) {
+        const startIndex = offsets.findIndex(offset => offset >= start);
+        const endIndex = offsets.findIndex(offset => offset >= end);
+        found = {
+          start: startIndex < 0 ? 0 : startIndex,
+          end: endIndex < 0 ? graphemes.length : endIndex
+        };
+        break;
+      }
+    }
+    if (!found) {
+      return originalSelectWord.call(this, graphemeIndex);
+    }
+    this.selectionStart = found.start;
+    this.selectionEnd = found.end;
+    this._fireSelectionChanged();
+    this._updateTextarea();
+    this.renderCursorOrSelection();
+  };
+  prototype.moveCursorLeft = function (event) {
+    if (!moveVisualCaret(this, -1, event)) {
+      return originalMoveCursorLeft.call(this, event);
+    }
+    this._currentCursorOpacity = 1;
+    this.abortCursorAnimation();
+    this.initDelayedCursor();
+    this._fireSelectionChanged();
+    this._updateTextarea();
+  };
+  prototype.moveCursorRight = function (event) {
+    if (!moveVisualCaret(this, 1, event)) {
+      return originalMoveCursorRight.call(this, event);
+    }
+    this._currentCursorOpacity = 1;
+    this.abortCursorAnimation();
+    this.initDelayedCursor();
+    this._fireSelectionChanged();
+    this._updateTextarea();
+  };
+};
+
+const linearDefaultCoords = {
+  x1: 0,
+  y1: 0,
+  x2: 0,
+  y2: 0
+};
+const radialDefaultCoords = {
+  ...linearDefaultCoords,
+  r1: 0,
+  r2: 0
+};
+
+/**
+ *
+ * @param value value to check if NaN
+ * @param [valueIfNaN]
+ * @returns `fallback` is `value is NaN
+ */
+const ifNaN = (value, valueIfNaN) => {
+  return isNaN(value) && typeof valueIfNaN === 'number' ? valueIfNaN : value;
+};
+
+const RE_PERCENT = /^(\d+\.\d+)%|(\d+)%$/;
+function isPercent(value) {
+  return value && RE_PERCENT.test(value);
+}
+
+/**
+ *
+ * @param value
+ * @param valueIfNaN
+ * @returns ∈ [0, 1]
+ */
+function parsePercent(value, valueIfNaN) {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) / (isPercent(value) ? 100 : 1) : NaN;
+  return capValue(0, ifNaN(parsed, valueIfNaN), 1);
+}
+
+const RE_KEY_VALUE_PAIRS = /\s*;\s*/;
+const RE_KEY_VALUE = /\s*:\s*/;
+function parseColorStop(el, opacityMultiplier) {
+  let colorValue, opacityValue;
+  const style = el.getAttribute('style');
+  if (style) {
+    const keyValuePairs = style.split(RE_KEY_VALUE_PAIRS);
+    if (keyValuePairs[keyValuePairs.length - 1] === '') {
+      keyValuePairs.pop();
+    }
+    for (let i = keyValuePairs.length; i--;) {
+      const [key, value] = keyValuePairs[i].split(RE_KEY_VALUE).map(s => s.trim());
+      if (key === 'stop-color') {
+        colorValue = value;
+      } else if (key === 'stop-opacity') {
+        opacityValue = value;
+      }
+    }
+  }
+  colorValue = colorValue || el.getAttribute('stop-color') || 'rgb(0,0,0)';
+  opacityValue = ifNaN(parseFloat(opacityValue || el.getAttribute('stop-opacity') || ''), 1);
+  const color = new Color(colorValue);
+  color.setAlpha(color.getAlpha() * opacityValue * opacityMultiplier);
+  return {
+    offset: parsePercent(el.getAttribute('offset'), 0),
+    color: color.toRgba()
+  };
+}
+function parseColorStops(el, opacityAttr) {
+  const colorStops = [],
+    colorStopEls = el.getElementsByTagName('stop'),
+    multiplier = parsePercent(opacityAttr, 1);
+  for (let i = colorStopEls.length; i--;) {
+    colorStops.push(parseColorStop(colorStopEls[i], multiplier));
+  }
+  return colorStops;
+}
+
+function parseType(el) {
+  return el.nodeName === 'linearGradient' || el.nodeName === 'LINEARGRADIENT' ? 'linear' : 'radial';
+}
+function parseGradientUnits(el) {
+  return el.getAttribute('gradientUnits') === 'userSpaceOnUse' ? 'pixels' : 'percentage';
+}
+
+function convertPercentUnitsToValues(valuesToConvert, _ref) {
+  let {
+    width,
+    height,
+    gradientUnits
+  } = _ref;
+  let finalValue;
+  return Object.keys(valuesToConvert).reduce((acc, prop) => {
+    const propValue = valuesToConvert[prop];
+    if (propValue === 'Infinity') {
+      finalValue = 1;
+    } else if (propValue === '-Infinity') {
+      finalValue = 0;
+    } else {
+      finalValue = typeof propValue === 'string' ? parseFloat(propValue) : propValue;
+      if (typeof propValue === 'string' && isPercent(propValue)) {
+        finalValue *= 0.01;
+        if (gradientUnits === 'pixels') {
+          // then we need to fix those percentages here in svg parsing
+          if (prop === 'x1' || prop === 'x2' || prop === 'r2') {
+            finalValue *= width;
+          }
+          if (prop === 'y1' || prop === 'y2') {
+            finalValue *= height;
+          }
+        }
+      }
+    }
+    acc[prop] = finalValue;
+    return acc;
+  }, {});
+}
+function getValue(el, key) {
+  return el.getAttribute(key);
+}
+function parseLinearCoords(el) {
+  return {
+    x1: getValue(el, 'x1') || 0,
+    y1: getValue(el, 'y1') || 0,
+    x2: getValue(el, 'x2') || '100%',
+    y2: getValue(el, 'y2') || 0
+  };
+}
+function parseRadialCoords(el) {
+  return {
+    x1: getValue(el, 'fx') || getValue(el, 'cx') || '50%',
+    y1: getValue(el, 'fy') || getValue(el, 'cy') || '50%',
+    r1: 0,
+    x2: getValue(el, 'cx') || '50%',
+    y2: getValue(el, 'cy') || '50%',
+    r2: getValue(el, 'r') || '50%'
+  };
+}
+function parseCoords(el, size) {
+  return convertPercentUnitsToValues(parseType(el) === 'linear' ? parseLinearCoords(el) : parseRadialCoords(el), {
+    ...size,
+    gradientUnits: parseGradientUnits(el)
+  });
+}
+
+/**
+ * Gradient class
+ * @class Gradient
+ * @see {@link http://fabricjs.com/fabric-intro-part-2#gradients}
+ */
+class Gradient {
+  constructor(options) {
+    const {
+      type = 'linear',
+      gradientUnits = 'pixels',
+      coords = {},
+      colorStops = [],
+      offsetX = 0,
+      offsetY = 0,
+      gradientTransform,
+      id
+    } = options || {};
+    Object.assign(this, {
+      type,
+      gradientUnits,
+      coords: {
+        ...(type === 'radial' ? radialDefaultCoords : linearDefaultCoords),
+        ...coords
+      },
+      colorStops,
+      offsetX,
+      offsetY,
+      gradientTransform,
+      id: id ? `${id}_${uid()}` : uid()
+    });
+  }
+
+  /**
+   * Adds another colorStop
+   * @param {Record<string, string>} colorStop Object with offset and color
+   * @return {Gradient} thisArg
+   */
+  addColorStop(colorStops) {
+    for (const position in colorStops) {
+      this.colorStops.push({
+        offset: parseFloat(position),
+        color: colorStops[position]
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Returns object representation of a gradient
+   * @param {string[]} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {object}
+   */
+  toObject(propertiesToInclude) {
+    return {
+      ...pick(this, propertiesToInclude),
+      type: this.type,
+      coords: {
+        ...this.coords
+      },
+      colorStops: this.colorStops.map(colorStop => ({
+        ...colorStop
+      })),
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      gradientUnits: this.gradientUnits,
+      gradientTransform: this.gradientTransform ? [...this.gradientTransform] : undefined
+    };
+  }
+
+  /* _TO_SVG_START_ */
+  /**
+   * Returns SVG representation of an gradient
+   * @param {FabricObject} object Object to create a gradient for
+   * @return {String} SVG representation of an gradient (linear/radial)
+   */
+  toSVG(object) {
+    let {
+      additionalTransform: preTransform
+    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    const markup = [],
+      transform = this.gradientTransform ? this.gradientTransform.concat() : iMatrix.concat(),
+      gradientUnits = this.gradientUnits === 'pixels' ? 'userSpaceOnUse' : 'objectBoundingBox';
+    // colorStops must be sorted ascending, and guarded against deep mutations
+    const colorStops = this.colorStops.map(colorStop => ({
+      ...colorStop
+    })).sort((a, b) => {
+      return a.offset - b.offset;
+    });
+    let offsetX = -this.offsetX,
+      offsetY = -this.offsetY;
+    if (gradientUnits === 'objectBoundingBox') {
+      offsetX /= object.width;
+      offsetY /= object.height;
+    } else {
+      offsetX += object.width / 2;
+      offsetY += object.height / 2;
+    }
+    // todo what about polygon/polyline?
+    if (isPath(object) && this.gradientUnits !== 'percentage') {
+      offsetX -= object.pathOffset.x;
+      offsetY -= object.pathOffset.y;
+    }
+    transform[4] -= offsetX;
+    transform[5] -= offsetY;
+    const commonAttributes = [`id="SVGID_${this.id}"`, `gradientUnits="${gradientUnits}"`, `gradientTransform="${preTransform ? preTransform + ' ' : ''}${matrixToSVG(transform)}"`, ''].join(' ');
+    if (this.type === 'linear') {
+      const {
+        x1,
+        y1,
+        x2,
+        y2
+      } = this.coords;
+      markup.push('<linearGradient ', commonAttributes, ' x1="', x1, '" y1="', y1, '" x2="', x2, '" y2="', y2, '">\n');
+    } else if (this.type === 'radial') {
+      const {
+        x1,
+        y1,
+        x2,
+        y2,
+        r1,
+        r2
+      } = this.coords;
+      const needsSwap = r1 > r2;
+      // svg radial gradient has just 1 radius. the biggest.
+      markup.push('<radialGradient ', commonAttributes, ' cx="', needsSwap ? x1 : x2, '" cy="', needsSwap ? y1 : y2, '" r="', needsSwap ? r1 : r2, '" fx="', needsSwap ? x2 : x1, '" fy="', needsSwap ? y2 : y1, '">\n');
+      if (needsSwap) {
+        // svg goes from internal to external radius. if radius are inverted, swap color stops.
+        colorStops.reverse(); //  mutates array
+        colorStops.forEach(colorStop => {
+          colorStop.offset = 1 - colorStop.offset;
+        });
+      }
+      const minRadius = Math.min(r1, r2);
+      if (minRadius > 0) {
+        // i have to shift all colorStops and add new one in 0.
+        const maxRadius = Math.max(r1, r2),
+          percentageShift = minRadius / maxRadius;
+        colorStops.forEach(colorStop => {
+          colorStop.offset += percentageShift * (1 - colorStop.offset);
+        });
+      }
+    }
+    colorStops.forEach(_ref => {
+      let {
+        color,
+        offset
+      } = _ref;
+      markup.push(`<stop offset="${offset * 100}%" style="stop-color:${color};"/>\n`);
+    });
+    markup.push(this.type === 'linear' ? '</linearGradient>' : '</radialGradient>', '\n');
+    return markup.join('');
+  }
+  /* _TO_SVG_END_ */
+
+  /**
+   * Returns an instance of CanvasGradient
+   * @param {CanvasRenderingContext2D} ctx Context to render on
+   * @return {CanvasGradient}
+   */
+  toLive(ctx) {
+    const {
+      x1,
+      y1,
+      x2,
+      y2,
+      r1,
+      r2
+    } = this.coords;
+    const gradient = this.type === 'linear' ? ctx.createLinearGradient(x1, y1, x2, y2) : ctx.createRadialGradient(x1, y1, r1, x2, y2, r2);
+    this.colorStops.forEach(_ref2 => {
+      let {
+        color,
+        offset
+      } = _ref2;
+      gradient.addColorStop(offset, color);
+    });
+    return gradient;
+  }
+  static async fromObject(options) {
+    const {
+      colorStops,
+      gradientTransform
+    } = options;
+    return new this({
+      ...options,
+      colorStops: colorStops ? colorStops.map(colorStop => ({
+        ...colorStop
+      })) : undefined,
+      gradientTransform: gradientTransform ? [...gradientTransform] : undefined
+    });
+  }
+
+  /* _FROM_SVG_START_ */
+  /**
+   * Returns {@link Gradient} instance from an SVG element
+   * @param {SVGGradientElement} el SVG gradient element
+   * @param {FabricObject} instance
+   * @param {String} opacity A fill-opacity or stroke-opacity attribute to multiply to each stop's opacity.
+   * @param {SVGOptions} svgOptions an object containing the size of the SVG in order to parse correctly gradients
+   * that uses gradientUnits as 'userSpaceOnUse' and percentages.
+   * @return {Gradient} Gradient instance
+   * @see http://www.w3.org/TR/SVG/pservers.html#LinearGradientElement
+   * @see http://www.w3.org/TR/SVG/pservers.html#RadialGradientElement
+   *
+   *  @example
+   *
+   *  <linearGradient id="linearGrad1">
+   *    <stop offset="0%" stop-color="white"/>
+   *    <stop offset="100%" stop-color="black"/>
+   *  </linearGradient>
+   *
+   *  OR
+   *
+   *  <linearGradient id="linearGrad2">
+   *    <stop offset="0" style="stop-color:rgb(255,255,255)"/>
+   *    <stop offset="1" style="stop-color:rgb(0,0,0)"/>
+   *  </linearGradient>
+   *
+   *  OR
+   *
+   *  <radialGradient id="radialGrad1">
+   *    <stop offset="0%" stop-color="white" stop-opacity="1" />
+   *    <stop offset="50%" stop-color="black" stop-opacity="0.5" />
+   *    <stop offset="100%" stop-color="white" stop-opacity="1" />
+   *  </radialGradient>
+   *
+   *  OR
+   *
+   *  <radialGradient id="radialGrad2">
+   *    <stop offset="0" stop-color="rgb(255,255,255)" />
+   *    <stop offset="0.5" stop-color="rgb(0,0,0)" />
+   *    <stop offset="1" stop-color="rgb(255,255,255)" />
+   *  </radialGradient>
+   *
+   */
+  static fromElement(el, instance, svgOptions) {
+    const gradientUnits = parseGradientUnits(el);
+    const center = instance._findCenterFromElement();
+    return new this({
+      id: el.getAttribute('id') || undefined,
+      type: parseType(el),
+      coords: parseCoords(el, {
+        width: svgOptions.viewBoxWidth || svgOptions.width,
+        height: svgOptions.viewBoxHeight || svgOptions.height
+      }),
+      colorStops: parseColorStops(el, svgOptions.opacity),
+      gradientUnits,
+      gradientTransform: parseTransformAttribute(el.getAttribute('gradientTransform') || ''),
+      ...(gradientUnits === 'pixels' ? {
+        offsetX: instance.width / 2 - center.x,
+        offsetY: instance.height / 2 - center.y
+      } : {
+        offsetX: 0,
+        offsetY: 0
+      })
+    });
+  }
+  /* _FROM_SVG_END_ */
+}
+/**
+ * Horizontal offset for aligning gradients coming from SVG when outside pathgroups
+ * @type Number
+ * @default 0
+ */
+/**
+ * Vertical offset for aligning gradients coming from SVG when outside pathgroups
+ * @type Number
+ * @default 0
+ */
+/**
+ * A transform matrix to apply to the gradient before painting.
+ * Imported from svg gradients, is not applied with the current transform in the center.
+ * Before this transform is applied, the origin point is at the top left corner of the object
+ * plus the addition of offsetY and offsetX.
+ * @type Number[]
+ * @default null
+ */
+/**
+ * coordinates units for coords.
+ * If `pixels`, the number of coords are in the same unit of width / height.
+ * If set as `percentage` the coords are still a number, but 1 means 100% of width
+ * for the X and 100% of the height for the y. It can be bigger than 1 and negative.
+ * allowed values pixels or percentage.
+ * @type GradientUnits
+ * @default 'pixels'
+ */
+/**
+ * Gradient type linear or radial
+ * @type GradientType
+ * @default 'linear'
+ */
+/**
+ * Defines how the gradient is located in space and spread
+ * @type GradientCoords
+ */
+/**
+ * Defines how many colors a gradient has and how they are located on the axis
+ * defined by coords
+ * @type GradientCoords
+ */
+/**
+ * If true, this object will not be exported during the serialization of a canvas
+ * @type boolean
+ */
+/**
+ * ID used for SVG export functionalities
+ * @type number | string
+ */
+_defineProperty(Gradient, "type", 'Gradient');
+classRegistry.setClass(Gradient, 'gradient');
+classRegistry.setClass(Gradient, 'linear');
+classRegistry.setClass(Gradient, 'radial');
+
+/**
+ * @see {@link http://fabricjs.com/patterns demo}
+ * @see {@link http://fabricjs.com/dynamic-patterns demo}
+ */
+class Pattern {
+  /**
+   * Legacy identifier of the class. Prefer using this.constructor.type 'Pattern'
+   * or utils like isPattern, or instance of to indentify a pattern in your code.
+   * Will be removed in future versiones
+   * @TODO add sustainable warning message
+   * @type string
+   * @deprecated
+   */
+  get type() {
+    return 'pattern';
+  }
+  set type(value) {
+    log('warn', 'Setting type has no effect', value);
+  }
+
+  /**
+   * @type PatternRepeat
+   * @defaults
+   */
+
+  /**
+   * transform matrix to change the pattern, imported from svgs.
+   * @todo verify if using the identity matrix as default makes the rest of the code more easy
+   * @type Array
+   */
+
+  /**
+   * The actual pixel source of the pattern
+   */
+
+  /**
+   * If true, this object will not be exported during the serialization of a canvas
+   * @type boolean
+   */
+
+  /**
+   * ID used for SVG export functionalities
+   * @type number
+   */
+
+  /**
+   * Constructor
+   * @param {Object} [options] Options object
+   * @param {option.source} [source] the pattern source, eventually empty or a drawable
+   */
+  constructor(options) {
+    _defineProperty(this, "repeat", 'repeat');
+    /**
+     * Pattern horizontal offset from object's left/top corner
+     * @type Number
+     */
+    _defineProperty(this, "offsetX", 0);
+    /**
+     * Pattern vertical offset from object's left/top corner
+     * @type Number
+     */
+    _defineProperty(this, "offsetY", 0);
+    /**
+     * @type TCrossOrigin
+     */
+    _defineProperty(this, "crossOrigin", '');
+    this.id = uid();
+    Object.assign(this, options);
+  }
+
+  /**
+   * @returns true if {@link source} is an <img> element
+   */
+  isImageSource() {
+    return !!this.source && typeof this.source.src === 'string';
+  }
+
+  /**
+   * @returns true if {@link source} is a <canvas> element
+   */
+  isCanvasSource() {
+    return !!this.source && !!this.source.toDataURL;
+  }
+  sourceToString() {
+    return this.isImageSource() ? this.source.src : this.isCanvasSource() ? this.source.toDataURL() : '';
+  }
+
+  /**
+   * Returns an instance of CanvasPattern
+   * @param {CanvasRenderingContext2D} ctx Context to create pattern
+   * @return {CanvasPattern}
+   */
+  toLive(ctx) {
+    if (
+    // if the image failed to load, return, and allow rest to continue loading
+    !this.source ||
+    // if an image
+    this.isImageSource() && (!this.source.complete || this.source.naturalWidth === 0 || this.source.naturalHeight === 0)) {
+      return null;
+    }
+    return ctx.createPattern(this.source, this.repeat);
+  }
+
+  /**
+   * Returns object representation of a pattern
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {object} Object representation of a pattern instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    const {
+      repeat,
+      crossOrigin
+    } = this;
+    return {
+      ...pick(this, propertiesToInclude),
+      type: 'pattern',
+      source: this.sourceToString(),
+      repeat,
+      crossOrigin,
+      offsetX: toFixed(this.offsetX, config.NUM_FRACTION_DIGITS),
+      offsetY: toFixed(this.offsetY, config.NUM_FRACTION_DIGITS),
+      patternTransform: this.patternTransform ? [...this.patternTransform] : null
+    };
+  }
+
+  /* _TO_SVG_START_ */
+  /**
+   * Returns SVG representation of a pattern
+   */
+  toSVG(_ref) {
+    let {
+      width,
+      height
+    } = _ref;
+    const {
+        source: patternSource,
+        repeat,
+        id
+      } = this,
+      patternOffsetX = ifNaN(this.offsetX / width, 0),
+      patternOffsetY = ifNaN(this.offsetY / height, 0),
+      patternWidth = repeat === 'repeat-y' || repeat === 'no-repeat' ? 1 + Math.abs(patternOffsetX || 0) : ifNaN(patternSource.width / width, 0),
+      patternHeight = repeat === 'repeat-x' || repeat === 'no-repeat' ? 1 + Math.abs(patternOffsetY || 0) : ifNaN(patternSource.height / height, 0);
+    return [`<pattern id="SVGID_${id}" x="${patternOffsetX}" y="${patternOffsetY}" width="${patternWidth}" height="${patternHeight}">`, `<image x="0" y="0" width="${patternSource.width}" height="${patternSource.height}" xlink:href="${this.sourceToString()}"></image>`, `</pattern>`, ''].join('\n');
+  }
+  /* _TO_SVG_END_ */
+
+  static async fromObject(_ref2, options) {
+    let {
+      type,
+      source,
+      patternTransform,
+      ...otherOptions
+    } = _ref2;
+    const img = await loadImage(source, {
+      ...options,
+      crossOrigin: otherOptions.crossOrigin
+    });
+    return new this({
+      ...otherOptions,
+      patternTransform: patternTransform && patternTransform.slice(0),
+      source: img
+    });
+  }
+}
+_defineProperty(Pattern, "type", 'Pattern');
+classRegistry.setClass(Pattern);
+// kept for compatibility reason
+classRegistry.setClass(Pattern, 'pattern');
+
+/**
+ * @see {@link http://fabricjs.com/freedrawing|Freedrawing demo}
+ */
+class BaseBrush {
+  /**
+   * @todo add type
+   */
+
+  constructor(canvas) {
+    /**
+     * Color of a brush
+     * @type String
+     */
+    _defineProperty(this, "color", 'rgb(0, 0, 0)');
+    /**
+     * Width of a brush, has to be a Number, no string literals
+     * @type Number
+     */
+    _defineProperty(this, "width", 1);
+    /**
+     * Shadow object representing shadow of this shape.
+     * <b>Backwards incompatibility note:</b> This property replaces "shadowColor" (String), "shadowOffsetX" (Number),
+     * "shadowOffsetY" (Number) and "shadowBlur" (Number) since v1.2.12
+     * @type Shadow
+     */
+    _defineProperty(this, "shadow", null);
+    /**
+     * Line endings style of a brush (one of "butt", "round", "square")
+     * @type String
+     */
+    _defineProperty(this, "strokeLineCap", 'round');
+    /**
+     * Corner style of a brush (one of "bevel", "round", "miter")
+     * @type String
+     */
+    _defineProperty(this, "strokeLineJoin", 'round');
+    /**
+     * Maximum miter length (used for strokeLineJoin = "miter") of a brush's
+     * @type Number
+     */
+    _defineProperty(this, "strokeMiterLimit", 10);
+    /**
+     * Stroke Dash Array.
+     * @type Array
+     */
+    _defineProperty(this, "strokeDashArray", null);
+    /**
+     * When `true`, the free drawing is limited to the whiteboard size. Default to false.
+     * @type Boolean
+     * @default false
+     */
+    _defineProperty(this, "limitedToCanvasSize", false);
+    this.canvas = canvas;
+  }
+
+  /**
+   * @returns true if brush should continue blocking interaction
+   */
+
+  /**
+   * Sets brush styles
+   * @private
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _setBrushStyles(ctx) {
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = this.width;
+    ctx.lineCap = this.strokeLineCap;
+    ctx.miterLimit = this.strokeMiterLimit;
+    ctx.lineJoin = this.strokeLineJoin;
+    ctx.setLineDash(this.strokeDashArray || []);
+  }
+
+  /**
+   * Sets the transformation on given context
+   * @param {CanvasRenderingContext2D} ctx context to render on
+   * @private
+   */
+  _saveAndTransform(ctx) {
+    const v = this.canvas.viewportTransform;
+    ctx.save();
+    ctx.transform(v[0], v[1], v[2], v[3], v[4], v[5]);
+  }
+  needsFullRender() {
+    const color = new Color(this.color);
+    return color.getAlpha() < 1 || !!this.shadow;
+  }
+
+  /**
+   * Sets brush shadow styles
+   * @private
+   */
+  _setShadow() {
+    if (!this.shadow || !this.canvas) {
+      return;
+    }
+    const canvas = this.canvas,
+      shadow = this.shadow,
+      ctx = canvas.contextTop,
+      zoom = canvas.getZoom() * canvas.getRetinaScaling();
+    ctx.shadowColor = shadow.color;
+    ctx.shadowBlur = shadow.blur * zoom;
+    ctx.shadowOffsetX = shadow.offsetX * zoom;
+    ctx.shadowOffsetY = shadow.offsetY * zoom;
+  }
+
+  /**
+   * Removes brush shadow styles
+   * @private
+   */
+  _resetShadow() {
+    const ctx = this.canvas.contextTop;
+    ctx.shadowColor = '';
+    ctx.shadowBlur = ctx.shadowOffsetX = ctx.shadowOffsetY = 0;
+  }
+
+  /**
+   * Check is pointer is outside canvas boundaries
+   * @param {Object} pointer
+   * @private
+   */
+  _isOutSideCanvas(pointer) {
+    return pointer.x < 0 || pointer.x > this.canvas.getWidth() || pointer.y < 0 || pointer.y > this.canvas.getHeight();
+  }
+}
+
+class Path extends FabricObject {
+  /**
+   * Constructor
+   * @param {TComplexPathData} path Path data (sequence of coordinates and corresponding "command" tokens)
+   * @param {Partial<PathProps>} [options] Options object
+   * @return {Path} thisArg
+   */
+  constructor(path) {
+    let {
+      path: _,
+      left,
+      top,
+      ...options
+    } = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    super();
+    Object.assign(this, Path.ownDefaults);
+    this.setOptions(options);
+    this._setPath(path || [], true);
+    typeof left === 'number' && this.set(LEFT, left);
+    typeof top === 'number' && this.set(TOP, top);
+  }
+
+  /**
+   * @private
+   * @param {TComplexPathData | string} path Path data (sequence of coordinates and corresponding "command" tokens)
+   * @param {boolean} [adjustPosition] pass true to reposition the object according to the bounding box
+   * @returns {Point} top left position of the bounding box, useful for complementary positioning
+   */
+  _setPath(path, adjustPosition) {
+    this.path = makePathSimpler(Array.isArray(path) ? path : parsePath(path));
+    this.setBoundingBox(adjustPosition);
+  }
+
+  /**
+   * This function is an helper for svg import. it returns the center of the object in the svg
+   * untransformed coordinates, by look at the polyline/polygon points.
+   * @private
+   * @return {Point} center point from element coordinates
+   */
+  _findCenterFromElement() {
+    const bbox = this._calcBoundsFromPath();
+    return new Point(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2);
+  }
+
+  /**
+   * @private
+   * @param {CanvasRenderingContext2D} ctx context to render path on
+   */
+  _renderPathCommands(ctx) {
+    const l = -this.pathOffset.x,
+      t = -this.pathOffset.y;
+    ctx.beginPath();
+    for (const command of this.path) {
+      switch (command[0] // first letter
+      ) {
+        case 'L':
+          // lineto, absolute
+          ctx.lineTo(command[1] + l, command[2] + t);
+          break;
+        case 'M':
+          // moveTo, absolute
+          ctx.moveTo(command[1] + l, command[2] + t);
+          break;
+        case 'C':
+          // bezierCurveTo, absolute
+          ctx.bezierCurveTo(command[1] + l, command[2] + t, command[3] + l, command[4] + t, command[5] + l, command[6] + t);
+          break;
+        case 'Q':
+          // quadraticCurveTo, absolute
+          ctx.quadraticCurveTo(command[1] + l, command[2] + t, command[3] + l, command[4] + t);
+          break;
+        case 'Z':
+          ctx.closePath();
+          break;
+      }
+    }
+  }
+
+  /**
+   * @private
+   * @param {CanvasRenderingContext2D} ctx context to render path on
+   */
+  _render(ctx) {
+    this._renderPathCommands(ctx);
+    this._renderPaintInOrder(ctx);
+  }
+
+  /**
+   * Returns string representation of an instance
+   * @return {string} string representation of an instance
+   */
+  toString() {
+    return `#<Path (${this.complexity()}): { "top": ${this.top}, "left": ${this.left} }>`;
+  }
+
+  /**
+   * Returns object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} object representation of an instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return {
+      ...super.toObject(propertiesToInclude),
+      path: this.path.map(pathCmd => pathCmd.slice())
+    };
+  }
+
+  /**
+   * Returns dataless object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} object representation of an instance
+   */
+  toDatalessObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    const o = this.toObject(propertiesToInclude);
+    if (this.sourcePath) {
+      delete o.path;
+      o.sourcePath = this.sourcePath;
+    }
+    return o;
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * @return {Array} an array of strings with the specific svg representation
+   * of the instance
+   */
+  _toSVG() {
+    const path = joinPath(this.path, config.NUM_FRACTION_DIGITS);
+    return ['<path ', 'COMMON_PARTS', `d="${path}" stroke-linecap="round" />\n`];
+  }
+
+  /**
+   * @private
+   * @return the path command's translate transform attribute
+   */
+  _getOffsetTransform() {
+    const digits = config.NUM_FRACTION_DIGITS;
+    return ` translate(${toFixed(-this.pathOffset.x, digits)}, ${toFixed(-this.pathOffset.y, digits)})`;
+  }
+
+  /**
+   * Returns svg clipPath representation of an instance
+   * @param {Function} [reviver] Method for further parsing of svg representation.
+   * @return {string} svg representation of an instance
+   */
+  toClipPathSVG(reviver) {
+    const additionalTransform = this._getOffsetTransform();
+    return '\t' + this._createBaseClipPathSVGMarkup(this._toSVG(), {
+      reviver,
+      additionalTransform: additionalTransform
+    });
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * @param {Function} [reviver] Method for further parsing of svg representation.
+   * @return {string} svg representation of an instance
+   */
+  toSVG(reviver) {
+    const additionalTransform = this._getOffsetTransform();
+    return this._createBaseSVGMarkup(this._toSVG(), {
+      reviver,
+      additionalTransform: additionalTransform
+    });
+  }
+
+  /**
+   * Returns number representation of an instance complexity
+   * @return {number} complexity of this instance
+   */
+  complexity() {
+    return this.path.length;
+  }
+  setDimensions() {
+    this.setBoundingBox();
+  }
+  setBoundingBox(adjustPosition) {
+    const {
+      width,
+      height,
+      pathOffset
+    } = this._calcDimensions();
+    this.set({
+      width,
+      height,
+      pathOffset
+    });
+    // using pathOffset because it match the use case.
+    // if pathOffset change here we need to use left + width/2 , top + height/2
+    adjustPosition && this.setPositionByOrigin(pathOffset, CENTER, CENTER);
+  }
+  _calcBoundsFromPath() {
+    const bounds = [];
+    let subpathStartX = 0,
+      subpathStartY = 0,
+      x = 0,
+      // current x
+      y = 0; // current y
+
+    for (const command of this.path) {
+      // current instruction
+      switch (command[0] // first letter
+      ) {
+        case 'L':
+          // lineto, absolute
+          x = command[1];
+          y = command[2];
+          bounds.push({
+            x: subpathStartX,
+            y: subpathStartY
+          }, {
+            x,
+            y
+          });
+          break;
+        case 'M':
+          // moveTo, absolute
+          x = command[1];
+          y = command[2];
+          subpathStartX = x;
+          subpathStartY = y;
+          break;
+        case 'C':
+          // bezierCurveTo, absolute
+          bounds.push(...getBoundsOfCurve(x, y, command[1], command[2], command[3], command[4], command[5], command[6]));
+          x = command[5];
+          y = command[6];
+          break;
+        case 'Q':
+          // quadraticCurveTo, absolute
+          bounds.push(...getBoundsOfCurve(x, y, command[1], command[2], command[1], command[2], command[3], command[4]));
+          x = command[3];
+          y = command[4];
+          break;
+        case 'Z':
+          x = subpathStartX;
+          y = subpathStartY;
+          break;
+      }
+    }
+    return makeBoundingBoxFromPoints(bounds);
+  }
+
+  /**
+   * @private
+   */
+  _calcDimensions() {
+    const bbox = this._calcBoundsFromPath();
+    return {
+      ...bbox,
+      pathOffset: new Point(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2)
+    };
+  }
+
+  /**
+   * List of attribute names to account for when parsing SVG element (used by `Path.fromElement`)
+   * @see http://www.w3.org/TR/SVG/paths.html#PathElement
+   */
+
+  /**
+   * Creates an instance of Path from an object
+   * @param {Object} object
+   * @returns {Promise<Path>}
+   */
+  static fromObject(object) {
+    return this._fromObject(object, {
+      extraParam: 'path'
+    });
+  }
+
+  /**
+   * Creates an instance of Path from an SVG <path> element
+   * @param {HTMLElement} element to parse
+   * @param {Partial<PathProps>} [options] Options object
+   */
+  static async fromElement(element, options, cssRules) {
+    const {
+      d,
+      ...parsedAttributes
+    } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
+    return new this(d, {
+      ...parsedAttributes,
+      ...options,
+      // we pass undefined to instruct the constructor to position the object using the bbox
+      left: undefined,
+      top: undefined
+    });
+  }
+}
+/**
+ * Array of path points
+ * @type Array
+ */
+_defineProperty(Path, "type", 'Path');
+_defineProperty(Path, "cacheProperties", [...cacheProperties, 'path', 'fillRule']);
+_defineProperty(Path, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES, 'd']);
+classRegistry.setClass(Path);
+classRegistry.setSVGClass(Path);
+
+/* _FROM_SVG_START_ */
+
+/**
+ * @private
+ * @param {TSimplePathData} pathData SVG path commands
+ * @returns {boolean}
+ */
+function isEmptySVGPath(pathData) {
+  return joinPath(pathData) === 'M 0 0 Q 0 0 0 0 L 0 0';
+}
+class PencilBrush extends BaseBrush {
+  constructor(canvas) {
+    super(canvas);
+    /**
+     * Discard points that are less than `decimate` pixel distant from each other
+     * @type Number
+     * @default 0.4
+     */
+    _defineProperty(this, "decimate", 0.4);
+    /**
+     * Draws a straight line between last recorded point to current pointer
+     * Used for `shift` functionality
+     *
+     * @type boolean
+     * @default false
+     */
+    _defineProperty(this, "drawStraightLine", false);
+    /**
+     * The event modifier key that makes the brush draw a straight line.
+     * If `null` or 'none' or any other string that is not a modifier key the feature is disabled.
+     * @type {ModifierKey | undefined | null}
+     */
+    _defineProperty(this, "straightLineKey", 'shiftKey');
+    this._points = [];
+    this._hasStraightLine = false;
+  }
+  needsFullRender() {
+    return super.needsFullRender() || this._hasStraightLine;
+  }
+  static drawSegment(ctx, p1, p2) {
+    const midPoint = p1.midPointFrom(p2);
+    ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
+    return midPoint;
+  }
+
+  /**
+   * Invoked on mouse down
+   * @param {Point} pointer
+   */
+  onMouseDown(pointer, _ref) {
+    let {
+      e
+    } = _ref;
+    if (!this.canvas._isMainEvent(e)) {
+      return;
+    }
+    this.drawStraightLine = !!this.straightLineKey && e[this.straightLineKey];
+    this._prepareForDrawing(pointer);
+    // capture coordinates immediately
+    // this allows to draw dots (when movement never occurs)
+    this._addPoint(pointer);
+    this._render();
+  }
+
+  /**
+   * Invoked on mouse move
+   * @param {Point} pointer
+   */
+  onMouseMove(pointer, _ref2) {
+    let {
+      e
+    } = _ref2;
+    if (!this.canvas._isMainEvent(e)) {
+      return;
+    }
+    this.drawStraightLine = !!this.straightLineKey && e[this.straightLineKey];
+    if (this.limitedToCanvasSize === true && this._isOutSideCanvas(pointer)) {
+      return;
+    }
+    if (this._addPoint(pointer) && this._points.length > 1) {
+      if (this.needsFullRender()) {
+        // redraw curve
+        // clear top canvas
+        this.canvas.clearContext(this.canvas.contextTop);
+        this._render();
+      } else {
+        const points = this._points,
+          length = points.length,
+          ctx = this.canvas.contextTop;
+        // draw the curve update
+        this._saveAndTransform(ctx);
+        if (this.oldEnd) {
+          ctx.beginPath();
+          ctx.moveTo(this.oldEnd.x, this.oldEnd.y);
+        }
+        this.oldEnd = PencilBrush.drawSegment(ctx, points[length - 2], points[length - 1]);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  /**
+   * Invoked on mouse up
+   */
+  onMouseUp(_ref3) {
+    let {
+      e
+    } = _ref3;
+    if (!this.canvas._isMainEvent(e)) {
+      return true;
+    }
+    this.drawStraightLine = false;
+    this.oldEnd = undefined;
+    this._finalizeAndAddPath();
+    return false;
+  }
+
+  /**
+   * @private
+   * @param {Point} pointer Actual mouse position related to the canvas.
+   */
+  _prepareForDrawing(pointer) {
+    this._reset();
+    this._addPoint(pointer);
+    this.canvas.contextTop.moveTo(pointer.x, pointer.y);
+  }
+
+  /**
+   * @private
+   * @param {Point} point Point to be added to points array
+   */
+  _addPoint(point) {
+    if (this._points.length > 1 && point.eq(this._points[this._points.length - 1])) {
+      return false;
+    }
+    if (this.drawStraightLine && this._points.length > 1) {
+      this._hasStraightLine = true;
+      this._points.pop();
+    }
+    this._points.push(point);
+    return true;
+  }
+
+  /**
+   * Clear points array and set contextTop canvas style.
+   * @private
+   */
+  _reset() {
+    this._points = [];
+    this._setBrushStyles(this.canvas.contextTop);
+    this._setShadow();
+    this._hasStraightLine = false;
+  }
+
+  /**
+   * Draw a smooth path on the topCanvas using quadraticCurveTo
+   * @private
+   * @param {CanvasRenderingContext2D} [ctx]
+   */
+  _render() {
+    let ctx = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.canvas.contextTop;
+    let p1 = this._points[0],
+      p2 = this._points[1];
+    this._saveAndTransform(ctx);
+    ctx.beginPath();
+    //if we only have 2 points in the path and they are the same
+    //it means that the user only clicked the canvas without moving the mouse
+    //then we should be drawing a dot. A path isn't drawn between two identical dots
+    //that's why we set them apart a bit
+    if (this._points.length === 2 && p1.x === p2.x && p1.y === p2.y) {
+      const width = this.width / 1000;
+      p1.x -= width;
+      p2.x += width;
+    }
+    ctx.moveTo(p1.x, p1.y);
+    for (let i = 1; i < this._points.length; i++) {
+      // we pick the point between pi + 1 & pi + 2 as the
+      // end point and p1 as our control point.
+      PencilBrush.drawSegment(ctx, p1, p2);
+      p1 = this._points[i];
+      p2 = this._points[i + 1];
+    }
+    // Draw last line as a straight line while
+    // we wait for the next point to be able to calculate
+    // the bezier control point
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Converts points to SVG path
+   * @param {Point[]} points Array of points
+   * @return {TSimplePathData} SVG path commands
+   */
+  convertPointsToSVGPath(points) {
+    const correction = this.width / 1000;
+    return getSmoothPathFromPoints(points, correction);
+  }
+
+  /**
+   * Creates a Path object to add on canvas
+   * @param {TSimplePathData} pathData Path data
+   * @return {Path} Path to add on canvas
+   */
+  createPath(pathData) {
+    const path = new Path(pathData, {
+      fill: null,
+      stroke: this.color,
+      strokeWidth: this.width,
+      strokeLineCap: this.strokeLineCap,
+      strokeMiterLimit: this.strokeMiterLimit,
+      strokeLineJoin: this.strokeLineJoin,
+      strokeDashArray: this.strokeDashArray
+    });
+    if (this.shadow) {
+      this.shadow.affectStroke = true;
+      path.shadow = new Shadow(this.shadow);
+    }
+    return path;
+  }
+
+  /**
+   * Decimate points array with the decimate value
+   */
+  decimatePoints(points, distance) {
+    if (points.length <= 2) {
+      return points;
+    }
+    let lastPoint = points[0],
+      cDistance;
+    const zoom = this.canvas.getZoom(),
+      adjustedDistance = Math.pow(distance / zoom, 2),
+      l = points.length - 1,
+      newPoints = [lastPoint];
+    // TODO investigate why this is not i < l
+    for (let i = 1; i < l - 1; i++) {
+      cDistance = Math.pow(lastPoint.x - points[i].x, 2) + Math.pow(lastPoint.y - points[i].y, 2);
+      if (cDistance >= adjustedDistance) {
+        lastPoint = points[i];
+        newPoints.push(lastPoint);
+      }
+    }
+    // Add the last point from the original line to the end of the array.
+    // This ensures decimate doesn't delete the last point on the line, and ensures the line is > 1 point.
+    newPoints.push(points[l]);
+    return newPoints;
+  }
+
+  /**
+   * On mouseup after drawing the path on contextTop canvas
+   * we use the points captured to create an new Path object
+   * and add it to the canvas.
+   */
+  _finalizeAndAddPath() {
+    const ctx = this.canvas.contextTop;
+    ctx.closePath();
+    if (this.decimate) {
+      this._points = this.decimatePoints(this._points, this.decimate);
+    }
+    const pathData = this.convertPointsToSVGPath(this._points);
+    if (isEmptySVGPath(pathData)) {
+      // do not create 0 width/height paths, as they are
+      // rendered inconsistently across browsers
+      // Firefox 4, for example, renders a dot,
+      // whereas Chrome 10 renders nothing
+      this.canvas.requestRenderAll();
+      return;
+    }
+    const path = this.createPath(pathData);
+    this.canvas.clearContext(this.canvas.contextTop);
+    this.canvas.fire('before:path:created', {
+      path: path
+    });
+    this.canvas.add(path);
+    this.canvas.requestRenderAll();
+    path.setCoords();
+    this._resetShadow();
+
+    // fire event 'path' created
+    this.canvas.fire('path:created', {
+      path: path
+    });
+  }
+}
+
+const CIRCLE_PROPS = ['radius', 'startAngle', 'endAngle', 'counterClockwise'];
+const circleDefaultValues = {
+  radius: 0,
+  startAngle: 0,
+  endAngle: 360,
+  counterClockwise: false
+};
+class Circle extends FabricObject {
+  static getDefaults() {
+    return {
+      ...super.getDefaults(),
+      ...Circle.ownDefaults
+    };
+  }
+
+  /**
+   * Constructor
+   * @param {Object} [options] Options object
+   */
+  constructor(options) {
+    super();
+    Object.assign(this, Circle.ownDefaults);
+    this.setOptions(options);
+  }
+
+  /**
+   * @private
+   * @param {String} key
+   * @param {*} value
+   */
+  _set(key, value) {
+    super._set(key, value);
+    if (key === 'radius') {
+      this.setRadius(value);
+    }
+    return this;
+  }
+
+  /**
+   * @private
+   * @param {CanvasRenderingContext2D} ctx context to render on
+   */
+  _render(ctx) {
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, degreesToRadians(this.startAngle), degreesToRadians(this.endAngle), this.counterClockwise);
+    this._renderPaintInOrder(ctx);
+  }
+
+  /**
+   * Returns horizontal radius of an object (according to how an object is scaled)
+   * @return {Number}
+   */
+  getRadiusX() {
+    return this.get('radius') * this.get(SCALE_X);
+  }
+
+  /**
+   * Returns vertical radius of an object (according to how an object is scaled)
+   * @return {Number}
+   */
+  getRadiusY() {
+    return this.get('radius') * this.get(SCALE_Y);
+  }
+
+  /**
+   * Sets radius of an object (and updates width accordingly)
+   */
+  setRadius(value) {
+    this.radius = value;
+    this.set({
+      width: value * 2,
+      height: value * 2
+    });
+  }
+
+  /**
+   * Returns object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} object representation of an instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return super.toObject([...CIRCLE_PROPS, ...propertiesToInclude]);
+  }
+
+  /* _TO_SVG_START_ */
+
+  /**
+   * Returns svg representation of an instance
+   * @return {Array} an array of strings with the specific svg representation
+   * of the instance
+   */
+  _toSVG() {
+    const angle = (this.endAngle - this.startAngle) % 360;
+    if (angle === 0) {
+      return ['<circle ', 'COMMON_PARTS', 'cx="0" cy="0" ', 'r="', `${this.radius}`, '" />\n'];
+    } else {
+      const {
+        radius
+      } = this;
+      const start = degreesToRadians(this.startAngle),
+        end = degreesToRadians(this.endAngle),
+        startX = cos(start) * radius,
+        startY = sin(start) * radius,
+        endX = cos(end) * radius,
+        endY = sin(end) * radius,
+        largeFlag = angle > 180 ? 1 : 0,
+        sweepFlag = this.counterClockwise ? 0 : 1;
+      return [`<path d="M ${startX} ${startY} A ${radius} ${radius} 0 ${largeFlag} ${sweepFlag} ${endX} ${endY}" `, 'COMMON_PARTS', ' />\n'];
+    }
+  }
+  /* _TO_SVG_END_ */
+
+  /* _FROM_SVG_START_ */
+  /**
+   * List of attribute names to account for when parsing SVG element (used by {@link Circle.fromElement})
+   * @see: http://www.w3.org/TR/SVG/shapes.html#CircleElement
+   */
+
+  /**
+   * Returns {@link Circle} instance from an SVG element
+   * @param {HTMLElement} element Element to parse
+   * @param {Object} [options] Partial Circle object to default missing properties on the element.
+   * @throws {Error} If value of `r` attribute is missing or invalid
+   */
+  static async fromElement(element, options, cssRules) {
+    const {
+      left = 0,
+      top = 0,
+      radius = 0,
+      ...otherParsedAttributes
+    } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
+
+    // this probably requires to be fixed for default origins not being top/left.
+
+    return new this({
+      ...otherParsedAttributes,
+      radius,
+      left: left - radius,
+      top: top - radius
+    });
+  }
+
+  /* _FROM_SVG_END_ */
+
+  /**
+   * @todo how do we declare this??
+   */
+  static fromObject(object) {
+    return super._fromObject(object);
+  }
+}
+_defineProperty(Circle, "type", 'Circle');
+_defineProperty(Circle, "cacheProperties", [...cacheProperties, ...CIRCLE_PROPS]);
+_defineProperty(Circle, "ownDefaults", circleDefaultValues);
+_defineProperty(Circle, "ATTRIBUTE_NAMES", ['cx', 'cy', 'r', ...SHARED_ATTRIBUTES]);
+classRegistry.setClass(Circle);
+classRegistry.setSVGClass(Circle);
+
+class CircleBrush extends BaseBrush {
+  constructor(canvas) {
+    super(canvas);
+    /**
+     * Width of a brush
+     * @type Number
+     */
+    _defineProperty(this, "width", 10);
+    this.points = [];
+  }
+
+  /**
+   * Invoked inside on mouse down and mouse move
+   * @param {Point} pointer
+   */
+  drawDot(pointer) {
+    const point = this.addPoint(pointer),
+      ctx = this.canvas.contextTop;
+    this._saveAndTransform(ctx);
+    this.dot(ctx, point);
+    ctx.restore();
+  }
+  dot(ctx, point) {
+    ctx.fillStyle = point.fill;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, point.radius, 0, Math.PI * 2, false);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /**
+   * Invoked on mouse down
+   */
+  onMouseDown(pointer) {
+    this.points = [];
+    this.canvas.clearContext(this.canvas.contextTop);
+    this._setShadow();
+    this.drawDot(pointer);
+  }
+
+  /**
+   * Render the full state of the brush
+   * @private
+   */
+  _render() {
+    const ctx = this.canvas.contextTop,
+      points = this.points;
+    this._saveAndTransform(ctx);
+    for (let i = 0; i < points.length; i++) {
+      this.dot(ctx, points[i]);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Invoked on mouse move
+   * @param {Point} pointer
+   */
+  onMouseMove(pointer) {
+    if (this.limitedToCanvasSize === true && this._isOutSideCanvas(pointer)) {
+      return;
+    }
+    if (this.needsFullRender()) {
+      this.canvas.clearContext(this.canvas.contextTop);
+      this.addPoint(pointer);
+      this._render();
+    } else {
+      this.drawDot(pointer);
+    }
+  }
+
+  /**
+   * Invoked on mouse up
+   */
+  onMouseUp() {
+    const originalRenderOnAddRemove = this.canvas.renderOnAddRemove;
+    this.canvas.renderOnAddRemove = false;
+    const circles = [];
+    for (let i = 0; i < this.points.length; i++) {
+      const point = this.points[i],
+        circle = new Circle({
+          radius: point.radius,
+          left: point.x,
+          top: point.y,
+          originX: CENTER,
+          originY: CENTER,
+          fill: point.fill
+        });
+      this.shadow && (circle.shadow = new Shadow(this.shadow));
+      circles.push(circle);
+    }
+    const group = new Group(circles, {
+      canvas: this.canvas
+    });
+    this.canvas.fire('before:path:created', {
+      path: group
+    });
+    this.canvas.add(group);
+    this.canvas.fire('path:created', {
+      path: group
+    });
+    this.canvas.clearContext(this.canvas.contextTop);
+    this._resetShadow();
+    this.canvas.renderOnAddRemove = originalRenderOnAddRemove;
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * @param {Object} pointer
+   * @return {Point} Just added pointer point
+   */
+  addPoint(_ref) {
+    let {
+      x,
+      y
+    } = _ref;
+    const pointerPoint = {
+      x,
+      y,
+      radius: getRandomInt(Math.max(0, this.width - 20), this.width + 20) / 2,
+      fill: new Color(this.color).setAlpha(getRandomInt(0, 100) / 100).toRgba()
+    };
+    this.points.push(pointerPoint);
+    return pointerPoint;
+  }
+}
+
+/**
+ *
+ * @param rects
+ * @returns
+ */
+function getUniqueRects(rects) {
+  const uniqueRects = {};
+  const uniqueRectsArray = [];
+  for (let i = 0, key; i < rects.length; i++) {
+    key = `${rects[i].left}${rects[i].top}`;
+    if (!uniqueRects[key]) {
+      uniqueRects[key] = true;
+      uniqueRectsArray.push(rects[i]);
+    }
+  }
+  return uniqueRectsArray;
+}
+class SprayBrush extends BaseBrush {
+  /**
+   * Constructor
+   * @param {Canvas} canvas
+   * @return {SprayBrush} Instance of a spray brush
+   */
+  constructor(canvas) {
+    super(canvas);
+    /**
+     * Width of a spray
+     * @type Number
+     */
+    _defineProperty(this, "width", 10);
+    /**
+     * Density of a spray (number of dots per chunk)
+     * @type Number
+     */
+    _defineProperty(this, "density", 20);
+    /**
+     * Width of spray dots
+     * @type Number
+     */
+    _defineProperty(this, "dotWidth", 1);
+    /**
+     * Width variance of spray dots
+     * @type Number
+     */
+    _defineProperty(this, "dotWidthVariance", 1);
+    /**
+     * Whether opacity of a dot should be random
+     * @type Boolean
+     */
+    _defineProperty(this, "randomOpacity", false);
+    /**
+     * Whether overlapping dots (rectangles) should be removed (for performance reasons)
+     * @type Boolean
+     */
+    _defineProperty(this, "optimizeOverlapping", true);
+    this.sprayChunks = [];
+    this.sprayChunk = [];
+  }
+
+  /**
+   * Invoked on mouse down
+   * @param {Point} pointer
+   */
+  onMouseDown(pointer) {
+    this.sprayChunks = [];
+    this.canvas.clearContext(this.canvas.contextTop);
+    this._setShadow();
+    this.addSprayChunk(pointer);
+    this.renderChunck(this.sprayChunk);
+  }
+
+  /**
+   * Invoked on mouse move
+   * @param {Point} pointer
+   */
+  onMouseMove(pointer) {
+    if (this.limitedToCanvasSize === true && this._isOutSideCanvas(pointer)) {
+      return;
+    }
+    this.addSprayChunk(pointer);
+    this.renderChunck(this.sprayChunk);
+  }
+
+  /**
+   * Invoked on mouse up
+   */
+  onMouseUp() {
+    const originalRenderOnAddRemove = this.canvas.renderOnAddRemove;
+    this.canvas.renderOnAddRemove = false;
+    const rects = [];
+    for (let i = 0; i < this.sprayChunks.length; i++) {
+      const sprayChunk = this.sprayChunks[i];
+      for (let j = 0; j < sprayChunk.length; j++) {
+        const chunck = sprayChunk[j];
+        const rect = new Rect({
+          width: chunck.width,
+          height: chunck.width,
+          left: chunck.x + 1,
+          top: chunck.y + 1,
+          originX: CENTER,
+          originY: CENTER,
+          fill: this.color
+        });
+        rects.push(rect);
+      }
+    }
+    const group = new Group(this.optimizeOverlapping ? getUniqueRects(rects) : rects, {
+      objectCaching: true,
+      subTargetCheck: false,
+      interactive: false
+    });
+    this.shadow && group.set('shadow', new Shadow(this.shadow));
+    this.canvas.fire('before:path:created', {
+      path: group
+    });
+    this.canvas.add(group);
+    this.canvas.fire('path:created', {
+      path: group
+    });
+    this.canvas.clearContext(this.canvas.contextTop);
+    this._resetShadow();
+    this.canvas.renderOnAddRemove = originalRenderOnAddRemove;
+    this.canvas.requestRenderAll();
+  }
+  renderChunck(sprayChunck) {
+    const ctx = this.canvas.contextTop;
+    ctx.fillStyle = this.color;
+    this._saveAndTransform(ctx);
+    for (let i = 0; i < sprayChunck.length; i++) {
+      const point = sprayChunck[i];
+      ctx.globalAlpha = point.opacity;
+      ctx.fillRect(point.x, point.y, point.width, point.width);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Render all spray chunks
+   */
+  _render() {
+    const ctx = this.canvas.contextTop;
+    ctx.fillStyle = this.color;
+    this._saveAndTransform(ctx);
+    for (let i = 0; i < this.sprayChunks.length; i++) {
+      this.renderChunck(this.sprayChunks[i]);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * @param {Point} pointer
+   */
+  addSprayChunk(pointer) {
+    this.sprayChunk = [];
+    const radius = this.width / 2;
+    for (let i = 0; i < this.density; i++) {
+      this.sprayChunk.push({
+        x: getRandomInt(pointer.x - radius, pointer.x + radius),
+        y: getRandomInt(pointer.y - radius, pointer.y + radius),
+        width: this.dotWidthVariance ? getRandomInt(
+        // bottom clamp width to 1
+        Math.max(1, this.dotWidth - this.dotWidthVariance), this.dotWidth + this.dotWidthVariance) : this.dotWidth,
+        opacity: this.randomOpacity ? getRandomInt(0, 100) / 100 : 1
+      });
+    }
+    this.sprayChunks.push(this.sprayChunk);
+  }
+}
+
+class PatternBrush extends PencilBrush {
+  constructor(canvas) {
+    super(canvas);
+  }
+  getPatternSrc() {
+    const dotWidth = 20,
+      dotDistance = 5,
+      patternCanvas = createCanvasElement(),
+      patternCtx = patternCanvas.getContext('2d');
+    patternCanvas.width = patternCanvas.height = dotWidth + dotDistance;
+    if (patternCtx) {
+      patternCtx.fillStyle = this.color;
+      patternCtx.beginPath();
+      patternCtx.arc(dotWidth / 2, dotWidth / 2, dotWidth / 2, 0, Math.PI * 2, false);
+      patternCtx.closePath();
+      patternCtx.fill();
+    }
+    return patternCanvas;
+  }
+
+  /**
+   * Creates "pattern" instance property
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  getPattern(ctx) {
+    return ctx.createPattern(this.source || this.getPatternSrc(), 'repeat');
+  }
+
+  /**
+   * Sets brush styles
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _setBrushStyles(ctx) {
+    super._setBrushStyles(ctx);
+    const pattern = this.getPattern(ctx);
+    pattern && (ctx.strokeStyle = pattern);
+  }
+
+  /**
+   * Creates path
+   */
+  createPath(pathData) {
+    const path = super.createPath(pathData),
+      topLeft = path._getLeftTopCoords().scalarAdd(path.strokeWidth / 2);
+    path.stroke = new Pattern({
+      source: this.source || this.getPatternSrc(),
+      offsetX: -topLeft.x,
+      offsetY: -topLeft.y
+    });
+    return path;
+  }
+}
+
+const coordProps = ['x1', 'x2', 'y1', 'y2'];
+class Line extends FabricObject {
+  constructor() {
+    let [x1, y1, x2, y2] = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [0, 0, 100, 0];
+    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    super();
+    _defineProperty(this, "hitStrokeWidth", 'auto');
+    _defineProperty(this, "_updatingEndpoints", false);
+    _defineProperty(this, "_useEndpointCoords", true);
+    _defineProperty(this, "_exportingSVG", false);
+    this.setOptions(options);
+    this.x1 = x1;
+    this.x2 = x2;
+    this.y1 = y1;
+    this.y2 = y2;
+    if (options.hitStrokeWidth !== undefined) {
+      this.hitStrokeWidth = options.hitStrokeWidth;
+    }
+    this.hasBorders = false;
+    this.hasControls = true;
+    this.selectable = true;
+    this.hoverCursor = 'move';
+    this.perPixelTargetFind = false;
+    // Only set default if not provided in options (fixes deserialization bug)
+    if (options.strokeLineCap === undefined) {
+      this.strokeLineCap = 'butt';
+    }
+    this._setWidthHeight();
+    const {
+      left,
+      top
+    } = options;
+    typeof left === 'number' && this.set(LEFT, left);
+    typeof top === 'number' && this.set(TOP, top);
+    this._setupLineControls();
+  }
+  _setupLineControls() {
+    this.controls = {
+      p1: new Control({
+        x: 0,
+        y: 0,
+        cursorStyle: 'move',
+        actionHandler: this._endpointActionHandler.bind(this),
+        positionHandler: this._p1PositionHandler.bind(this),
+        render: this._renderEndpointControl.bind(this),
+        sizeX: 12,
+        sizeY: 12
+      }),
+      p2: new Control({
+        x: 0,
+        y: 0,
+        cursorStyle: 'move',
+        actionHandler: this._endpointActionHandler.bind(this),
+        positionHandler: this._p2PositionHandler.bind(this),
+        render: this._renderEndpointControl.bind(this),
+        sizeX: 12,
+        sizeY: 12
+      })
+    };
+  }
+  _p1PositionHandler() {
+    return new Point(this.x1, this.y1).transform(this.getViewportTransform());
+  }
+  _p2PositionHandler() {
+    return new Point(this.x2, this.y2).transform(this.getViewportTransform());
+  }
+  _renderEndpointControl(ctx, left, top) {
+    const size = 12;
+    ctx.save();
+    ctx.fillStyle = '#007bff';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(left, top, size / 2, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  drawBorders(ctx) {
+    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    if (this._useEndpointCoords) {
+      this._drawLineBorders(ctx, styleOverride);
+      return this;
+    }
+    return super.drawBorders(ctx, styleOverride, {});
+  }
+  _drawLineBorders(ctx) {
+    var _this$canvas;
+    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    const vpt = ((_this$canvas = this.canvas) === null || _this$canvas === void 0 ? void 0 : _this$canvas.viewportTransform) || [1, 0, 0, 1, 0, 0];
+    ctx.save();
+    ctx.setTransform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+    ctx.strokeStyle = styleOverride.borderColor || this.borderColor || 'rgba(100, 200, 200, 0.5)';
+    ctx.lineWidth = (this.strokeWidth || 1) + 5;
+    ctx.lineCap = this.strokeLineCap || 'butt';
+    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
+    ctx.beginPath();
+    ctx.moveTo(this.x1, this.y1);
+    ctx.lineTo(this.x2, this.y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  _renderControls(ctx) {
+    let styleOverride = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    ctx.save();
+    ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
+    this.drawControls(ctx, styleOverride);
+    ctx.restore();
+  }
+  getBoundingRect() {
+    if (this._useEndpointCoords) {
+      const {
+        x1,
+        y1,
+        x2,
+        y2
+      } = this;
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
+      const padding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
+      return {
+        left: Math.min(x1, x2) - padding,
+        top: Math.min(y1, y2) - padding,
+        width: Math.abs(x2 - x1) + padding * 2 || padding * 2,
+        height: Math.abs(y2 - y1) + padding * 2 || padding * 2
+      };
+    }
+    return super.getBoundingRect();
+  }
+  setCoords() {
+    if (this._useEndpointCoords) {
+      // Set width and height for hit detection and bounding box
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
+      const hitPadding = Math.max(effectiveStrokeWidth / 2 + 5, 10);
+      this.width = Math.abs(this.x2 - this.x1) + hitPadding * 2;
+      this.height = Math.abs(this.y2 - this.y1) + hitPadding * 2;
+
+      // Only update left/top if they haven't been explicitly set (e.g., during loading)
+      if (this.left === 0 && this.top === 0) {
+        const center = this._findCenterFromElement();
+        this.left = center.x;
+        this.top = center.y;
+      }
+    }
+    super.setCoords();
+  }
+  getCoords() {
+    if (this._useEndpointCoords) {
+      const deltaX = this.x2 - this.x1;
+      const deltaY = this.y2 - this.y1;
+      const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      if (length === 0) {
+        return super.getCoords();
+      }
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth;
+      const halfWidth = Math.max(effectiveStrokeWidth / 2 + 2, 5);
+
+      // Unit vector perpendicular to line
+      const perpX = -deltaY / length;
+      const perpY = deltaX / length;
+
+      // Four corners of oriented rectangle
+      return [new Point(this.x1 + perpX * halfWidth, this.y1 + perpY * halfWidth), new Point(this.x2 + perpX * halfWidth, this.y2 + perpY * halfWidth), new Point(this.x2 - perpX * halfWidth, this.y2 - perpY * halfWidth), new Point(this.x1 - perpX * halfWidth, this.y1 - perpY * halfWidth)];
+    }
+    return super.getCoords();
+  }
+  containsPoint(point) {
+    if (this._useEndpointCoords) {
+      var _this$canvas2;
+      if (((_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 ? void 0 : _this$canvas2.getActiveObject()) === this) {
+        return super.containsPoint(point);
+      }
+      const distance = this._distanceToLineSegment(point.x, point.y);
+      const effectiveStrokeWidth = this.hitStrokeWidth === 'auto' ? this.strokeWidth : this.hitStrokeWidth || 1;
+      const tolerance = Math.max(effectiveStrokeWidth / 2 + 2, 5);
+      return distance <= tolerance;
+    }
+    return super.containsPoint(point);
+  }
+  _distanceToLineSegment(px, py) {
+    const x1 = this.x1,
+      y1 = this.y1,
+      x2 = this.x2,
+      y2 = this.y2;
+    const pd2 = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+    if (pd2 === 0) {
+      return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    }
+    const u = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / pd2;
+    let closestX, closestY;
+    if (u < 0) {
+      closestX = x1;
+      closestY = y1;
+    } else if (u > 1) {
+      closestX = x2;
+      closestY = y2;
+    } else {
+      closestX = x1 + u * (x2 - x1);
+      closestY = y1 + u * (y2 - y1);
+    }
+    return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
+  }
+  _endpointActionHandler(eventData, transformData, x, y) {
+    var _this$canvas4;
+    const controlKey = transformData.corner;
+    const pointer = new Point(x, y);
+    let newX = pointer.x;
+    let newY = pointer.y;
+    if (eventData.shiftKey) {
+      const otherControl = controlKey === 'p1' ? 'p2' : 'p1';
+      const otherX = this[otherControl === 'p1' ? 'x1' : 'x2'];
+      const otherY = this[otherControl === 'p1' ? 'y1' : 'y2'];
+      const snapped = this._snapToAngle(otherX, otherY, newX, newY);
+      newX = snapped.x;
+      newY = snapped.y;
+    }
+    if (this._useEndpointCoords) {
+      var _this$canvas3;
+      if (controlKey === 'p1') {
+        this.x1 = newX;
+        this.y1 = newY;
+      } else if (controlKey === 'p2') {
+        this.x2 = newX;
+        this.y2 = newY;
+      }
+
+      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
+      if (this.stroke instanceof Gradient && !this._exportingSVG) {
+        this.stroke.coords.x1 = this.x1;
+        this.stroke.coords.y1 = this.y1;
+        this.stroke.coords.x2 = this.x2;
+        this.stroke.coords.y2 = this.y2;
+      }
+      this.dirty = true;
+      this.setCoords();
+      (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
+      return true;
+    }
+
+    // Fallback for old system
+    this._updatingEndpoints = true;
+    if (controlKey === 'p1') {
+      this.x1 = newX;
+      this.y1 = newY;
+    } else if (controlKey === 'p2') {
+      this.x2 = newX;
+      this.y2 = newY;
+    }
+    this._setWidthHeight();
+    this.dirty = true;
+    this._updatingEndpoints = false;
+    (_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 || _this$canvas4.requestRenderAll();
+    this.fire('modified', {
+      transform: transformData,
+      target: this,
+      e: eventData
+    });
+    return true;
+  }
+  _snapToAngle(fromX, fromY, toX, toY) {
+    const deltaX = toX - fromX;
+    const deltaY = toY - fromY;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    if (distance === 0) return {
+      x: toX,
+      y: toY
+    };
+    let angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+    const snapIncrement = 15;
+    const snappedAngle = Math.round(angle / snapIncrement) * snapIncrement;
+    const snappedRadians = snappedAngle * (Math.PI / 180);
+    return {
+      x: fromX + Math.cos(snappedRadians) * distance,
+      y: fromY + Math.sin(snappedRadians) * distance
+    };
+  }
+  _setWidthHeight() {
+    let skipReposition = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
+    this.width = Math.abs(this.x2 - this.x1) || 1;
+    this.height = Math.abs(this.y2 - this.y1) || 1;
+    if (!skipReposition && !this._updatingEndpoints) {
+      const {
+        left,
+        top,
+        width,
+        height
+      } = makeBoundingBoxFromPoints([{
+        x: this.x1,
+        y: this.y1
+      }, {
+        x: this.x2,
+        y: this.y2
+      }]);
+      this.setPositionByOrigin(new Point(left + width / 2, top + height / 2), CENTER, CENTER);
+    }
+  }
+  _set(key, value) {
+    const oldLeft = this.left;
+    const oldTop = this.top;
+    super._set(key, value);
+    if (coordProps.includes(key)) {
+      this._setWidthHeight();
+      this.dirty = true;
+
+      // Update gradient coordinates if stroke is a gradient (but not during SVG export)
+      if (this.stroke instanceof Gradient && !this._exportingSVG) {
+        this.stroke.coords.x1 = this.x1;
+        this.stroke.coords.y1 = this.y1;
+        this.stroke.coords.x2 = this.x2;
+        this.stroke.coords.y2 = this.y2;
+      }
+    }
+    if ((key === 'left' || key === 'top') && this.canvas && !this._updatingEndpoints) {
+      const deltaX = this.left - oldLeft;
+      const deltaY = this.top - oldTop;
+      if (deltaX !== 0 || deltaY !== 0) {
+        this._updatingEndpoints = true;
+        this.x1 += deltaX;
+        this.y1 += deltaY;
+        this.x2 += deltaX;
+        this.y2 += deltaY;
+
+        // Update gradient coordinates if stroke is a gradient
+        if (this.stroke instanceof Gradient) {
+          this.stroke.coords.x1 = this.x1;
+          this.stroke.coords.y1 = this.y1;
+          this.stroke.coords.x2 = this.x2;
+          this.stroke.coords.y2 = this.y2;
+        }
+        this._updatingEndpoints = false;
+      }
+    }
+    return this;
+  }
+  render(ctx) {
+    if (this._useEndpointCoords) {
+      this._renderDirectly(ctx);
+      return;
+    }
+    super.render(ctx);
+  }
+  _renderDirectly(ctx) {
+    if (!this.visible) return;
+    ctx.save();
+    ctx.globalAlpha = this.opacity;
+    ctx.lineWidth = this.strokeWidth;
+    ctx.lineCap = this.strokeLineCap || 'butt';
+    ctx.beginPath();
+    ctx.moveTo(this.x1, this.y1);
+    ctx.lineTo(this.x2, this.y2);
+    const origStrokeStyle = ctx.strokeStyle;
+    if (isFiller(this.stroke)) {
+      ctx.strokeStyle = this.stroke.toLive(ctx);
+    } else {
+      var _this$stroke;
+      ctx.strokeStyle = ((_this$stroke = this.stroke) === null || _this$stroke === void 0 ? void 0 : _this$stroke.toString()) || '#000';
+    }
+    ctx.stroke();
+    ctx.strokeStyle = origStrokeStyle;
+    ctx.restore();
+  }
+  _render(ctx) {
+    if (this._useEndpointCoords) return;
+    ctx.beginPath();
+    const p = this.calcLinePoints();
+    ctx.moveTo(p.x1, p.y1);
+    ctx.lineTo(p.x2, p.y2);
+    ctx.lineWidth = this.strokeWidth;
+    const origStrokeStyle = ctx.strokeStyle;
+    if (isFiller(this.stroke)) {
+      ctx.strokeStyle = this.stroke.toLive(ctx);
+    }
+    this.stroke && this._renderStroke(ctx);
+    ctx.strokeStyle = origStrokeStyle;
+  }
+  _findCenterFromElement() {
+    return new Point((this.x1 + this.x2) / 2, (this.y1 + this.y2) / 2);
+  }
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    if (this._useEndpointCoords) {
+      return {
+        ...super.toObject(propertiesToInclude),
+        x1: this.x1,
+        y1: this.y1,
+        x2: this.x2,
+        y2: this.y2
+      };
+    }
+    return {
+      ...super.toObject(propertiesToInclude),
+      ...this.calcLinePoints()
+    };
+  }
+  _getNonTransformedDimensions() {
+    const dim = super._getNonTransformedDimensions();
+    if (this.strokeLineCap === 'round') {
+      dim.x += this.strokeWidth;
+      dim.y += this.strokeWidth;
+    }
+    return dim;
+  }
+  calcLinePoints() {
+    if (this._updatingEndpoints) {
+      const centerX = (this.x1 + this.x2) / 2;
+      const centerY = (this.y1 + this.y2) / 2;
+      return {
+        x1: this.x1 - centerX,
+        y1: this.y1 - centerY,
+        x2: this.x2 - centerX,
+        y2: this.y2 - centerY
+      };
+    }
+    const {
+      x1: _x1,
+      x2: _x2,
+      y1: _y1,
+      y2: _y2,
+      width,
+      height
+    } = this;
+    const xMult = _x1 <= _x2 ? -1 : 1;
+    const yMult = _y1 <= _y2 ? -1 : 1;
+    return {
+      x1: xMult * width / 2,
+      y1: yMult * height / 2,
+      x2: xMult * -width / 2,
+      y2: yMult * -height / 2
+    };
+  }
+  _toSVG() {
+    if (this._useEndpointCoords) {
+      // Use absolute coordinates to bypass all Fabric.js transforms
+      // Handle gradients manually for proper SVG export
+      let strokeAttr = '';
+      if (this.stroke instanceof Gradient) {
+        // Let Fabric.js handle gradient definition, but we'll use the reference
+        strokeAttr = `stroke="url(#${this.stroke.id})"`;
+      } else {
+        strokeAttr = `stroke="${this.stroke || 'none'}"`;
+      }
+      return [`<line ${strokeAttr} stroke-width="${this.strokeWidth}" stroke-linecap="${this.strokeLineCap}" `, `stroke-dasharray="${this.strokeDashArray ? this.strokeDashArray.join(' ') : 'none'}" `, `stroke-dashoffset="${this.strokeDashOffset}" stroke-linejoin="${this.strokeLineJoin}" `, `stroke-miterlimit="${this.strokeMiterLimit}" fill="${this.fill || 'none'}" `, `fill-rule="${this.fillRule}" opacity="${this.opacity}" `, `x1="${this.x1}" y1="${this.y1}" x2="${this.x2}" y2="${this.y2}" />\n`];
+    } else {
+      // Use standard calcLinePoints for legacy mode
+      const {
+        x1,
+        x2,
+        y1,
+        y2
+      } = this.calcLinePoints();
+      return ['<line ', 'COMMON_PARTS', `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" />\n`];
+    }
+  }
+  toSVG(reviver) {
+    if (this._useEndpointCoords) {
+      // For endpoint coords, we need to bypass transforms but still allow gradients
+      // Let's temporarily disable transforms during SVG generation
+      const originalLeft = this.left;
+      const originalTop = this.top;
+
+      // Set position to center of line for gradient calculation
+      this.left = (this.x1 + this.x2) / 2;
+      this.top = (this.y1 + this.y2) / 2;
+
+      // Get the SVG with standard system (for gradient handling)
+      const standardSVG = super.toSVG(reviver);
+
+      // Restore original position
+      this.left = originalLeft;
+      this.top = originalTop;
+
+      // Extract gradient definition and clean up the line element
+      // Remove the transform wrapper and update coordinates
+      const cleanSVG = standardSVG.replace(/<g transform="[^"]*"[^>]*>/g, '').replace(/<\/g>/g, '').replace(/x1="[^"]*"/g, `x1="${this.x1}"`).replace(/y1="[^"]*"/g, `y1="${this.y1}"`).replace(/x2="[^"]*"/g, `x2="${this.x2}"`).replace(/y2="[^"]*"/g, `y2="${this.y2}"`);
+      return cleanSVG;
+    }
+    // Use default behavior for legacy mode
+    return super.toSVG(reviver);
+  }
+  static async fromElement(element, options, cssRules) {
+    const {
+      x1 = 0,
+      y1 = 0,
+      x2 = 0,
+      y2 = 0,
+      ...parsedAttributes
+    } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
+    return new this([x1, y1, x2, y2], parsedAttributes);
+  }
+  static fromObject(_ref) {
+    let {
+      x1,
+      y1,
+      x2,
+      y2,
+      ...object
+    } = _ref;
+    return this._fromObject({
+      ...object,
+      points: [x1, y1, x2, y2]
+    }, {
+      extraParam: 'points'
+    });
+  }
+}
+_defineProperty(Line, "type", 'Line');
+_defineProperty(Line, "cacheProperties", [...cacheProperties, ...coordProps]);
+_defineProperty(Line, "ATTRIBUTE_NAMES", SHARED_ATTRIBUTES.concat(coordProps));
+classRegistry.setClass(Line);
+classRegistry.setSVGClass(Line);
+
+/**
+ * Calculate the distance between two points
+ */
+function pointDistance(p1, p2) {
+  return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+}
+
+/**
+ * Normalize a vector
+ */
+function normalizeVector(vector) {
+  const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+  if (length === 0) return {
+    x: 0,
+    y: 0
+  };
+  return {
+    x: vector.x / length,
+    y: vector.y / length
+  };
+}
+
+/**
+ * Get the maximum allowed radius for a corner based on adjacent edge lengths
+ */
+function getMaxRadius(prevPoint, currentPoint, nextPoint) {
+  const dist1 = pointDistance(prevPoint, currentPoint);
+  const dist2 = pointDistance(currentPoint, nextPoint);
+  return Math.min(dist1, dist2) / 2;
+}
+
+/**
+ * Calculate rounded corner data for a single corner
+ */
+function calculateRoundedCorner(prevPoint, currentPoint, nextPoint, radius) {
+  // Calculate edge vectors
+  const edge1 = {
+    x: currentPoint.x - prevPoint.x,
+    y: currentPoint.y - prevPoint.y
+  };
+  const edge2 = {
+    x: nextPoint.x - currentPoint.x,
+    y: nextPoint.y - currentPoint.y
+  };
+
+  // Normalize edge vectors
+  const norm1 = normalizeVector(edge1);
+  const norm2 = normalizeVector(edge2);
+
+  // Calculate the maximum allowed radius
+  const maxRadius = getMaxRadius(prevPoint, currentPoint, nextPoint);
+  const actualRadius = Math.min(radius, maxRadius);
+
+  // Calculate start and end points of the rounded corner
+  const startPoint = {
+    x: currentPoint.x - norm1.x * actualRadius,
+    y: currentPoint.y - norm1.y * actualRadius
+  };
+  const endPoint = {
+    x: currentPoint.x + norm2.x * actualRadius,
+    y: currentPoint.y + norm2.y * actualRadius
+  };
+
+  // Calculate control points for bezier curve
+  // Using the magic number kRect for optimal circular approximation
+  const controlOffset = actualRadius * kRect;
+  const cp1 = {
+    x: startPoint.x + norm1.x * controlOffset,
+    y: startPoint.y + norm1.y * controlOffset
+  };
+  const cp2 = {
+    x: endPoint.x - norm2.x * controlOffset,
+    y: endPoint.y - norm2.y * controlOffset
+  };
+  return {
+    corner: currentPoint,
+    start: startPoint,
+    end: endPoint,
+    cp1,
+    cp2,
+    actualRadius
+  };
+}
+
+/**
+ * Apply corner radius to a polygon defined by points
+ */
+function applyCornerRadiusToPolygon(points, radius) {
+  let radiusAsPercentage = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
+  if (points.length < 3) {
+    throw new Error('Polygon must have at least 3 points');
+  }
+
+  // Calculate bounding box if radius is percentage-based
+  let actualRadius = radius;
+  if (radiusAsPercentage) {
+    const minX = Math.min(...points.map(p => p.x));
+    const maxX = Math.max(...points.map(p => p.x));
+    const minY = Math.min(...points.map(p => p.y));
+    const maxY = Math.max(...points.map(p => p.y));
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const minDimension = Math.min(width, height);
+    actualRadius = radius / 100 * minDimension;
+  }
+  const roundedCorners = [];
+  for (let i = 0; i < points.length; i++) {
+    const prevIndex = (i - 1 + points.length) % points.length;
+    const nextIndex = (i + 1) % points.length;
+    const prevPoint = points[prevIndex];
+    const currentPoint = points[i];
+    const nextPoint = points[nextIndex];
+    const roundedCorner = calculateRoundedCorner(prevPoint, currentPoint, nextPoint, actualRadius);
+    roundedCorners.push(roundedCorner);
+  }
+  return roundedCorners;
+}
+
+/**
+ * Render a rounded polygon to a canvas context
+ */
+function renderRoundedPolygon(ctx, roundedCorners) {
+  let closed = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
+  if (roundedCorners.length === 0) return;
+  ctx.beginPath();
+
+  // Start at the first corner's start point
+  const firstCorner = roundedCorners[0];
+  ctx.moveTo(firstCorner.start.x, firstCorner.start.y);
+  for (let i = 0; i < roundedCorners.length; i++) {
+    const corner = roundedCorners[i];
+    const nextIndex = (i + 1) % roundedCorners.length;
+    const nextCorner = roundedCorners[nextIndex];
+
+    // Draw the rounded corner using bezier curve
+    ctx.bezierCurveTo(corner.cp1.x, corner.cp1.y, corner.cp2.x, corner.cp2.y, corner.end.x, corner.end.y);
+
+    // Draw line to next corner's start point (if not the last segment in open path)
+    if (i < roundedCorners.length - 1 || closed) {
+      ctx.lineTo(nextCorner.start.x, nextCorner.start.y);
+    }
+  }
+  if (closed) {
+    ctx.closePath();
+  }
+}
+
+/**
+ * Generate SVG path data for a rounded polygon
+ */
+function generateRoundedPolygonPath(roundedCorners) {
+  let closed = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
+  if (roundedCorners.length === 0) return '';
+  const pathData = [];
+  const firstCorner = roundedCorners[0];
+
+  // Move to first corner's start point
+  pathData.push(`M ${firstCorner.start.x} ${firstCorner.start.y}`);
+  for (let i = 0; i < roundedCorners.length; i++) {
+    const corner = roundedCorners[i];
+    const nextIndex = (i + 1) % roundedCorners.length;
+    const nextCorner = roundedCorners[nextIndex];
+
+    // Add bezier curve for the rounded corner
+    pathData.push(`C ${corner.cp1.x} ${corner.cp1.y} ${corner.cp2.x} ${corner.cp2.y} ${corner.end.x} ${corner.end.y}`);
+
+    // Add line to next corner's start point (if not the last segment in open path)
+    if (i < roundedCorners.length - 1 || closed) {
+      pathData.push(`L ${nextCorner.start.x} ${nextCorner.start.y}`);
+    }
+  }
+  if (closed) {
+    pathData.push('Z');
+  }
+  return pathData.join(' ');
+}
+
+const triangleDefaultValues = {
+  width: 100,
+  height: 100,
+  cornerRadius: 0
+};
+const TRIANGLE_PROPS = ['cornerRadius'];
+class Triangle extends FabricObject {
+  static getDefaults() {
+    return {
+      ...super.getDefaults(),
+      ...Triangle.ownDefaults
+    };
+  }
+
+  /**
+   * Constructor
+   * @param {Object} [options] Options object
+   */
+  constructor(options) {
+    super();
+    Object.assign(this, Triangle.ownDefaults);
+    this.setOptions(options);
+  }
+
+  /**
+   * Get triangle points as an array of XY coordinates
+   * @private
+   */
+  _getTrianglePoints() {
+    const widthBy2 = this.width / 2;
+    const heightBy2 = this.height / 2;
+    return [{
+      x: -widthBy2,
+      y: heightBy2
+    },
+    // bottom left
+    {
+      x: 0,
+      y: -heightBy2
+    },
+    // top center
+    {
+      x: widthBy2,
+      y: heightBy2
+    } // bottom right
+    ];
+  }
+
+  /**
+   * @private
+   * @param {CanvasRenderingContext2D} ctx Context to render on
+   */
+  _render(ctx) {
+    if (this.cornerRadius > 0) {
+      // Render rounded triangle
+      const points = this._getTrianglePoints();
+      const roundedCorners = applyCornerRadiusToPolygon(points, this.cornerRadius);
+      renderRoundedPolygon(ctx, roundedCorners, true);
+    } else {
+      // Render sharp triangle (original implementation)
+      const widthBy2 = this.width / 2;
+      const heightBy2 = this.height / 2;
+      ctx.beginPath();
+      ctx.moveTo(-widthBy2, heightBy2);
+      ctx.lineTo(0, -heightBy2);
+      ctx.lineTo(widthBy2, heightBy2);
+      ctx.closePath();
+    }
+    this._renderPaintInOrder(ctx);
+  }
+
+  /**
+   * Returns object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} object representation of an instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return super.toObject([...TRIANGLE_PROPS, ...propertiesToInclude]);
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * @return {Array} an array of strings with the specific svg representation
+   * of the instance
+   */
+  _toSVG() {
+    if (this.cornerRadius > 0) {
+      // Generate rounded triangle as path
+      const points = this._getTrianglePoints();
+      const roundedCorners = applyCornerRadiusToPolygon(points, this.cornerRadius);
+      const pathData = generateRoundedPolygonPath(roundedCorners, true);
+      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />`];
+    } else {
+      // Original sharp triangle implementation
+      const widthBy2 = this.width / 2;
+      const heightBy2 = this.height / 2;
+      const points = `${-widthBy2} ${heightBy2},0 ${-heightBy2},${widthBy2} ${heightBy2}`;
+      return ['<polygon ', 'COMMON_PARTS', 'points="', points, '" />'];
+    }
+  }
+}
+/**
+ * Corner radius for rounded triangle corners
+ * @type Number
+ */
+_defineProperty(Triangle, "type", 'Triangle');
+_defineProperty(Triangle, "cacheProperties", [...cacheProperties, ...TRIANGLE_PROPS]);
+_defineProperty(Triangle, "ownDefaults", triangleDefaultValues);
+classRegistry.setClass(Triangle);
+classRegistry.setSVGClass(Triangle);
+
+const ellipseDefaultValues = {
+  rx: 0,
+  ry: 0
+};
+const ELLIPSE_PROPS = ['rx', 'ry'];
+class Ellipse extends FabricObject {
+  static getDefaults() {
+    return {
+      ...super.getDefaults(),
+      ...Ellipse.ownDefaults
+    };
+  }
+
+  /**
+   * Constructor
+   * @param {Object} [options] Options object
+   */
+  constructor(options) {
+    super();
+    Object.assign(this, Ellipse.ownDefaults);
+    this.setOptions(options);
+  }
+
+  /**
+   * @private
+   * @param {String} key
+   * @param {*} value
+   * @return {Ellipse} thisArg
+   */
+  _set(key, value) {
+    super._set(key, value);
+    switch (key) {
+      case 'rx':
+        this.rx = value;
+        this.set('width', value * 2);
+        break;
+      case 'ry':
+        this.ry = value;
+        this.set('height', value * 2);
+        break;
+    }
+    return this;
+  }
+
+  /**
+   * Returns horizontal radius of an object (according to how an object is scaled)
+   * @return {Number}
+   */
+  getRx() {
+    return this.get('rx') * this.get(SCALE_X);
+  }
+
+  /**
+   * Returns Vertical radius of an object (according to how an object is scaled)
+   * @return {Number}
+   */
+  getRy() {
+    return this.get('ry') * this.get(SCALE_Y);
+  }
+
+  /**
+   * Returns object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} object representation of an instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return super.toObject([...ELLIPSE_PROPS, ...propertiesToInclude]);
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * @return {Array} an array of strings with the specific svg representation
+   * of the instance
+   */
+  _toSVG() {
+    return ['<ellipse ', 'COMMON_PARTS', `cx="0" cy="0" rx="${this.rx}" ry="${this.ry}" />\n`];
+  }
+
+  /**
+   * @private
+   * @param {CanvasRenderingContext2D} ctx context to render on
+   */
+  _render(ctx) {
+    ctx.beginPath();
+    ctx.save();
+    ctx.transform(1, 0, 0, this.ry / this.rx, 0, 0);
+    ctx.arc(0, 0, this.rx, 0, twoMathPi, false);
+    ctx.restore();
+    this._renderPaintInOrder(ctx);
+  }
+
+  /* _FROM_SVG_START_ */
+
+  /**
+   * List of attribute names to account for when parsing SVG element (used by {@link Ellipse.fromElement})
+   * @see http://www.w3.org/TR/SVG/shapes.html#EllipseElement
+   */
+
+  /**
+   * Returns {@link Ellipse} instance from an SVG element
+   * @param {HTMLElement} element Element to parse
+   * @return {Ellipse}
+   */
+  static async fromElement(element, options, cssRules) {
+    const parsedAttributes = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
+    parsedAttributes.left = (parsedAttributes.left || 0) - parsedAttributes.rx;
+    parsedAttributes.top = (parsedAttributes.top || 0) - parsedAttributes.ry;
+    return new this(parsedAttributes);
+  }
+
+  /* _FROM_SVG_END_ */
+}
+/**
+ * Horizontal radius
+ * @type Number
+ */
+/**
+ * Vertical radius
+ * @type Number
+ */
+_defineProperty(Ellipse, "type", 'Ellipse');
+_defineProperty(Ellipse, "cacheProperties", [...cacheProperties, ...ELLIPSE_PROPS]);
+_defineProperty(Ellipse, "ownDefaults", ellipseDefaultValues);
+_defineProperty(Ellipse, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES, 'cx', 'cy', 'rx', 'ry']);
+classRegistry.setClass(Ellipse);
+classRegistry.setSVGClass(Ellipse);
+
+/**
+ * Parses "points" attribute, returning an array of values
+ * @param {String} points points attribute string
+ * @return {Array} array of points
+ */
+function parsePointsAttribute(points) {
+  // points attribute is required and must not be empty
+  if (!points) {
+    return [];
+  }
+
+  // replace commas with whitespace and remove bookending whitespace
+  const pointsSplit = points.replace(/,/g, ' ').trim().split(/\s+/);
+  const parsedPoints = [];
+  for (let i = 0; i < pointsSplit.length; i += 2) {
+    parsedPoints.push({
+      x: parseFloat(pointsSplit[i]),
+      y: parseFloat(pointsSplit[i + 1])
+    });
+  }
+
+  // odd number of points is an error
+  // if (parsedPoints.length % 2 !== 0) {
+  //   return null;
+  // }
+  return parsedPoints;
+}
+
+const polylineDefaultValues = {
+  /**
+   * @deprecated transient option soon to be removed in favor of a different design
+   */
+  exactBoundingBox: false,
+  cornerRadius: 0
+};
+class Polyline extends FabricObject {
+  static getDefaults() {
+    return {
+      ...super.getDefaults(),
+      ...Polyline.ownDefaults
+    };
+  }
+
+  /**
+   * A list of properties that if changed trigger a recalculation of dimensions
+   * @todo check if you really need to recalculate for all cases
+   */
+
+  /**
+   * Constructor
+   * @param {Array} points Array of points (where each point is an object with x and y)
+   * @param {Object} [options] Options object
+   * @return {Polyline} thisArg
+   * @example
+   * var poly = new Polyline([
+   *     { x: 10, y: 10 },
+   *     { x: 50, y: 30 },
+   *     { x: 40, y: 70 },
+   *     { x: 60, y: 50 },
+   *     { x: 100, y: 150 },
+   *     { x: 40, y: 100 }
+   *   ], {
+   *   stroke: 'red',
+   *   left: 100,
+   *   top: 100
+   * });
+   */
+  constructor() {
+    let points = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    let options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    super();
+    _defineProperty(this, "strokeDiff", void 0);
+    Object.assign(this, Polyline.ownDefaults);
+    this.setOptions(options);
+    this.points = points;
+    const {
+      left,
+      top
+    } = options;
+    this.initialized = true;
+    this.setBoundingBox(true);
+    typeof left === 'number' && this.set(LEFT, left);
+    typeof top === 'number' && this.set(TOP, top);
+  }
+  isOpen() {
+    return true;
+  }
+  _projectStrokeOnPoints(options) {
+    return projectStrokeOnPoints(this.points, options, this.isOpen());
+  }
+
+  /**
+   * Calculate the polygon bounding box
+   * @private
+   */
+  _calcDimensions(options) {
+    options = {
+      scaleX: this.scaleX,
+      scaleY: this.scaleY,
+      skewX: this.skewX,
+      skewY: this.skewY,
+      strokeLineCap: this.strokeLineCap,
+      strokeLineJoin: this.strokeLineJoin,
+      strokeMiterLimit: this.strokeMiterLimit,
+      strokeUniform: this.strokeUniform,
+      strokeWidth: this.strokeWidth,
+      ...(options || {})
+    };
+    const points = this.exactBoundingBox ? this._projectStrokeOnPoints(options).map(projection => projection.projectedPoint) : this.points;
+    if (points.length === 0) {
+      return {
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+        pathOffset: new Point(),
+        strokeOffset: new Point(),
+        strokeDiff: new Point()
+      };
+    }
+    const bbox = makeBoundingBoxFromPoints(points),
+      // Remove scale effect, since it's applied after
+      matrix = calcDimensionsMatrix({
+        ...options,
+        scaleX: 1,
+        scaleY: 1
+      }),
+      bboxNoStroke = makeBoundingBoxFromPoints(this.points.map(p => transformPoint(p, matrix, true))),
+      scale = new Point(this.scaleX, this.scaleY);
+    let offsetX = bbox.left + bbox.width / 2,
+      offsetY = bbox.top + bbox.height / 2;
+    if (this.exactBoundingBox) {
+      offsetX = offsetX - offsetY * Math.tan(degreesToRadians(this.skewX));
+      // Order of those assignments is important.
+      // offsetY relies on offsetX being already changed by the line above
+      offsetY = offsetY - offsetX * Math.tan(degreesToRadians(this.skewY));
+    }
+    return {
+      ...bbox,
+      pathOffset: new Point(offsetX, offsetY),
+      strokeOffset: new Point(bboxNoStroke.left, bboxNoStroke.top).subtract(new Point(bbox.left, bbox.top)).multiply(scale),
+      strokeDiff: new Point(bbox.width, bbox.height).subtract(new Point(bboxNoStroke.width, bboxNoStroke.height)).multiply(scale)
+    };
+  }
+
+  /**
+   * This function is an helper for svg import. it returns the center of the object in the svg
+   * untransformed coordinates, by look at the polyline/polygon points.
+   * @private
+   * @return {Point} center point from element coordinates
+   */
+  _findCenterFromElement() {
+    const bbox = makeBoundingBoxFromPoints(this.points);
+    return new Point(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2);
+  }
+  setDimensions() {
+    this.setBoundingBox();
+  }
+  setBoundingBox(adjustPosition) {
+    const {
+      left,
+      top,
+      width,
+      height,
+      pathOffset,
+      strokeOffset,
+      strokeDiff
+    } = this._calcDimensions();
+    this.set({
+      width,
+      height,
+      pathOffset,
+      strokeOffset,
+      strokeDiff
+    });
+    adjustPosition && this.setPositionByOrigin(new Point(left + width / 2, top + height / 2), CENTER, CENTER);
+  }
+
+  /**
+   * @deprecated intermidiate method to be removed, do not use
+   */
+  isStrokeAccountedForInDimensions() {
+    return this.exactBoundingBox;
+  }
+
+  /**
+   * @override stroke is taken in account in size
+   */
+  _getNonTransformedDimensions() {
+    return this.exactBoundingBox ?
+    // TODO: fix this
+    new Point(this.width, this.height) : super._getNonTransformedDimensions();
+  }
+
+  /**
+   * @override stroke and skewing are taken into account when projecting stroke on points,
+   * therefore we don't want the default calculation to account for skewing as well.
+   * Though it is possible to pass `width` and `height` in `options`, doing so is very strange, use with discretion.
+   *
+   * @private
+   */
+  _getTransformedDimensions() {
+    let options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+    if (this.exactBoundingBox) {
+      let size;
+      /* When `strokeUniform = true`, any changes to the properties require recalculating the `width` and `height` because
+        the stroke projections are affected.
+        When `strokeUniform = false`, we don't need to recalculate for scale transformations, as the effect of scale on
+        projections follows a linear function (e.g. scaleX of 2 just multiply width by 2)*/
+      if (Object.keys(options).some(key => this.strokeUniform || this.constructor.layoutProperties.includes(key))) {
+        var _options$width, _options$height;
+        const {
+          width,
+          height
+        } = this._calcDimensions(options);
+        size = new Point((_options$width = options.width) !== null && _options$width !== void 0 ? _options$width : width, (_options$height = options.height) !== null && _options$height !== void 0 ? _options$height : height);
+      } else {
+        var _options$width2, _options$height2;
+        size = new Point((_options$width2 = options.width) !== null && _options$width2 !== void 0 ? _options$width2 : this.width, (_options$height2 = options.height) !== null && _options$height2 !== void 0 ? _options$height2 : this.height);
+      }
+      return size.multiply(new Point(options.scaleX || this.scaleX, options.scaleY || this.scaleY));
+    } else {
+      return super._getTransformedDimensions(options);
+    }
+  }
+
+  /**
+   * Recalculates dimensions when changing skew and scale
+   * @private
+   */
+  _set(key, value) {
+    const changed = this.initialized && this[key] !== value;
+    const output = super._set(key, value);
+    if (this.exactBoundingBox && changed && ((key === SCALE_X || key === SCALE_Y) && this.strokeUniform && this.constructor.layoutProperties.includes('strokeUniform') || this.constructor.layoutProperties.includes(key))) {
+      this.setDimensions();
+    }
+    return output;
+  }
+
+  /**
+   * Returns object representation of an instance
+   * @param {Array} [propertiesToInclude] Any properties that you might want to additionally include in the output
+   * @return {Object} Object representation of an instance
+   */
+  toObject() {
+    let propertiesToInclude = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : [];
+    return {
+      ...super.toObject(['cornerRadius', ...propertiesToInclude]),
+      points: this.points.map(_ref => {
+        let {
+          x,
+          y
+        } = _ref;
+        return {
+          x,
+          y
+        };
+      })
+    };
+  }
+
+  /**
+   * Returns svg representation of an instance
+   * @return {Array} an array of strings with the specific svg representation
+   * of the instance
+   */
+  _toSVG() {
+    if (this.cornerRadius > 0 && this.points.length >= 3) {
+      // Generate rounded polygon/polyline as path
+      const diffX = this.pathOffset.x;
+      const diffY = this.pathOffset.y;
+      const adjustedPoints = this.points.map(point => ({
+        x: point.x - diffX,
+        y: point.y - diffY
+      }));
+      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
+      const pathData = generateRoundedPolygonPath(roundedCorners, !this.isOpen());
+      return ['<path ', 'COMMON_PARTS', `d="${pathData}" />\n`];
+    } else {
+      // Original sharp corners implementation
+      const points = [];
+      const diffX = this.pathOffset.x;
+      const diffY = this.pathOffset.y;
+      const NUM_FRACTION_DIGITS = config.NUM_FRACTION_DIGITS;
+      for (let i = 0, len = this.points.length; i < len; i++) {
+        points.push(toFixed(this.points[i].x - diffX, NUM_FRACTION_DIGITS), ',', toFixed(this.points[i].y - diffY, NUM_FRACTION_DIGITS), ' ');
+      }
+      return [`<${this.constructor.type.toLowerCase()} `, 'COMMON_PARTS', `points="${points.join('')}" />\n`];
+    }
+  }
+
+  /**
+   * @private
+   * @param {CanvasRenderingContext2D} ctx Context to render on
+   */
+  _render(ctx) {
+    const len = this.points.length,
+      x = this.pathOffset.x,
+      y = this.pathOffset.y;
+    if (!len || isNaN(this.points[len - 1].y)) {
+      // do not draw if no points or odd points
+      // NaN comes from parseFloat of a empty string in parser
+      return;
+    }
+    if (this.cornerRadius > 0 && len >= 3) {
+      // Render with rounded corners
+      const adjustedPoints = this.points.map(point => ({
+        x: point.x - x,
+        y: point.y - y
+      }));
+      const roundedCorners = applyCornerRadiusToPolygon(adjustedPoints, this.cornerRadius);
+      renderRoundedPolygon(ctx, roundedCorners, !this.isOpen());
+    } else {
+      // Original sharp corners implementation
+      ctx.beginPath();
+      ctx.moveTo(this.points[0].x - x, this.points[0].y - y);
+      for (let i = 0; i < len; i++) {
+        const point = this.points[i];
+        ctx.lineTo(point.x - x, point.y - y);
+      }
+      !this.isOpen() && ctx.closePath();
+    }
+    this._renderPaintInOrder(ctx);
+  }
+
+  /**
+   * Returns complexity of an instance
+   * @return {Number} complexity of this instance
+   */
+  complexity() {
+    return this.points.length;
+  }
+
+  /* _FROM_SVG_START_ */
+
+  /**
+   * List of attribute names to account for when parsing SVG element (used by {@link Polyline.fromElement})
+   * @see: http://www.w3.org/TR/SVG/shapes.html#PolylineElement
+   */
+
+  /**
+   * Returns Polyline instance from an SVG element
+   * @param {HTMLElement} element Element to parser
+   * @param {Object} [options] Options object
+   */
+  static async fromElement(element, options, cssRules) {
+    const points = parsePointsAttribute(element.getAttribute('points')),
+      // we omit left and top to instruct the constructor to position the object using the bbox
+
+      {
+        left,
+        top,
+        ...parsedAttributes
+      } = parseAttributes(element, this.ATTRIBUTE_NAMES, cssRules);
+    return new this(points, {
+      ...parsedAttributes,
+      ...options
+    });
+  }
+
+  /* _FROM_SVG_END_ */
+
+  /**
+   * Returns Polyline instance from an object representation
+   * @param {Object} object Object to create an instance from
+   * @returns {Promise<Polyline>}
+   */
+  static fromObject(object) {
+    return this._fromObject(object, {
+      extraParam: 'points'
+    });
+  }
+}
+/**
+ * Points array
+ * @type Array
+ */
+/**
+ * WARNING: Feature in progress
+ * Calculate the exact bounding box taking in account strokeWidth on acute angles
+ * this will be turned to true by default on fabric 6.0
+ * maybe will be left in as an optimization since calculations may be slow
+ * @deprecated transient option soon to be removed in favor of a different design
+ * @type Boolean
+ * @default false
+ */
+/**
+ * Corner radius for rounded corners
+ * @type Number
+ * @default 0
+ */
+_defineProperty(Polyline, "ownDefaults", polylineDefaultValues);
+_defineProperty(Polyline, "type", 'Polyline');
+_defineProperty(Polyline, "layoutProperties", [SKEW_X, SKEW_Y, 'strokeLineCap', 'strokeLineJoin', 'strokeMiterLimit', 'strokeWidth', 'strokeUniform', 'points']);
+_defineProperty(Polyline, "cacheProperties", [...cacheProperties, 'points', 'cornerRadius']);
+_defineProperty(Polyline, "ATTRIBUTE_NAMES", [...SHARED_ATTRIBUTES]);
+classRegistry.setClass(Polyline);
+classRegistry.setSVGClass(Polyline);
+
+class Polygon extends Polyline {
+  isOpen() {
+    return false;
+  }
+}
+_defineProperty(Polygon, "ownDefaults", polylineDefaultValues);
+_defineProperty(Polygon, "type", 'Polygon');
+classRegistry.setClass(Polygon);
+classRegistry.setSVGClass(Polygon);
+
 // @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
 // regexes, list of properties that are not suppose to change by instances, magic consts.
 // this will be a separated effort
@@ -28738,15 +29823,7 @@ class Textbox extends IText {
     if (this._visualPositionsCache) {
       this._clearVisualPositionsCache();
     }
-    const kashidaRatios = {
-      none: 0,
-      short: 0.25,
-      medium: 0.5,
-      long: 0.75,
-      stylistic: 1.0
-    };
-    const kashidaRatio = kashidaRatios[this.kashida] || 0;
-    if (kashidaRatio === 0) {
+    if (this.kashida === 'none') {
       return;
     }
 
@@ -28788,53 +29865,27 @@ class Textbox extends IText {
       if (totalExtraSpace <= 2) {
         continue;
       }
-
-      // Find kashida points
-      const kashidaPoints = findKashidaPoints(line);
-      if (kashidaPoints.length === 0) {
+      const plan = planKashida(line, totalExtraSpace, tatweelWidth, this.kashida);
+      if (plan.points.length === 0) {
         continue;
       }
 
-      // Calculate kashida space
-      const kashidaSpace = totalExtraSpace * kashidaRatio;
-
-      // Calculate how many tatweels can fit
-      const totalTatweels = Math.floor(kashidaSpace / tatweelWidth);
-      if (totalTatweels === 0) {
-        continue;
-      }
-
-      // Limit kashida points
-      const maxKashidaPoints = Math.min(kashidaPoints.length, totalTatweels);
-      const usedKashidaPoints = kashidaPoints.slice(0, maxKashidaPoints);
-
-      // Distribute tatweels evenly
-      const tatweelsPerPoint = Math.floor(totalTatweels / maxKashidaPoints);
-      const extraTatweels = totalTatweels % maxKashidaPoints;
-
-      // console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
-      // console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
-
-      // Sort by charIndex descending so we insert from the end (prevents index shifting issues)
-      const sortedPoints = [...usedKashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
+      // Insert from the end so original character indices remain stable.
+      const sortedPoints = [...plan.points].sort((a, b) => b.charIndex - a.charIndex);
 
       // Create new line with tatweels inserted
       const newLine = [...line];
-      for (let i = 0; i < sortedPoints.length; i++) {
-        const point = sortedPoints[i];
-        const originalIndex = usedKashidaPoints.indexOf(point);
-        const count = tatweelsPerPoint + (originalIndex < extraTatweels ? 1 : 0);
-        if (count > 0) {
+      for (const point of sortedPoints) {
+        if (point.tatweelCount > 0) {
           // Insert tatweels AFTER the character at charIndex
-          const tatweels = Array(count).fill(ARABIC_TATWEEL);
+          const tatweels = Array(point.tatweelCount).fill(ARABIC_TATWEEL);
           newLine.splice(point.charIndex + 1, 0, ...tatweels);
-          // console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
 
           // Store kashida info for index conversion
           this.__kashidaInfo[lineIndex].push({
             charIndex: point.charIndex,
-            width: count * tatweelWidth,
-            tatweelCount: count
+            width: point.width,
+            tatweelCount: point.tatweelCount
           });
         }
       }
@@ -28853,11 +29904,11 @@ class Textbox extends IText {
       this._measureLine(lineIndex);
 
       // Now expand spaces to fill any remaining gap
-      let newLineBounds = this.__charBounds[lineIndex];
+      const newLineBounds = this.__charBounds[lineIndex];
       if (newLineBounds && newLineBounds.length > 0) {
-        let newLastBound = newLineBounds[newLineBounds.length - 1];
-        let newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
-        let remainingGap = this.width - newLineWidth;
+        const newLastBound = newLineBounds[newLineBounds.length - 1];
+        const newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
+        const remainingGap = this.width - newLineWidth;
         if (remainingGap > 0.5) {
           // Count spaces in the new line
           let spaceCount = 0;
@@ -28889,52 +29940,6 @@ class Textbox extends IText {
             if (newLineBounds[newLine.length]) {
               newLineBounds[newLine.length].left += accumulatedExtra;
             }
-
-            // Recalculate remaining gap after space expansion
-            newLastBound = newLineBounds[newLineBounds.length - 1];
-            newLineWidth = newLastBound ? newLastBound.left + newLastBound.kernedWidth : 0;
-            remainingGap = this.width - newLineWidth;
-          }
-        }
-
-        // If there's still a gap after space expansion, distribute it across all kashida points
-        if (remainingGap > 0.5 && this.__kashidaInfo[lineIndex].length > 0) {
-          const kashidaPointCount = this.__kashidaInfo[lineIndex].length;
-          const extraPerKashida = remainingGap / kashidaPointCount;
-
-          // Find kashida positions in newLine and expand their widths
-          let kashidaIndex = 0;
-          let accumulatedExtra = 0;
-          for (let i = 0; i < newLineBounds.length; i++) {
-            const bound = newLineBounds[i];
-            if (!bound) continue;
-
-            // Update left position for accumulated expansion
-            bound.left += accumulatedExtra;
-
-            // Check if this is a tatweel character
-            if (newLine[i] === ARABIC_TATWEEL) {
-              var _this$__kashidaInfo$l;
-              // Distribute extra width among tatweels
-              const extraForThis = extraPerKashida / (((_this$__kashidaInfo$l = this.__kashidaInfo[lineIndex][kashidaIndex]) === null || _this$__kashidaInfo$l === void 0 ? void 0 : _this$__kashidaInfo$l.tatweelCount) || 1);
-              bound.width += extraForThis;
-              bound.kernedWidth += extraForThis;
-              accumulatedExtra += extraForThis;
-
-              // Move to next kashida info when we've passed this group
-              const currentKashidaInfo = this.__kashidaInfo[lineIndex][kashidaIndex];
-              if (currentKashidaInfo && i > 0) {
-                // Check if next char is not tatweel - means we're done with this group
-                if (i + 1 >= newLine.length || newLine[i + 1] !== ARABIC_TATWEEL) {
-                  kashidaIndex++;
-                }
-              }
-            }
-          }
-
-          // Update the extra entry at the end
-          if (newLineBounds[newLine.length]) {
-            newLineBounds[newLine.length].left += accumulatedExtra;
           }
         }
       }
@@ -28957,11 +29962,8 @@ class Textbox extends IText {
       }
     }
 
-    // Update _text to match the new _textLines (required for editing)
-    this._text = this._textLines.flat();
-
-    // DON'T update this.text - keep the original text intact
-    // The tatweels are in _textLines and _text for rendering purposes only
+    // Keep _text in original/editable index space. Generated tatweels exist
+    // only in _textLines and are mapped through __kashidaInfo.
 
     this._justifyApplied = true;
 
@@ -29556,16 +30558,6 @@ class Textbox extends IText {
       return;
     }
 
-    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
-    const kashidaRatios = {
-      none: 0,
-      short: 0.25,
-      medium: 0.5,
-      long: 0.75,
-      stylistic: 1.0
-    };
-    const kashidaRatio = kashidaRatios[this.kashida] || 0;
-
     // Reset kashida info
     this.__kashidaInfo = [];
     const totalLines = this._textLines.length;
@@ -29581,10 +30573,9 @@ class Textbox extends IText {
       if (isLastLine) {
         return;
       }
-      const lineBounds = this.__charBounds[lineIndex];
 
       // Calculate current line width from charBounds
-      const currentLineWidth = lineBounds.reduce((sum, b) => sum + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0);
+      const currentLineWidth = this.getLineWidth(lineIndex);
       const totalExtraSpace = this.width - currentLineWidth;
       if (totalExtraSpace <= 0) {
         return;
@@ -29598,85 +30589,40 @@ class Textbox extends IText {
         }
       }
       const spaceCount = spaceIndices.length;
-
-      // Find kashida points if enabled
-      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
-      const hasKashidaPoints = kashidaPoints.length > 0;
-
-      // Calculate space distribution
-      let kashidaSpace = 0;
-      if (hasKashidaPoints && kashidaRatio > 0) {
-        // Distribute between kashida and spaces
-        kashidaSpace = totalExtraSpace * kashidaRatio;
-      }
-
-      // Calculate per-kashida and per-space widths
-      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
-
-      // If kashida is enabled, insert actual tatweel characters
-      if (hasKashidaPoints && perKashidaWidth > 0) {
-        // console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
-
-        // Sort by charIndex descending to insert from end
-        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
-
-        // Calculate tatweel width
+      if (this.kashida !== 'none') {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          // console.log(`  tatweelWidth: ${tatweelWidth}`);
-
           if (tatweelWidth > 0) {
+            const plan = planKashida(line, totalExtraSpace, tatweelWidth, this.kashida);
+            const sortedPoints = [...plan.points].sort((a, b) => b.charIndex - a.charIndex);
             const newLine = [...line];
             for (const point of sortedPoints) {
-              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
-
-              // Insert tatweels after the character
-              for (let t = 0; t < tatweelCount; t++) {
-                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
-              }
-
-              // Store kashida info with tatweelCount for index conversion
+              newLine.splice(point.charIndex + 1, 0, ...Array(point.tatweelCount).fill(ARABIC_TATWEEL));
               this.__kashidaInfo[lineIndex].push({
                 charIndex: point.charIndex,
-                width: perKashidaWidth,
-                tatweelCount: tatweelCount
+                width: point.width,
+                tatweelCount: point.tatweelCount
               });
             }
-
-            // console.log(`  New line: ${newLine.join('')}`);
-
-            // Update _textLines with kashida
-            this._textLines[lineIndex] = newLine;
-
-            // Update textLines string version
-            if (this.textLines && this.textLines[lineIndex] !== undefined) {
-              this.textLines[lineIndex] = newLine.join('');
+            if (plan.points.length > 0) {
+              this._textLines[lineIndex] = newLine;
+              if (this.textLines && this.textLines[lineIndex] !== undefined) {
+                this.textLines[lineIndex] = newLine.join('');
+              }
+              this.__charBounds[lineIndex] = [];
+              this.__lineWidths[lineIndex] = undefined;
+              this._measureLine(lineIndex);
             }
-
-            // Recalculate charBounds
-            this.__charBounds[lineIndex] = [];
-            this.__lineWidths[lineIndex] = undefined;
-            this._measureLine(lineIndex);
           }
-        }
-      } else {
-        // No kashida - just store info for reference (tatweelCount is 0 since no tatweels inserted)
-        for (const point of kashidaPoints) {
-          this.__kashidaInfo[lineIndex].push({
-            charIndex: point.charIndex,
-            width: perKashidaWidth,
-            tatweelCount: 0
-          });
         }
       }
 
       // Now apply space expansion to remaining extra space
       const newLineBounds = this.__charBounds[lineIndex];
-      const newLineWidth = newLineBounds.reduce((sum, b) => sum + ((b === null || b === void 0 ? void 0 : b.kernedWidth) || 0), 0);
+      const newLineWidth = this.getLineWidth(lineIndex);
       const remainingSpace = this.width - newLineWidth;
       if (remainingSpace > 0 && spaceCount > 0) {
         const extraPerSpace = remainingSpace / spaceCount;
@@ -29770,14 +30716,19 @@ class Textbox extends IText {
         } = e;
         resizeOrigin = originX === 'right' ? 'left' : originX === 'left' ? 'right' : null;
       }
+
+      // changeWidth only mutates width. Rebuild wrapping, generated kashidas,
+      // native BiDi carets and the hidden textarea against the new width.
+      this.reflowAfterWidthChange();
     });
 
     // Only trigger safety snap after resize is complete (not during)
     // Use 'modified' event which fires after user releases the mouse
     this.on('modified', () => {
       const currentResizeOrigin = resizeOrigin; // Capture the value before reset
-      // Small delay to ensure text layout is updated
-      setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
+      if (currentResizeOrigin) {
+        this.schedulePostResizeReflow(currentResizeOrigin);
+      }
       resizeOrigin = null; // Reset after capturing
     });
 
@@ -29785,10 +30736,37 @@ class Textbox extends IText {
     (_this$canvas2 = this.canvas) === null || _this$canvas2 === void 0 || _this$canvas2.on('object:modified', e => {
       if (e.target === this) {
         const currentResizeOrigin = resizeOrigin; // Capture the value before reset
-        setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
+        if (currentResizeOrigin) {
+          this.schedulePostResizeReflow(currentResizeOrigin);
+        }
         resizeOrigin = null; // Reset after capturing
       }
     });
+  }
+  reflowAfterWidthChange() {
+    var _this$canvas3;
+    this._lastDimensionState = null;
+    this.initDimensions();
+    this._clearVisualPositionsCache();
+    this.setCoords();
+    if (this.isEditing && this.hiddenTextarea) {
+      this._updateTextarea();
+    }
+    if (this.__overlayEditor) {
+      this.__overlayEditor.refresh();
+    }
+    (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
+  }
+  schedulePostResizeReflow(resizeOrigin) {
+    const state = this;
+    if (state.__postResizeReflowTimer) {
+      clearTimeout(state.__postResizeReflowTimer);
+    }
+    state.__postResizeReflowTimer = setTimeout(() => {
+      state.__postResizeReflowTimer = undefined;
+      this.reflowAfterWidthChange();
+      this.safetySnapWidth(resizeOrigin);
+    }, 10);
   }
 
   /**
@@ -29803,6 +30781,11 @@ class Textbox extends IText {
       return;
     }
     if (resizeOrigin === null || resizeOrigin === undefined) {
+      return;
+    }
+    // Justified lines intentionally occupy the full textbox width, so their
+    // measured line width cannot be used as evidence of glyph clipping.
+    if (this.textAlign.includes(JUSTIFY)) {
       return;
     }
     const lineCount = this._textLines.length;
@@ -29823,7 +30806,7 @@ class Textbox extends IText {
     }
     const safetyThreshold = 2;
     if (maxRequiredWidth > this.width - safetyThreshold) {
-      var _this$canvas3;
+      var _this$canvas4;
       const newWidth = maxRequiredWidth + 1;
       const originalLeft = this.left;
       const originalTop = this.top;
@@ -29843,7 +30826,7 @@ class Textbox extends IText {
           this.__overlayEditor.refresh();
         }, 0);
       }
-      (_this$canvas3 = this.canvas) === null || _this$canvas3 === void 0 || _this$canvas3.requestRenderAll();
+      (_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 || _this$canvas4.requestRenderAll();
     }
   }
 
@@ -29884,7 +30867,7 @@ class Textbox extends IText {
     // Ensure justify is applied correctly
     if (this.textAlign.includes('justify') && this.__charBounds) {
       setTimeout(() => {
-        var _this$canvas4;
+        var _this$canvas5;
         // Verify justify was applied
         let hasVariableSpaces = false;
         this.__charBounds.forEach((lineBounds, i) => {
@@ -29908,7 +30891,7 @@ class Textbox extends IText {
         } else {
           this.height = this.calcTextHeight();
         }
-        (_this$canvas4 = this.canvas) === null || _this$canvas4 === void 0 || _this$canvas4.requestRenderAll();
+        (_this$canvas5 = this.canvas) === null || _this$canvas5 === void 0 || _this$canvas5.requestRenderAll();
       }, 10);
     }
   }
@@ -37288,6 +38271,8 @@ var filters = /*#__PURE__*/Object.freeze({
   Vibrance: Vibrance,
   Vintage: Vintage
 });
+
+installNativeRtlEditing();
 
 // First we set the env variable
 
