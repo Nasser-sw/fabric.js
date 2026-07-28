@@ -518,15 +518,18 @@ const ARABIC_NON_CONNECTING = new Set([
  */
 export function isArabicLetter(char: string): boolean {
   if (!char) return false;
-  const code = char.charCodeAt(0);
+  const base = Array.from(char)[0];
+  const code = base.codePointAt(0) || 0;
   // Arabic: U+0600-U+06FF (main block)
   // Arabic Supplement: U+0750-U+077F
   // Arabic Extended-A: U+08A0-U+08FF
   return (
-    (code >= 0x0620 && code <= 0x064A) || // Main letters
-    (code >= 0x066E && code <= 0x06D3) || // Extended letters
-    (code >= 0x0750 && code <= 0x077F) || // Arabic Supplement
-    (code >= 0x08A0 && code <= 0x08FF)    // Arabic Extended-A
+    base !== ARABIC_TATWEEL &&
+    /\p{Letter}/u.test(base) &&
+    ((code >= 0x0620 && code <= 0x064a) || // Main letters
+      (code >= 0x066e && code <= 0x06d3) || // Extended letters
+      (code >= 0x0750 && code <= 0x077f) || // Arabic Supplement
+      (code >= 0x08a0 && code <= 0x08ff)) // Arabic Extended-A
   );
 }
 
@@ -549,20 +552,44 @@ const ARABIC_ALEF_VARIANTS = new Set([
 // Lam character
 const ARABIC_LAM = '\u0644'; // ل
 
+const ARABIC_NON_JOINING = new Set([
+  '\u0621', // Hamza
+  '\u0674', // High Hamza
+]);
+
+const baseCharacter = (grapheme: string): string =>
+  Array.from(grapheme || '')[0] || '';
+
 export function canInsertKashida(prevChar: string, nextChar: string): boolean {
   if (!prevChar || !nextChar) return false;
 
-  // Can't insert at whitespace boundaries
-  if (/\s/.test(prevChar) || /\s/.test(nextChar)) return false;
+  const prev = baseCharacter(prevChar);
+  const next = baseCharacter(nextChar);
 
-  // Both must be Arabic letters
-  if (!isArabicLetter(prevChar) || !isArabicLetter(nextChar)) return false;
+  if (/\s/.test(prev) || /\s/.test(next)) return false;
+
+  // Preserve authored elongation and explicit joining controls.
+  if (
+    prev === ARABIC_TATWEEL ||
+    next === ARABIC_TATWEEL ||
+    prev === '\u200c' ||
+    next === '\u200c' ||
+    prev === '\u200d' ||
+    next === '\u200d'
+  ) {
+    return false;
+  }
+
+  if (!isArabicLetter(prev) || !isArabicLetter(next)) return false;
 
   // Previous char must connect to the next (not be non-connecting)
-  if (ARABIC_NON_CONNECTING.has(prevChar)) return false;
+  if (ARABIC_NON_CONNECTING.has(prev)) return false;
+
+  // The following character must accept a connection from its right.
+  if (ARABIC_NON_JOINING.has(next)) return false;
 
   // NEVER insert kashida between lam and alef - they form a ligature (لا)
-  if (prevChar === ARABIC_LAM && ARABIC_ALEF_VARIANTS.has(nextChar)) return false;
+  if (prev === ARABIC_LAM && ARABIC_ALEF_VARIANTS.has(next)) return false;
 
   return true;
 }

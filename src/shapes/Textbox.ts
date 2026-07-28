@@ -10,7 +10,8 @@ import type { TextLinesInfo } from './Text/Text';
 import type { Control } from '../controls/Control';
 import { fontLacksEnglishGlyphsCached } from '../text/measure';
 import { layoutText } from '../text/layout';
-import { findKashidaPoints, ARABIC_TATWEEL } from '../text/unicode';
+import { ARABIC_TATWEEL } from '../text/unicode';
+import { planKashida, type KashidaLevel } from '../text/kashida';
 
 // @TODO: Many things here are configuration related and shouldn't be on the class nor prototype
 // regexes, list of properties that are not suppose to change by instances, magic consts.
@@ -346,16 +347,7 @@ export class Textbox<
       this._clearVisualPositionsCache();
     }
 
-    const kashidaRatios: Record<string, number> = {
-      none: 0,
-      short: 0.25,
-      medium: 0.5,
-      long: 0.75,
-      stylistic: 1.0,
-    };
-    const kashidaRatio = kashidaRatios[this.kashida] || 0;
-
-    if (kashidaRatio === 0) {
+    if (this.kashida === 'none') {
       return;
     }
 
@@ -403,53 +395,32 @@ export class Textbox<
         continue;
       }
 
-      // Find kashida points
-      const kashidaPoints = findKashidaPoints(line);
-      if (kashidaPoints.length === 0) {
+      const plan = planKashida(
+        line,
+        totalExtraSpace,
+        tatweelWidth,
+        this.kashida as KashidaLevel,
+      );
+      if (plan.points.length === 0) {
         continue;
       }
 
-      // Calculate kashida space
-      const kashidaSpace = totalExtraSpace * kashidaRatio;
-
-      // Calculate how many tatweels can fit
-      const totalTatweels = Math.floor(kashidaSpace / tatweelWidth);
-      if (totalTatweels === 0) {
-        continue;
-      }
-
-      // Limit kashida points
-      const maxKashidaPoints = Math.min(kashidaPoints.length, totalTatweels);
-      const usedKashidaPoints = kashidaPoints.slice(0, maxKashidaPoints);
-
-      // Distribute tatweels evenly
-      const tatweelsPerPoint = Math.floor(totalTatweels / maxKashidaPoints);
-      const extraTatweels = totalTatweels % maxKashidaPoints;
-
-      // console.log(`=== Inserting Kashida into line ${lineIndex} ===`);
-      // console.log(`  totalTatweels: ${totalTatweels}, usedPoints: ${usedKashidaPoints.length}`);
-
-      // Sort by charIndex descending so we insert from the end (prevents index shifting issues)
-      const sortedPoints = [...usedKashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
+      // Insert from the end so original character indices remain stable.
+      const sortedPoints = [...plan.points].sort((a, b) => b.charIndex - a.charIndex);
 
       // Create new line with tatweels inserted
       const newLine = [...line];
-      for (let i = 0; i < sortedPoints.length; i++) {
-        const point = sortedPoints[i];
-        const originalIndex = usedKashidaPoints.indexOf(point);
-        const count = tatweelsPerPoint + (originalIndex < extraTatweels ? 1 : 0);
-
-        if (count > 0) {
+      for (const point of sortedPoints) {
+        if (point.tatweelCount > 0) {
           // Insert tatweels AFTER the character at charIndex
-          const tatweels = Array(count).fill(ARABIC_TATWEEL);
+          const tatweels = Array(point.tatweelCount).fill(ARABIC_TATWEEL);
           newLine.splice(point.charIndex + 1, 0, ...tatweels);
-          // console.log(`  Inserted ${count} tatweels after char ${point.charIndex}`);
 
           // Store kashida info for index conversion
           this.__kashidaInfo[lineIndex].push({
             charIndex: point.charIndex,
-            width: count * tatweelWidth,
-            tatweelCount: count,
+            width: point.width,
+            tatweelCount: point.tatweelCount,
           });
         }
       }
@@ -468,11 +439,11 @@ export class Textbox<
       this._measureLine(lineIndex);
 
       // Now expand spaces to fill any remaining gap
-      let newLineBounds = this.__charBounds[lineIndex];
+      const newLineBounds = this.__charBounds[lineIndex];
       if (newLineBounds && newLineBounds.length > 0) {
-        let newLastBound = newLineBounds[newLineBounds.length - 1];
-        let newLineWidth = newLastBound ? (newLastBound.left + newLastBound.kernedWidth) : 0;
-        let remainingGap = this.width - newLineWidth;
+        const newLastBound = newLineBounds[newLineBounds.length - 1];
+        const newLineWidth = newLastBound ? (newLastBound.left + newLastBound.kernedWidth) : 0;
+        const remainingGap = this.width - newLineWidth;
 
         if (remainingGap > 0.5) {
           // Count spaces in the new line
@@ -506,52 +477,6 @@ export class Textbox<
             if (newLineBounds[newLine.length]) {
               newLineBounds[newLine.length].left += accumulatedExtra;
             }
-
-            // Recalculate remaining gap after space expansion
-            newLastBound = newLineBounds[newLineBounds.length - 1];
-            newLineWidth = newLastBound ? (newLastBound.left + newLastBound.kernedWidth) : 0;
-            remainingGap = this.width - newLineWidth;
-          }
-        }
-
-        // If there's still a gap after space expansion, distribute it across all kashida points
-        if (remainingGap > 0.5 && this.__kashidaInfo[lineIndex].length > 0) {
-          const kashidaPointCount = this.__kashidaInfo[lineIndex].length;
-          const extraPerKashida = remainingGap / kashidaPointCount;
-
-          // Find kashida positions in newLine and expand their widths
-          let kashidaIndex = 0;
-          let accumulatedExtra = 0;
-
-          for (let i = 0; i < newLineBounds.length; i++) {
-            const bound = newLineBounds[i];
-            if (!bound) continue;
-
-            // Update left position for accumulated expansion
-            bound.left += accumulatedExtra;
-
-            // Check if this is a tatweel character
-            if (newLine[i] === ARABIC_TATWEEL) {
-              // Distribute extra width among tatweels
-              const extraForThis = extraPerKashida / (this.__kashidaInfo[lineIndex][kashidaIndex]?.tatweelCount || 1);
-              bound.width += extraForThis;
-              bound.kernedWidth += extraForThis;
-              accumulatedExtra += extraForThis;
-
-              // Move to next kashida info when we've passed this group
-              const currentKashidaInfo = this.__kashidaInfo[lineIndex][kashidaIndex];
-              if (currentKashidaInfo && i > 0) {
-                // Check if next char is not tatweel - means we're done with this group
-                if (i + 1 >= newLine.length || newLine[i + 1] !== ARABIC_TATWEEL) {
-                  kashidaIndex++;
-                }
-              }
-            }
-          }
-
-          // Update the extra entry at the end
-          if (newLineBounds[newLine.length]) {
-            newLineBounds[newLine.length].left += accumulatedExtra;
           }
         }
       }
@@ -1231,16 +1156,6 @@ export class Textbox<
       return;
     }
 
-    // Kashida ratios: proportion of extra space distributed via kashida vs space expansion
-    const kashidaRatios: Record<string, number> = {
-      none: 0,
-      short: 0.25,
-      medium: 0.5,
-      long: 0.75,
-      stylistic: 1.0,
-    };
-    const kashidaRatio = kashidaRatios[this.kashida] || 0;
-
     // Reset kashida info
     this.__kashidaInfo = [];
 
@@ -1260,10 +1175,8 @@ export class Textbox<
         return;
       }
 
-      const lineBounds = this.__charBounds[lineIndex];
-
       // Calculate current line width from charBounds
-      const currentLineWidth = lineBounds.reduce((sum, b) => sum + (b?.kernedWidth || 0), 0);
+      const currentLineWidth = this.getLineWidth(lineIndex);
       const totalExtraSpace = this.width - currentLineWidth;
 
       if (totalExtraSpace <= 0) {
@@ -1279,79 +1192,49 @@ export class Textbox<
       }
       const spaceCount = spaceIndices.length;
 
-      // Find kashida points if enabled
-      const kashidaPoints = kashidaRatio > 0 ? findKashidaPoints(line) : [];
-      const hasKashidaPoints = kashidaPoints.length > 0;
-
-      // Calculate space distribution
-      let kashidaSpace = 0;
-      let spaceExpansion = totalExtraSpace;
-
-      if (hasKashidaPoints && kashidaRatio > 0) {
-        // Distribute between kashida and spaces
-        kashidaSpace = totalExtraSpace * kashidaRatio;
-        spaceExpansion = totalExtraSpace * (1 - kashidaRatio);
-      }
-
-      // Calculate per-kashida and per-space widths
-      const perKashidaWidth = hasKashidaPoints ? kashidaSpace / kashidaPoints.length : 0;
-      const perSpaceWidth = spaceCount > 0 ? spaceExpansion / spaceCount : 0;
-
-      // If kashida is enabled, insert actual tatweel characters
-      if (hasKashidaPoints && perKashidaWidth > 0) {
-        // console.log(`=== Inserting kashida in _applyBrowserJustifySpaces line ${lineIndex} ===`);
-
-        // Sort by charIndex descending to insert from end
-        const sortedPoints = [...kashidaPoints].sort((a, b) => b.charIndex - a.charIndex);
-
-        // Calculate tatweel width
+      if (this.kashida !== 'none') {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.font = this._getFontDeclaration();
           const tatweelWidth = ctx.measureText(ARABIC_TATWEEL).width;
-          // console.log(`  tatweelWidth: ${tatweelWidth}`);
 
           if (tatweelWidth > 0) {
+            const plan = planKashida(
+              line,
+              totalExtraSpace,
+              tatweelWidth,
+              this.kashida as KashidaLevel,
+            );
+            const sortedPoints = [...plan.points].sort(
+              (a, b) => b.charIndex - a.charIndex,
+            );
             const newLine = [...line];
 
             for (const point of sortedPoints) {
-              const tatweelCount = Math.max(1, Math.round(perKashidaWidth / tatweelWidth));
-              // console.log(`  Point ${point.charIndex}: inserting ${tatweelCount} tatweels`);
-
-              // Insert tatweels after the character
-              for (let t = 0; t < tatweelCount; t++) {
-                newLine.splice(point.charIndex + 1, 0, ARABIC_TATWEEL);
-              }
-
-              // Store kashida info with tatweelCount for index conversion
+              newLine.splice(
+                point.charIndex + 1,
+                0,
+                ...Array(point.tatweelCount).fill(ARABIC_TATWEEL),
+              );
               this.__kashidaInfo[lineIndex].push({
                 charIndex: point.charIndex,
-                width: perKashidaWidth,
-                tatweelCount: tatweelCount,
+                width: point.width,
+                tatweelCount: point.tatweelCount,
               });
             }
 
-            // console.log(`  New line: ${newLine.join('')}`);
+            if (plan.points.length > 0) {
+              this._textLines[lineIndex] = newLine;
+              if (this.textLines && this.textLines[lineIndex] !== undefined) {
+                (this as any).textLines[lineIndex] = newLine.join('');
+              }
 
-            // Update _textLines with kashida
-            this._textLines[lineIndex] = newLine;
-
-            // Update textLines string version
-            if (this.textLines && this.textLines[lineIndex] !== undefined) {
-              (this as any).textLines[lineIndex] = newLine.join('');
+              this.__charBounds[lineIndex] = [];
+              this.__lineWidths[lineIndex] = undefined as any;
+              this._measureLine(lineIndex);
             }
-
-            // Recalculate charBounds
-            this.__charBounds[lineIndex] = [];
-            this.__lineWidths[lineIndex] = undefined as any;
-            this._measureLine(lineIndex);
           }
-        }
-      } else {
-        // No kashida - just store info for reference (tatweelCount is 0 since no tatweels inserted)
-        for (const point of kashidaPoints) {
-          this.__kashidaInfo[lineIndex].push({ charIndex: point.charIndex, width: perKashidaWidth, tatweelCount: 0 });
         }
       }
 
@@ -1385,6 +1268,7 @@ export class Textbox<
       this.__lineWidths[lineIndex] = finalLineWidth;
     });
 
+    this._text = this._textLines.flat();
     this.dirty = true;
     // Mark that justify has been applied - for debugging to detect if measureLine overwrites it
     (this as any)._justifyApplied = true;
