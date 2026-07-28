@@ -681,9 +681,8 @@ export class IText<
   /**
    * Measure visual character positions for hit testing using BiDi analysis.
    * Results are cached per line for consistency during selection operations.
-   *
-   * NOTE: For accurate RTL/Arabic text selection, use useOverlayEditing: true
-   * which provides a native HTML textarea that handles complex scripts correctly.
+   * Fabric's native RTL editing geometry handles Arabic shaping and mixed
+   * bidirectional text without requiring the legacy DOM overlay editor.
    */
   _measureVisualPositions(lineIndex: number, lineText: string): Array<{
     logicalIndex: number;
@@ -719,11 +718,8 @@ export class IText<
       return positions;
     }
 
-    // For RTL text with complex scripts (Arabic, Hebrew), canvas-based hit testing
-    // cannot match browser's native text shaping. Use useOverlayEditing: true for
-    // accurate RTL selection - it uses a native HTML textarea.
-
-    // Use BiDi analysis for basic RTL support
+    // Use BiDi analysis for RTL visual positioning. Native editing augments this
+    // geometry with browser-shaped caret boundaries for complex scripts.
     return this._measureVisualPositionsWithBiDi(lineIndex, lineText, line, chars);
   }
 

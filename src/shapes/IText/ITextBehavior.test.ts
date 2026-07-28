@@ -248,4 +248,18 @@ describe('Itext enterEditing and exitEditing', () => {
     iText.exitEditingImpl();
     expect(exitMock).toHaveBeenCalledTimes(0);
   });
+
+  test('legacy overlay option still enters the native editor', () => {
+    const iText = new IText('نص عربي English', {
+      direction: 'rtl',
+      useOverlayEditing: true,
+    });
+
+    iText.enterEditingImpl();
+
+    expect(iText.hiddenTextarea?.tagName).toBe('TEXTAREA');
+    expect((iText as any).__overlayEditor).toBeUndefined();
+
+    iText.exitEditingImpl();
+  });
 });

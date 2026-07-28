@@ -335,7 +335,12 @@ export class FabricText<
   declare verticalAlign: 'top' | 'middle' | 'bottom';
 
   /**
-   * Use overlay editor for inline text editing instead of hidden textarea.
+   * Legacy compatibility flag for the DOM overlay editor. Fabric's integrated
+   * editing flow ignores this flag and always uses native editing, including
+   * for Arabic and mixed bidirectional text.
+   *
+   * @deprecated Fabric's integrated editing flow always uses native editing.
+   * Use `enterTextOverlayEdit` directly only when maintaining a legacy editor.
    * @default false
    */
   declare useOverlayEditing: boolean;
@@ -2795,7 +2800,6 @@ export class FabricText<
               (textObject as any)._lastDimensionState = null;
               (textObject as any)._browserWrapInitialized = false;
               (textObject as any)._usingBrowserWrapping = true;
-              (textObject as any).useOverlayEditing = true;
 
               const reinitWithDelay = (attempt: number) => {
                 if ((textObject as any).forceTextReinitialization) {

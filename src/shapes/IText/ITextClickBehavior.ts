@@ -66,10 +66,11 @@ export abstract class ITextClickBehavior<
   }
 
   /**
-   * Default handler for double click, select a word or enter overlay editing
+   * Default handler for double click: enter editing or select a word.
    */
   doubleClickHandler(options: TPointerEventInfo) {
-    // Check if we should enter overlay editing mode
+    // Preserve the legacy option's double-click entry behavior, but enterEditing
+    // now always starts Fabric's native editor.
     if (!this.isEditing && (this as any).useOverlayEditing && this.editable) {
       this.enterEditing(options.e);
       return;
