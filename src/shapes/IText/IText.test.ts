@@ -668,6 +668,34 @@ describe('IText', () => {
     expect(iText.selectionEnd, 'selection should be on newline').toBe(17);
   });
 
+  it('selectWord uses grapheme offsets for Arabic combining marks', () => {
+    const iText = new IText('السَّلَام عليكم', {
+      direction: 'rtl',
+    });
+    const firstWordEnd = iText._text.indexOf(' ');
+
+    iText.selectWord(2);
+
+    expect(iText.selectionStart).toBe(0);
+    expect(iText.selectionEnd).toBe(firstWordEnd);
+    expect(iText.getSelectedText()).toBe('السَّلَام');
+  });
+
+  it.each([
+    ['left', 0],
+    ['center', 50],
+    ['right', 100],
+  ] as const)(
+    'uses the rendered RTL line edge for %s aligned pointer hit testing',
+    (textAlign, expectedLeft) => {
+      const iText = new IText('مرحبا', { direction: 'rtl', textAlign });
+      const lineWidth = iText.getLineWidth(0);
+      iText.width = lineWidth + 100;
+
+      expect((iText as any)._getVisualLineLeft(0)).toBeCloseTo(expectedLeft);
+    },
+  );
+
   it('selectLine', () => {
     const iText = new IText('test foo bar-baz\nqux');
 

@@ -12,7 +12,10 @@ import { getDocumentFromElement } from '../../util/dom_misc';
 import { LEFT, MODIFIED, RIGHT, reNewline } from '../../constants';
 import type { IText } from './IText';
 import { enterTextOverlayEdit } from '../../text/overlayEditor';
-import { extractLinesFromDOM, storeBrowserLines } from '../../text/browserLines';
+import {
+  extractLinesFromDOM,
+  storeBrowserLines,
+} from '../../text/browserLines';
 
 /**
  *  extend this regex to support non english languages
@@ -31,7 +34,8 @@ import { extractLinesFromDOM, storeBrowserLines } from '../../text/browserLines'
 // Latin: space, newline, punctuation
 // Arabic: ، (comma U+060C), ؛ (semicolon U+061B), ؟ (question U+061F), ۔ (full stop U+06D4), ـ (tatweel U+0640)
 // Hebrew: ׃ (sof pasuq U+05C3), ״ (gershayim U+05F4)
-const reNonWord = /[ \n\.,;!\?\-\u060C\u061B\u061F\u06D4\u0640\u05C3\u05F4\u2000-\u206F]/;
+const reNonWord =
+  /[ \n\.,;!\?\-\u060C\u061B\u061F\u06D4\u0640\u05C3\u05F4\u2000-\u206F]/;
 
 export type ITextEvents = ObjectEvents & {
   'selection:changed': never;
@@ -348,16 +352,48 @@ export abstract class ITextBehavior<
    * Word boundary search using Intl.Segmenter (proper Unicode support)
    * Works on original text (this.text) since selectionStart is in original text space
    */
-  private _searchWordBoundaryWithSegmenter(selectionStart: number, direction: 1 | -1): number {
-    // Use original text (without kashida) since indices are in original text space
-    const originalText = this.text;
+  private _searchWordBoundaryWithSegmenter(
+    selectionStart: number,
+    direction: 1 | -1,
+  ): number {
+    // Fabric selection offsets are grapheme offsets, while Intl.Segmenter emits
+    // UTF-16 string offsets. Convert the latter before updating the selection;
+    // this is essential for Arabic diacritics and other combining sequences.
+    const graphemes = this._text;
+    const originalText = graphemes.join('');
+    const utf16Boundaries = [0];
+    for (const grapheme of graphemes) {
+      utf16Boundaries.push(
+        utf16Boundaries[utf16Boundaries.length - 1] + grapheme.length,
+      );
+    }
+    const toGraphemeIndex = (utf16Index: number) => {
+      let low = 0;
+      let high = utf16Boundaries.length - 1;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (utf16Boundaries[middle] <= utf16Index) {
+          low = middle;
+        } else {
+          high = middle - 1;
+        }
+      }
+      return low;
+    };
     const SegmenterClass = (Intl as any).Segmenter;
     const segmenter = new SegmenterClass(undefined, { granularity: 'word' });
-    const segments = Array.from(segmenter.segment(originalText)) as Array<{
+    const utf16Segments = Array.from(segmenter.segment(originalText)) as Array<{
       segment: string;
       index: number;
       isWordLike: boolean;
     }>;
+    const segments = utf16Segments.map((segment) => ({
+      ...segment,
+      index: toGraphemeIndex(segment.index),
+      length:
+        toGraphemeIndex(segment.index + segment.segment.length) -
+        toGraphemeIndex(segment.index),
+    }));
 
     if (segments.length === 0) {
       return direction === -1 ? 0 : originalText.length;
@@ -367,11 +403,14 @@ export abstract class ITextBehavior<
     let currentSegmentIdx = 0;
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      if (selectionStart >= seg.index && selectionStart < seg.index + seg.segment.length) {
+      if (
+        selectionStart >= seg.index &&
+        selectionStart < seg.index + seg.length
+      ) {
         currentSegmentIdx = i;
         break;
       }
-      if (selectionStart >= seg.index + seg.segment.length) {
+      if (selectionStart >= seg.index + seg.length) {
         currentSegmentIdx = i;
       }
     }
@@ -402,7 +441,7 @@ export abstract class ITextBehavior<
 
       // If we're in a word, find its end
       if (segments[targetIdx].isWordLike) {
-        return segments[targetIdx].index + segments[targetIdx].segment.length;
+        return segments[targetIdx].index + segments[targetIdx].length;
       }
 
       // Skip non-word segments to find next word
@@ -412,9 +451,9 @@ export abstract class ITextBehavior<
 
       // Return the end of the next word segment
       if (targetIdx < segments.length && segments[targetIdx].isWordLike) {
-        return segments[targetIdx].index + segments[targetIdx].segment.length;
+        return segments[targetIdx].index + segments[targetIdx].length;
       }
-      return originalText.length;
+      return graphemes.length;
     }
   }
 
@@ -422,7 +461,10 @@ export abstract class ITextBehavior<
    * Word boundary search using regex (fallback for older browsers)
    * Works on original text (this.text) since selectionStart is in original text space
    */
-  private _searchWordBoundaryWithRegex(selectionStart: number, direction: 1 | -1): number {
+  private _searchWordBoundaryWithRegex(
+    selectionStart: number,
+    direction: 1 | -1,
+  ): number {
     // Use original text as an array of characters
     const text = Array.from(this.text);
     // if we land on a space we move the cursor backwards
@@ -545,7 +587,7 @@ export abstract class ITextBehavior<
       },
       onCancel: () => {
         this.cancelOverlayEdit();
-      }
+      },
     });
   }
 
@@ -553,7 +595,6 @@ export abstract class ITextBehavior<
    * Commit overlay editing changes
    */
   private commitOverlayEdit(text: string) {
-    
     // Preserve geometry to avoid nudge when layout recalculates
     const prevLeft = this.left;
     const prevTop = this.top;
@@ -562,7 +603,8 @@ export abstract class ITextBehavior<
     const prevUsingBrowserWrap = (this as any)._usingBrowserWrapping;
     const hadLock = (this as any).lockDynamicMinWidth;
     (this as any).lockDynamicMinWidth = true;
-    const countKashida = (val?: string) => (val ? (val.match(/\u0640/g) || []).length : 0);
+    const countKashida = (val?: string) =>
+      val ? (val.match(/\u0640/g) || []).length : 0;
     // console.log('[OverlayCommit] pre-layout', {
     //   textLength: text?.length,
     //   kashidas: countKashida(text),
@@ -575,7 +617,7 @@ export abstract class ITextBehavior<
     // });
 
     const overlayEditor = (this as any).__overlayEditor;
-    
+
     if (overlayEditor) {
       // Extract browser lines for pixel-perfect rendering
       try {
@@ -590,7 +632,10 @@ export abstract class ITextBehavior<
     this.text = text;
     // Freeze dynamic min width during this layout pass so width doesn't shrink/expand on commit
     if (prevMinWidth !== undefined) {
-      (this as any).dynamicMinWidth = Math.max(prevMinWidth || 0, prevWidth || 0);
+      (this as any).dynamicMinWidth = Math.max(
+        prevMinWidth || 0,
+        prevWidth || 0,
+      );
     }
     // Keep browser wrapping flag stable
     if (prevUsingBrowserWrap !== undefined) {
@@ -745,7 +790,7 @@ export abstract class ITextBehavior<
     if (!this.hiddenTextarea) {
       return;
     }
-    
+
     // Sync textarea content with fabric text to prevent double-keypress issues
     const currentFabricText = this.text;
     if (this.hiddenTextarea.value !== currentFabricText) {
@@ -754,7 +799,7 @@ export abstract class ITextBehavior<
       // console.log('🔤 _updateTextarea: fabric is:', currentFabricText);
       this.hiddenTextarea.value = currentFabricText;
     }
-    
+
     if (!this.inCompositionMode) {
       const newSelection = this.fromGraphemeToStringSelection(
         this.selectionStart,
@@ -901,10 +946,8 @@ export abstract class ITextBehavior<
     this.lockMovementY = this._savedProps.lockMovementY;
 
     if (this.canvas) {
-      this.canvas.defaultCursor =
-        this._savedProps.defaultCursor ?? 'default';
-      this.canvas.moveCursor =
-        this._savedProps.moveCursor ?? 'move';
+      this.canvas.defaultCursor = this._savedProps.defaultCursor ?? 'default';
+      this.canvas.moveCursor = this._savedProps.moveCursor ?? 'move';
     }
 
     delete this._savedProps;
