@@ -155,7 +155,7 @@
     <div id="debug-info" class="debug-info">Debug information will appear here...</div>
     <div id="click-info" class="debug-info">Click on text to see selection coordinates...</div>
 
-    <script src="./dist/index.js?v=34"></script>
+    <script src="./dist/index.js?v=37"></script>
     <script>
         console.log("DEBUG: Updated rtl-debug.html loaded");
         // alert("DEBUG: Updated RTL Page Loaded - Please check console for 'Hit Testing Debug' when clicking");
@@ -177,7 +177,9 @@
 
         // Ensure upper canvas is transparent
         canvas.upperCanvasEl.style.backgroundColor = 'transparent';
-        let debugMode = true;
+        // Keep selection testing visually clean by default. The optional debug
+        // overlay can be enabled with "Toggle Debug Mode".
+        let debugMode = false;
         let currentText = null;
         let debugInfo = document.getElementById('debug-info');
         let clickInfo = document.getElementById('click-info');
@@ -204,6 +206,7 @@
             }
 
             const bbox = text.getBoundingRect();
+            const visualLayout = text._getNativeVisualLineLayout?.(0);
             const info = `
 ${label} Debug Information:
 ═══════════════════════════════════════════════
@@ -244,6 +247,13 @@ ${text.__charBounds && text.__charBounds[0] ?
                         `├─ Char ${i}: left=${char.left.toFixed(2)}, width=${char.width.toFixed(2)}, kernedWidth=${char.kernedWidth.toFixed(2)}`
                     ).join('\n')
                     : '├─ No character bounds available'}
+
+Visual Cluster Bounds (first line):
+${visualLayout ?
+                    visualLayout.clusters.map((cluster) =>
+                        `Char ${cluster.displayIndex} "${text._textLines[0][cluster.displayIndex]}": x=${cluster.visualX.toFixed(2)}, width=${cluster.width.toFixed(2)}, rtl=${cluster.isRtl}`
+                    ).join('\n')
+                    : 'Native visual layout unavailable'}
 
 Kashida Points (first line):
 ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 0 ?
@@ -484,6 +494,7 @@ ${text.__kashidaInfo && text.__kashidaInfo[0] && text.__kashidaInfo[0].length > 
             if (debugMode) {
                 if (currentText) {
                     drawBoundingBoxOverlay(currentText);
+                    drawCharacterBounds(currentText);
                     updateDebugInfo(currentText, 'Current Text');
                 }
             } else {
@@ -526,33 +537,33 @@ Text Align: ${text.textAlign}
 `;
             clickInfo.textContent = clickDebugInfo;
 
-            // Draw cursor position and character bounds
-            clearDebugOverlays();
-            drawBoundingBoxOverlay(text);
-            drawCharacterBounds(text);
+            if (debugMode) {
+                // Draw cursor position and shaped grapheme bounds only when
+                // explicitly requested. These overlays are not the selection.
+                clearDebugOverlays();
+                drawBoundingBoxOverlay(text);
+                drawCharacterBounds(text);
 
-            const cursorX = cursorBounds.left + cursorBounds.leftOffset;
-            const cursorY = cursorBounds.top + cursorBounds.topOffset;
+                const cursorX = cursorBounds.left + cursorBounds.leftOffset;
+                const cursorY = cursorBounds.top + cursorBounds.topOffset;
+                const cursorPoint = new fabric.Point(cursorX, cursorY)
+                    .transform(text.calcTransformMatrix());
 
-            const cursorLine = new fabric.Line([cursorX, cursorY - 10, cursorX, cursorY + 20], {
-                stroke: 'orange',
-                strokeWidth: 3,
-                selectable: false,
-                evented: false,
-                excludeFromExport: true
-            });
+                const cursorLine = new fabric.Line([
+                    cursorPoint.x,
+                    cursorPoint.y - 10,
+                    cursorPoint.x,
+                    cursorPoint.y + 20
+                ], {
+                    stroke: 'orange',
+                    strokeWidth: 3,
+                    selectable: false,
+                    evented: false,
+                    excludeFromExport: true
+                });
 
-            const cursorLabel = new fabric.Text(`Cursor: (${cursorX.toFixed(0)},${cursorY.toFixed(0)})`, {
-                left: cursorX + 5,
-                top: cursorY - 25,
-                fontSize: 12,
-                fill: 'orange',
-                selectable: false,
-                evented: false,
-                excludeFromExport: true
-            });
-
-            canvas.add(cursorLine, cursorLabel);
+                canvas.add(cursorLine);
+            }
         });
 
         // Alignment helper
@@ -568,140 +579,49 @@ Text Align: ${text.textAlign}
             updateDebugInfo(currentText, `Align: ${align}`);
         }
 
-        // BiDi direction detection
-        function getBidiCharDir(char, baseDir) {
-            if (/[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(char)) {
-                return 'rtl';
-            }
-            if (/[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]/.test(char)) {
-                return 'ltr';
-            }
-            return baseDir; // Neutral inherits base
-        }
-
-        // Analyze BiDi runs
-        function getBiDiRuns(text, baseDir) {
-            if (!text) return [];
-            const runs = [];
-            let current = null;
-            for (let i = 0; i < text.length; i++) {
-                const dir = getBidiCharDir(text[i], baseDir);
-                if (!current || current.direction !== dir) {
-                    if (current) runs.push(current);
-                    current = { direction: dir, start: i, end: i + 1, text: text[i] };
-                } else {
-                    current.end = i + 1;
-                    current.text += text[i];
-                }
-            }
-            if (current) runs.push(current);
-            return runs;
-        }
-
         function drawCharacterBounds(text) {
-            if (!debugMode || !text || !text.__charBounds || !text.__charBounds[0]) return;
+            if (!debugMode || !text?._getNativeVisualLineLayout) return;
 
-            console.log('=== Drawing character bounds (BiDi) ===');
-            const bbox = text.getBoundingRect();
-            const baseY = bbox.top;
-            const isRtl = text.direction === 'rtl';
-            const chars = text.__charBounds[0];
-            const lineLeftOffset = text._getLineLeftOffset(0);
-            const lineText = text._textLines[0] ? text._textLines[0].join('') : text.text;
+            const matrix = text.calcTransformMatrix();
+            let lineTop = text._getTopOffset();
 
-            console.log('Direction:', text.direction, 'Text:', lineText);
+            text._textLines.forEach((line, lineIndex) => {
+                const layout = text._getNativeVisualLineLayout(lineIndex);
+                const lineWidth = text.getLineWidth(lineIndex);
+                const lineLeftOffset = text._getLineLeftOffset(lineIndex);
+                const visualOffset = text.direction === 'rtl'
+                    ? text.width + lineLeftOffset - lineWidth
+                    : lineLeftOffset;
+                const localLeft = -text.width / 2 + visualOffset;
+                const lineHeight = text.getHeightOfLine(lineIndex);
 
-            // For LTR, use simple positions
-            if (!isRtl) {
-                chars.forEach((charBound, i) => {
-                    const charText = text._textLines[0]?.[i] || '';
-                    const charX = bbox.left + lineLeftOffset + charBound.left;
-                    const charWidth = charBound.kernedWidth || charBound.width;
-                    drawCharBox(charX, baseY, charWidth, text.fontSize, i, charText);
+                layout.clusters.forEach(cluster => {
+                    const x1 = localLeft + cluster.visualX;
+                    const x2 = x1 + cluster.width;
+                    const points = [
+                        new fabric.Point(x1, lineTop).transform(matrix),
+                        new fabric.Point(x2, lineTop).transform(matrix),
+                        new fabric.Point(x2, lineTop + lineHeight).transform(matrix),
+                        new fabric.Point(x1, lineTop + lineHeight).transform(matrix)
+                    ];
+                    drawCharBox(points, cluster.displayIndex);
                 });
-                return;
-            }
 
-            // For RTL: analyze BiDi runs and calculate visual positions
-            const runs = getBiDiRuns(lineText, 'rtl');
-            console.log('BiDi runs:', runs);
-
-            // Build char info
-            const charInfos = chars.map((c, i) => ({
-                charIndex: i,
-                width: c.kernedWidth || c.width,
-                grapheme: text._textLines[0]?.[i] || ''
-            }));
-
-            // Group chars by runs
-            const runInfos = [];
-            for (const run of runs) {
-                const runChars = [];
-                let totalWidth = 0;
-                let strPos = 0;
-                for (let i = 0; i < charInfos.length; i++) {
-                    const gLen = charInfos[i].grapheme.length || 1;
-                    if (strPos >= run.start && strPos < run.end) {
-                        runChars.push(charInfos[i]);
-                        totalWidth += charInfos[i].width;
-                    }
-                    strPos += gLen;
-                }
-                if (runChars.length > 0) {
-                    runInfos.push({ direction: run.direction, chars: runChars, totalWidth });
-                }
-            }
-
-            // Reverse runs for RTL base
-            runInfos.reverse();
-
-            // Calculate visual positions
-            const visualPositions = new Map();
-            let visualX = 0;
-            for (const runInfo of runInfos) {
-                if (runInfo.direction === 'rtl') {
-                    let runX = visualX + runInfo.totalWidth;
-                    for (const c of runInfo.chars) {
-                        runX -= c.width;
-                        visualPositions.set(c.charIndex, { x: runX, width: c.width });
-                    }
-                } else {
-                    let runX = visualX;
-                    for (const c of runInfo.chars) {
-                        visualPositions.set(c.charIndex, { x: runX, width: c.width });
-                        runX += c.width;
-                    }
-                }
-                visualX += runInfo.totalWidth;
-            }
-
-            // Draw character boxes
-            chars.forEach((charBound, i) => {
-                const charText = charInfos[i]?.grapheme || '';
-                const pos = visualPositions.get(i);
-                if (!pos) return;
-                const charX = bbox.left + lineLeftOffset + pos.x;
-                drawCharBox(charX, baseY, pos.width, text.fontSize, i, charText);
-                console.log(`Char ${i} "${charText}": visualX=${pos.x.toFixed(2)}, canvasX=${charX.toFixed(2)}`);
+                lineTop += lineHeight;
             });
         }
 
-        function drawCharBox(x, y, width, height, index, charText) {
+        function drawCharBox(points, index) {
             const fillColor = index % 2 === 0 ? 'rgba(255, 0, 255, 0.2)' : 'rgba(0, 255, 255, 0.2)';
             const strokeColor = index % 2 === 0 ? 'magenta' : 'cyan';
 
-            const charRect = new fabric.Rect({
-                left: x, top: y, width: width, height: height,
+            const charRect = new fabric.Polygon(points, {
                 fill: fillColor, stroke: strokeColor, strokeWidth: 1,
+                strokeUniform: true,
                 selectable: false, evented: false, excludeFromExport: true
             });
 
-            const charLabel = new fabric.Text(`${index}:"${charText}"`, {
-                left: x, top: y - 15, fontSize: 10, fill: 'purple',
-                fontFamily: 'Arial', selectable: false, evented: false, excludeFromExport: true
-            });
-
-            canvas.add(charRect, charLabel);
+            canvas.add(charRect);
         }
 
         // Update debug info when text properties change
