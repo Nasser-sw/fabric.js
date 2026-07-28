@@ -135,6 +135,8 @@ const getBrowserShapedLayout = (
   lineIndex: number,
   line: string[],
   lineWidth: number,
+  targetAdvances: number[],
+  bounds: Array<{ width?: number; kernedWidth?: number }>,
 ): VisualLineLayout | undefined => {
   const element = target.canvas?.getElement?.();
   const doc = element?.ownerDocument;
@@ -181,8 +183,12 @@ const getBrowserShapedLayout = (
       return undefined;
     }
 
-    const scale = lineWidth > 0 ? lineWidth / containerRect.width : 1;
     const levels = resolveBidiLevels(line, direction);
+    const hasSingleBidiLevel = new Set(levels).size === 1;
+    const scale =
+      hasSingleBidiLevel || lineWidth <= 0
+        ? 1
+        : lineWidth / containerRect.width;
     let clusters: VisualCluster[] = [];
     const utf16Offsets = [0];
     for (const grapheme of line) {
@@ -220,11 +226,46 @@ const getBrowserShapedLayout = (
       };
     };
 
+    const measureCollapsedCaret = (utf16Offset: number): number | undefined => {
+      const range = doc.createRange();
+      range.setStart(textNode, utf16Offset);
+      range.collapse(true);
+      const rects: DOMRect[] = Array.from(range.getClientRects());
+      const rect = rects[0] || range.getBoundingClientRect();
+      range.detach?.();
+      if (!rect || !Number.isFinite(rect.left)) {
+        return undefined;
+      }
+      return (rect.left - containerRect.left) * scale;
+    };
+
+    // A collapsed DOM Range is the browser's native insertion position. For a
+    // single-direction line its consecutive positions form authoritative,
+    // non-overlapping caret cells even when cursive Arabic glyph bounds overlap.
+    // Mixed BiDi lines can expose two visual affinities for one logical index,
+    // so retain per-cluster range rectangles for those lines.
+    const collapsedCarets = hasSingleBidiLevel
+      ? utf16Offsets.map(measureCollapsedCaret)
+      : [];
+
     for (let displayIndex = 0; displayIndex < line.length; displayIndex++) {
-      const measurement = measureRange(
-        utf16Offsets[displayIndex],
-        utf16Offsets[displayIndex + 1],
-      );
+      const before = collapsedCarets[displayIndex];
+      const after = collapsedCarets[displayIndex + 1];
+      const collapsedMeasurement =
+        before !== undefined &&
+        after !== undefined &&
+        Math.abs(after - before) > 0.01
+          ? {
+              visualX: Math.min(before, after),
+              width: Math.abs(after - before),
+            }
+          : undefined;
+      const measurement =
+        collapsedMeasurement ||
+        measureRange(
+          utf16Offsets[displayIndex],
+          utf16Offsets[displayIndex + 1],
+        );
       if (!measurement) {
         return undefined;
       }
@@ -262,6 +303,78 @@ const getBrowserShapedLayout = (
         }
       }
       start = end;
+    }
+
+    if (hasSingleBidiLevel) {
+      // Fabric renders justified text as native word runs and advances the
+      // drawing anchor separately by __charBounds (including stretched
+      // spaces). Reconstruct those exact anchors while retaining the browser's
+      // native caret proportions inside each cursive word.
+      let runStart = 0;
+      let anchor = direction === 'rtl' ? lineWidth : 0;
+      while (runStart < line.length) {
+        let wordEnd = runStart;
+        while (wordEnd < line.length && !/\s/u.test(line[wordEnd])) {
+          wordEnd++;
+        }
+
+        const wordClusters = clusters.filter(
+          ({ displayIndex }) =>
+            displayIndex >= runStart && displayIndex < wordEnd,
+        );
+        const nativeLeft =
+          wordClusters.length > 0
+            ? Math.min(...wordClusters.map(({ visualX }) => visualX))
+            : 0;
+        const nativeRight =
+          wordClusters.length > 0
+            ? Math.max(
+                ...wordClusters.map(
+                  ({ visualX, width }) => visualX + width,
+                ),
+              )
+            : nativeLeft;
+        const nativeWidth = nativeRight - nativeLeft;
+        const wordLeft =
+          direction === 'rtl' ? anchor - nativeWidth : anchor;
+        for (const cluster of wordClusters) {
+          cluster.visualX = wordLeft + cluster.visualX - nativeLeft;
+        }
+
+        const hasTrailingSpace = wordEnd < line.length;
+        const runEnd = hasTrailingSpace ? wordEnd + 1 : wordEnd;
+        const renderedAdvance = Array.from(
+          { length: runEnd - runStart },
+          (_, offset) => runStart + offset,
+        ).reduce(
+          (sum, index) => sum + (bounds[index]?.kernedWidth || 0),
+          0,
+        );
+        const fallbackAdvance = targetAdvances
+          .slice(runStart, runEnd)
+          .reduce((sum, width) => sum + width, 0);
+        const advance =
+          Number.isFinite(renderedAdvance) && renderedAdvance > 0
+            ? renderedAdvance
+            : fallbackAdvance;
+        const nextAnchor =
+          direction === 'rtl' ? anchor - advance : anchor + advance;
+
+        if (hasTrailingSpace) {
+          const spaceCluster = clusters.find(
+            ({ displayIndex }) => displayIndex === wordEnd,
+          );
+          if (spaceCluster) {
+            const wordFarEdge =
+              direction === 'rtl' ? wordLeft : wordLeft + nativeWidth;
+            spaceCluster.visualX = Math.min(wordFarEdge, nextAnchor);
+            spaceCluster.width = Math.abs(wordFarEdge - nextAnchor);
+          }
+        }
+
+        anchor = nextAnchor;
+        runStart = runEnd;
+      }
     }
 
     clusters.sort((a, b) => a.visualX - b.visualX);
@@ -328,7 +441,14 @@ const getLayout = (
     return cached.layout;
   }
   const layout =
-    getBrowserShapedLayout(target, lineIndex, line, lineWidth) ||
+    getBrowserShapedLayout(
+      target,
+      lineIndex,
+      line,
+      lineWidth,
+      widths,
+      bounds,
+    ) ||
     createVisualLineLayout(
       line,
       widths,
@@ -548,6 +668,11 @@ export const installNativeRtlEditing = () => {
   const originalInitHiddenTextarea = prototype.initHiddenTextarea;
   const originalMoveCursorLeft = prototype.moveCursorLeft;
   const originalMoveCursorRight = prototype.moveCursorRight;
+
+  prototype._clearNativeRtlEditingCache = function () {
+    layoutCache.delete(this);
+    this.__nativeRtlCaretState = undefined;
+  };
 
   // RTL key maps must call methods according to the visual arrow direction.
   (IText as any).ownDefaults.keysMapRtl = (IText as any).ownDefaults.keysMap;

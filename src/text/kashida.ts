@@ -1,4 +1,4 @@
-import { canInsertKashida, isArabicLetter } from './unicode';
+import { ARABIC_TATWEEL, canInsertKashida, isArabicLetter } from './unicode';
 
 export type KashidaLevel = 'none' | 'short' | 'medium' | 'long' | 'stylistic';
 
@@ -46,6 +46,12 @@ const SEEN_CLASS = new Set(['\u0633', '\u0634', '\u0635', '\u0636']);
 const baseCharacter = (grapheme: string): string =>
   Array.from(grapheme || '')[0] || '';
 
+const isTatweel = (grapheme: string): boolean =>
+  baseCharacter(grapheme) === ARABIC_TATWEEL;
+
+const isArabicWordGrapheme = (grapheme: string): boolean =>
+  isArabicLetter(grapheme) || isTatweel(grapheme);
+
 /**
  * Finds typographically eligible Arabic joins and orders them by the broad
  * priority hierarchy exposed by professional shaping systems:
@@ -57,27 +63,35 @@ export const findProfessionalKashidaPoints = (
 ): KashidaCandidate[] => {
   const points: KashidaCandidate[] = [];
 
-  for (let charIndex = 0; charIndex < graphemes.length - 1; charIndex++) {
-    const previous = graphemes[charIndex];
-    const next = graphemes[charIndex + 1];
-    if (!canInsertKashida(previous, next)) {
-      continue;
-    }
-
-    let wordStart = charIndex;
-    while (wordStart > 0 && isArabicLetter(graphemes[wordStart - 1])) {
+  const addCandidate = (
+    previousIndex: number,
+    nextIndex: number,
+    insertionIndex: number,
+    authoredTatweel = false,
+  ) => {
+    const previous = graphemes[previousIndex];
+    const next = graphemes[nextIndex];
+    let wordStart = previousIndex;
+    while (wordStart > 0 && isArabicWordGrapheme(graphemes[wordStart - 1])) {
       wordStart--;
     }
-    let wordEnd = charIndex + 2;
-    while (wordEnd < graphemes.length && isArabicLetter(graphemes[wordEnd])) {
+    let wordEnd = nextIndex + 1;
+    while (
+      wordEnd < graphemes.length &&
+      isArabicWordGrapheme(graphemes[wordEnd])
+    ) {
       wordEnd++;
     }
 
     const previousBase = baseCharacter(previous);
     const nextBase = baseCharacter(next);
-    const nextIsFinal = charIndex + 1 === wordEnd - 1;
-    const wordLength = wordEnd - wordStart;
-    const positionInWord = charIndex - wordStart;
+    const nextIsFinal = nextIndex === wordEnd - 1;
+    const wordLength = graphemes
+      .slice(wordStart, wordEnd)
+      .filter(isArabicLetter).length;
+    const positionInWord = graphemes
+      .slice(wordStart, previousIndex + 1)
+      .filter(isArabicLetter).length;
     const distanceFromEdge = Math.min(
       positionInWord,
       wordLength - positionInWord - 1,
@@ -98,9 +112,41 @@ export const findProfessionalKashidaPoints = (
         priority += 50;
       }
     }
+    if (authoredTatweel) {
+      // Preserve the typographer's chosen elongation location.
+      priority += 200;
+    }
     priority += distanceFromEdge * 4 + Math.min(wordLength, 8);
 
-    points.push({ charIndex, priority, wordStart, wordEnd });
+    points.push({
+      charIndex: insertionIndex,
+      priority,
+      wordStart,
+      wordEnd,
+    });
+  };
+
+  for (let charIndex = 0; charIndex < graphemes.length - 1; charIndex++) {
+    if (isTatweel(graphemes[charIndex])) {
+      const runStart = charIndex;
+      let runEnd = runStart + 1;
+      while (runEnd < graphemes.length && isTatweel(graphemes[runEnd])) {
+        runEnd++;
+      }
+      if (
+        runStart > 0 &&
+        runEnd < graphemes.length &&
+        canInsertKashida(graphemes[runStart - 1], graphemes[runEnd])
+      ) {
+        addCandidate(runStart - 1, runEnd, runEnd - 1, true);
+      }
+      charIndex = runEnd - 1;
+      continue;
+    }
+
+    if (canInsertKashida(graphemes[charIndex], graphemes[charIndex + 1])) {
+      addCandidate(charIndex, charIndex + 1, charIndex);
+    }
   }
 
   return points.sort(
@@ -116,7 +162,10 @@ const LEVEL_CONFIG: Record<
   short: { ratio: 0.25, maxTatweelsPerWord: 1 },
   medium: { ratio: 0.5, maxTatweelsPerWord: 1 },
   long: { ratio: 0.75, maxTatweelsPerWord: 2 },
-  stylistic: { ratio: 1, maxTatweelsPerWord: 3 },
+  stylistic: {
+    ratio: 1,
+    maxTatweelsPerWord: Number.POSITIVE_INFINITY,
+  },
 };
 
 /**

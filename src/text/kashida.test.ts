@@ -60,4 +60,37 @@ describe('professional Arabic kashida planning', () => {
   it('leaves sub-glyph expansion to normal word spacing', () => {
     expect(planKashida(Array.from('سعيد'), 3, 5, 'short').points).toEqual([]);
   });
+
+  it('lets stylistic kashida fill the line instead of creating large word gaps', () => {
+    const plan = planKashida(
+      Array.from('خاصية الكشيدة في المحاذاة'),
+      120,
+      5,
+      'stylistic',
+    );
+
+    expect(plan.totalTatweels).toBe(24);
+    expect(plan.targetWidth - plan.estimatedWidth).toBeLessThan(5);
+    expect(
+      Math.max(...plan.points.map(({ tatweelCount }) => tatweelCount)),
+    ).toBeGreaterThan(3);
+  });
+
+  it('extends an authored kashida at its existing position', () => {
+    const line = Array.from('تجــربة طويلة');
+    const authoredPoint = findProfessionalKashidaPoints(line).find(
+      ({ wordStart }) => wordStart === 0,
+    );
+    const plan = planKashida(line, 50, 5, 'stylistic');
+
+    expect(authoredPoint).toMatchObject({
+      charIndex: 3,
+      wordStart: 0,
+      wordEnd: 7,
+    });
+    expect(
+      plan.points.find(({ wordStart }) => wordStart === 0)?.charIndex,
+    ).toBe(3);
+  });
+
 });

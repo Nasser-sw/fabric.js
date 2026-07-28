@@ -735,10 +735,6 @@ export class FabricText<
       }
     }
 
-    if (this.kashida !== 'none') {
-      this._text = this._textLines.flat();
-    }
-
     // Final debug log showing kashida state
     // console.log('=== enlargeSpaces END ===');
     // console.log('Final __kashidaInfo:', JSON.stringify(this.__kashidaInfo.map((lineInfo, i) => ({
@@ -841,8 +837,19 @@ export class FabricText<
     this._textLines = layout.lines.map(line => line.graphemes);
     (this as any).textLines = layout.lines.map(line => line.text);
 
-    // Set _text as flat array of all graphemes (required for editing)
-    this._text = layout.lines.flatMap(line => line.graphemes);
+    // Keep the editor in the original logical text space. Wrapped layout lines
+    // may omit the whitespace consumed at a soft line break; flattening those
+    // lines shortens _text and makes Ctrl+A/input stop before the real end.
+    const logicalLines = this.text.split(this._reNewline);
+    this._text = logicalLines.flatMap((line, index) => {
+      const graphemes =
+        this.direction === 'rtl' || this._containsArabicText(line)
+          ? segmentGraphemes(line)
+          : this.graphemeSplit(line);
+      return index < logicalLines.length - 1
+        ? [...graphemes, '\n']
+        : graphemes;
+    });
 
     // Convert bounds to legacy format
     // IMPORTANT: Preserve both logical (left) and visual (renderLeft) positions
@@ -2053,6 +2060,10 @@ export class FabricText<
     this.__lineHeights = [];
     this.__charBounds = [];
     this.__kashidaInfo = [];
+    // Reflow changes line breaks and generated kashida display indices.
+    // Never reuse a visual caret or native BiDi layout across dimensions.
+    (this as any).__nativeRtlCaretState = undefined;
+    (this as any)._clearNativeRtlEditingCache?.();
     // Reset justify applied flag
     (this as any)._justifyApplied = false;
     // Reset dimension state to force recalculation

@@ -499,11 +499,8 @@ export class Textbox<
       }
     }
 
-    // Update _text to match the new _textLines (required for editing)
-    this._text = this._textLines.flat();
-
-    // DON'T update this.text - keep the original text intact
-    // The tatweels are in _textLines and _text for rendering purposes only
+    // Keep _text in original/editable index space. Generated tatweels exist
+    // only in _textLines and are mapped through __kashidaInfo.
 
     (this as any)._justifyApplied = true;
 
@@ -1240,7 +1237,7 @@ export class Textbox<
 
       // Now apply space expansion to remaining extra space
       const newLineBounds = this.__charBounds[lineIndex];
-      const newLineWidth = newLineBounds.reduce((sum, b) => sum + (b?.kernedWidth || 0), 0);
+      const newLineWidth = this.getLineWidth(lineIndex);
       const remainingSpace = this.width - newLineWidth;
 
       if (remainingSpace > 0 && spaceCount > 0) {
@@ -1268,7 +1265,6 @@ export class Textbox<
       this.__lineWidths[lineIndex] = finalLineWidth;
     });
 
-    this._text = this._textLines.flat();
     this.dirty = true;
     // Mark that justify has been applied - for debugging to detect if measureLine overwrites it
     (this as any)._justifyApplied = true;
@@ -1336,14 +1332,19 @@ export class Textbox<
         const { originX } = e;
         resizeOrigin = originX === 'right' ? 'left' : originX === 'left' ? 'right' : null;
       }
+
+      // changeWidth only mutates width. Rebuild wrapping, generated kashidas,
+      // native BiDi carets and the hidden textarea against the new width.
+      this.reflowAfterWidthChange();
     });
     
     // Only trigger safety snap after resize is complete (not during)
     // Use 'modified' event which fires after user releases the mouse
     this.on('modified', () => {
       const currentResizeOrigin = resizeOrigin; // Capture the value before reset
-      // Small delay to ensure text layout is updated
-      setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
+      if (currentResizeOrigin) {
+        this.schedulePostResizeReflow(currentResizeOrigin);
+      }
       resizeOrigin = null; // Reset after capturing
     });
     
@@ -1351,10 +1352,40 @@ export class Textbox<
     this.canvas?.on('object:modified', (e) => {
       if (e.target === this) {
         const currentResizeOrigin = resizeOrigin; // Capture the value before reset
-        setTimeout(() => this.safetySnapWidth(currentResizeOrigin), 10);
+        if (currentResizeOrigin) {
+          this.schedulePostResizeReflow(currentResizeOrigin);
+        }
         resizeOrigin = null; // Reset after capturing
       }
     });
+  }
+
+  private reflowAfterWidthChange(): void {
+    (this as any)._lastDimensionState = null;
+    this.initDimensions();
+    this._clearVisualPositionsCache();
+    this.setCoords();
+    if (this.isEditing && this.hiddenTextarea) {
+      this._updateTextarea();
+    }
+    if ((this as any).__overlayEditor) {
+      (this as any).__overlayEditor.refresh();
+    }
+    this.canvas?.requestRenderAll();
+  }
+
+  private schedulePostResizeReflow(
+    resizeOrigin?: 'left' | 'right' | null,
+  ): void {
+    const state = this as any;
+    if (state.__postResizeReflowTimer) {
+      clearTimeout(state.__postResizeReflowTimer);
+    }
+    state.__postResizeReflowTimer = setTimeout(() => {
+      state.__postResizeReflowTimer = undefined;
+      this.reflowAfterWidthChange();
+      this.safetySnapWidth(resizeOrigin);
+    }, 10);
   }
 
   /**
@@ -1373,6 +1404,11 @@ export class Textbox<
       return;
     }
     if (resizeOrigin === null || resizeOrigin === undefined) {
+      return;
+    }
+    // Justified lines intentionally occupy the full textbox width, so their
+    // measured line width cannot be used as evidence of glyph clipping.
+    if (this.textAlign.includes(JUSTIFY)) {
       return;
     }
 
