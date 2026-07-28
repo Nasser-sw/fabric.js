@@ -89,7 +89,7 @@ class ClassRegistry {
 }
 const classRegistry = new ClassRegistry();
 
-var version = "7.0.1-beta49";
+var version = "7.0.1-beta50";
 
 // use this syntax so babel plugin see this import here
 const VERSION = version;
