@@ -15,6 +15,11 @@ import {
 
 type EditableText = Record<string, any>;
 
+type RangeRect = Pick<
+  DOMRect,
+  'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'
+>;
+
 type CaretState = {
   globalIndex: number;
   lineIndex: number;
@@ -29,6 +34,34 @@ const layoutCache = new WeakMap<
   Map<number, { hash: string; layout: VisualLineLayout }>
 >();
 let installed = false;
+
+const RANGE_RECT_TOLERANCE = 2;
+
+const isFiniteRangeRect = (rect: RangeRect): boolean =>
+  [rect.left, rect.right, rect.top, rect.bottom, rect.width, rect.height].every(
+    Number.isFinite,
+  );
+
+/**
+ * WebKit can prepend a zero-sized rectangle at the page origin to the result
+ * of Range#getClientRects(). Never let that browser artifact participate in
+ * native caret or selection geometry.
+ */
+export const getContainedRangeRects = (
+  containerRect: RangeRect,
+  rects: RangeRect[],
+  collapsed: boolean,
+): RangeRect[] =>
+  rects.filter(
+    (rect) =>
+      isFiniteRangeRect(rect) &&
+      rect.height > 0.01 &&
+      (collapsed || rect.width > 0.01) &&
+      rect.left >= containerRect.left - RANGE_RECT_TOLERANCE &&
+      rect.right <= containerRect.right + RANGE_RECT_TOLERANCE &&
+      rect.bottom >= containerRect.top - RANGE_RECT_TOLERANCE &&
+      rect.top <= containerRect.bottom + RANGE_RECT_TOLERANCE,
+  );
 
 const getOriginalLineLength = (
   target: EditableText,
@@ -207,15 +240,25 @@ const getBrowserShapedLayout = (
       }
       range.setStart(textNode, utf16Start);
       range.setEnd(textNode, utf16End);
-      const rects: DOMRect[] = Array.from(range.getClientRects());
+      const rects = getContainedRangeRects(
+        containerRect,
+        Array.from(range.getClientRects()),
+        false,
+      );
       range.detach?.();
 
       if (rects.length === 0) {
         return undefined;
       }
 
-      const left = Math.min(...rects.map((rect) => rect.left));
-      const right = Math.max(...rects.map((rect) => rect.right));
+      const left = Math.max(
+        containerRect.left,
+        Math.min(...rects.map((rect) => rect.left)),
+      );
+      const right = Math.min(
+        containerRect.right,
+        Math.max(...rects.map((rect) => rect.right)),
+      );
       const width = (right - left) * scale;
       if (!Number.isFinite(width) || width <= 0) {
         return undefined;
@@ -230,13 +273,24 @@ const getBrowserShapedLayout = (
       const range = doc.createRange();
       range.setStart(textNode, utf16Offset);
       range.collapse(true);
-      const rects: DOMRect[] = Array.from(range.getClientRects());
-      const rect = rects[0] || range.getBoundingClientRect();
+      const clientRects = getContainedRangeRects(
+        containerRect,
+        Array.from(range.getClientRects()),
+        true,
+      );
+      const boundingRect = range.getBoundingClientRect();
+      const rect =
+        clientRects[0] ||
+        getContainedRangeRects(containerRect, [boundingRect], true)[0];
       range.detach?.();
-      if (!rect || !Number.isFinite(rect.left)) {
+      if (!rect) {
         return undefined;
       }
-      return (rect.left - containerRect.left) * scale;
+      const left = Math.max(
+        containerRect.left,
+        Math.min(containerRect.right, rect.left),
+      );
+      return (left - containerRect.left) * scale;
     };
 
     // A collapsed DOM Range is the browser's native insertion position. For a
@@ -329,14 +383,11 @@ const getBrowserShapedLayout = (
         const nativeRight =
           wordClusters.length > 0
             ? Math.max(
-                ...wordClusters.map(
-                  ({ visualX, width }) => visualX + width,
-                ),
+                ...wordClusters.map(({ visualX, width }) => visualX + width),
               )
             : nativeLeft;
         const nativeWidth = nativeRight - nativeLeft;
-        const wordLeft =
-          direction === 'rtl' ? anchor - nativeWidth : anchor;
+        const wordLeft = direction === 'rtl' ? anchor - nativeWidth : anchor;
         for (const cluster of wordClusters) {
           cluster.visualX = wordLeft + cluster.visualX - nativeLeft;
         }
@@ -346,10 +397,7 @@ const getBrowserShapedLayout = (
         const renderedAdvance = Array.from(
           { length: runEnd - runStart },
           (_, offset) => runStart + offset,
-        ).reduce(
-          (sum, index) => sum + (bounds[index]?.kernedWidth || 0),
-          0,
-        );
+        ).reduce((sum, index) => sum + (bounds[index]?.kernedWidth || 0), 0);
         const fallbackAdvance = targetAdvances
           .slice(runStart, runEnd)
           .reduce((sum, width) => sum + width, 0);
